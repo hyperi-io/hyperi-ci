@@ -80,8 +80,8 @@ hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci release-prepare <v> --out <dir> [--phase stamp|package|all]   stamp + run the release's repo code (semver checks, packing) with no credentials; `run release` with HYPERCI_RELEASE_PREPARED=<dir> then only uploads
 hyperi-ci release-verify           fail before tagging when the prepared release names another version or language
-hyperi-ci publish-charts           package and push committed Helm charts to an OCI registry
-hyperi-ci chart assemble --image <ref>   build a thin chart from release.helm.contract (opt-in; the release tail does not call it yet)
+hyperi-ci publish-charts           package and push committed Helm charts, and the release.helm.contract chart, to an OCI registry
+hyperi-ci chart assemble --image <ref>   build a thin chart from release.helm.contract (opt-in; on a release, publish-charts runs it)
 hyperi-ci vendor sync | check      mirror files from another repo at a pinned ref (opt-in `vendor:` block)
 hyperi-ci deps [drift|gaps|show]   dependency surfaces, floor drift and Renovate gaps
 hyperi-ci lint-docs | lint-iac     run the doc checks, or the chart/manifest/tofu/ansible/compose linters, on a directory

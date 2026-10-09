@@ -2604,3 +2604,51 @@ class TestContainerJobGate:
                     f"a publish run on {event} {ref} skips Container, so Tag & "
                     f"Release ships with no image (issue #479)"
                 )
+
+
+class TestContractChartInTheReleaseTail:
+    """The release.helm.contract chart reaches the registry.
+
+    A contract chart commits no Chart.yaml, so no file test can gate the step.
+    It runs on every release, and the CLI is what says there is nothing to do.
+    """
+
+    @staticmethod
+    def _jobs() -> dict:
+        return _load_workflow("_release-tail.yml")["jobs"]
+
+    def _step(self, job: str, name: str) -> dict:
+        return next(s for s in self._jobs()[job]["steps"] if s.get("name") == name)
+
+    def test_the_step_runs_on_every_release(self) -> None:
+        # A gate here skipped a contract chart silently between a workflow
+        # merge and the CLI release that reads the contract.
+        assert "if" not in self._step("tag-and-release", "Publish Helm charts")
+
+    def test_no_job_carries_a_contract_flag(self) -> None:
+        for name, job in self._jobs().items():
+            assert "helm-contract" not in json.dumps(job), name
+
+    def test_the_step_hands_the_cli_the_pushed_image(self) -> None:
+        step = self._step("tag-and-release", "Publish Helm charts")
+        assert step["env"]["HYPERCI_CHART_IMAGE"] == (
+            "${{ needs.container.outputs.image }}"
+        )
+        # The CLI assembles and pushes; the workflow only hands it the image.
+        assert step["run"] == "${{ env.HYPERCI_INSTALL }} publish-charts"
+
+    def test_the_image_output_is_the_container_builds_own(self) -> None:
+        container = self._jobs()["container"]
+        assert container["outputs"]["image"] == "${{ steps.build.outputs.image }}"
+        build = next(s for s in container["steps"] if s.get("id") == "build")
+        assert build["name"] == "Build container"
+        assert build["run"] == "${{ env.HYPERCI_INSTALL }} run container"
+
+    def test_no_job_in_the_tail_runs_the_producer_or_assemble(self) -> None:
+        # Tag & Release holds the publish credentials and runs no repo code;
+        # `emit` belongs to the Build job.
+        for name, job in self._jobs().items():
+            for step in job.get("steps", []):
+                run = str(step.get("run", ""))
+                assert "chart assemble" not in run, f"{name}: {step.get('name')}"
+                assert "generate-artefacts" not in run, f"{name}: {step.get('name')}"

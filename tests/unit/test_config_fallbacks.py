@@ -28,8 +28,6 @@ _SRC = _ROOT / "src" / "hyperi_ci"
 _EXEMPT: dict[tuple[str, str], str] = {
     ("config.py", "language"): "the loader's hardcoded last layer",
     ("config.py", "project"): "the loader, reading the dict it is building",
-    ("release/assemble.py", "release.helm.enabled"): "open chart-assemble work",
-    ("release/charts.py", "release.helm.enabled"): "open chart-assemble work",
     ("quality/docs_touched.py", "quality.docs_touched"): "open gate work",
     ("quality/render.py", "iac.helm.values"): "open gate work",
     ("quality/render.py", "iac.helm.set"): "open gate work",

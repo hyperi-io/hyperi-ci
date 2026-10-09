@@ -28,6 +28,7 @@ from hyperi_ci.common import (
     explicit_version,
     info,
     run_cmd,
+    set_github_output,
     success,
     warn,
 )
@@ -275,16 +276,6 @@ def _publish_push(
     return 0
 
 
-def _emit_gh_output(**pairs: str) -> None:
-    """Append ``key=value`` lines to ``$GITHUB_OUTPUT`` when set (CI only)."""
-    gh_out = os.environ.get("GITHUB_OUTPUT")
-    if not gh_out:
-        return
-    with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
-        for key, value in pairs.items():
-            fh.write(f"{key}={value}\n")
-
-
 def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int:
     """CI-internal: create the tag at HEAD for a forced release (issue #35).
 
@@ -310,7 +301,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
 
     if dry_run:
         info(f"tag-head: would create {tag} at HEAD (bump={bump})")
-        _emit_gh_output(version=next_version, tag=tag)
+        set_github_output(version=next_version, tag=tag)
         return 0
 
     head = run_cmd(["git", "rev-parse", "HEAD"], capture=True, check=False, cwd=cwd)
@@ -344,7 +335,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
                     "Pick a free version with --version, or use --bump patch."
                 )
                 return 1
-            _emit_gh_output(version=next_version, tag=tag)
+            set_github_output(version=next_version, tag=tag)
             success(f"tag-head: {tag} already at HEAD ({sha[:8]}) -- nothing to tag.")
             return 0
 
@@ -371,7 +362,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
         error(f"tag-head: failed to create tag {tag}: {created.stderr.strip()}")
         return created.returncode
 
-    _emit_gh_output(version=next_version, tag=tag)
+    set_github_output(version=next_version, tag=tag)
     success(f"tag-head: {tag} created at HEAD ({sha[:8]})")
     return 0
 
