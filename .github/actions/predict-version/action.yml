@@ -68,7 +68,7 @@ outputs:
     value: ${{ steps.gate.outputs.will-publish }}
   version:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
-    value: ${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+    value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
   prerelease:
     description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) -- this run does not consume a stable version"
     value: ${{ steps.derive.outputs.prerelease }}
@@ -277,11 +277,23 @@ runs:
           fi
         fi
 
+    - name: Predict next version (fork, first-parent commits)
+      # semantic-release counts every commit a sync merge brings in, so a repo
+      # classified `fork` versions a stable release from its first-parent
+      # commits instead. Writes first-parent=false for every other repo, and the
+      # release tail makes the same call from the same classification.
+      id: firstparent
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+      shell: bash
+      env:
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/fork_version.py"
+
     - name: Setup semantic-release (shared toolchain -- single source of truth)
       # Runs on push, and on a from-head `auto` dispatch (issue #35) so the
       # version is resolved in plan (the build then stamps the correct value).
       # Forced bumps use the inline semver step below and skip semantic-release.
-      if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+      if: ${{ steps.gate.outputs.will-publish == 'true' && steps.firstparent.outputs.first-parent != 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
     - name: Predict next version
@@ -294,7 +306,7 @@ runs:
       # The dry-run exit code is captured separately so a real crash (npm install,
       # network) is distinguished from "ran fine, nothing to release."
       id: predict
-      if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+      if: ${{ steps.gate.outputs.will-publish == 'true' && steps.firstparent.outputs.first-parent != 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -452,7 +464,7 @@ runs:
         BRANCH_BUILD: ${{ inputs.branch-build }}
         GIT_REF: ${{ github.ref }}
         RELEASE_WORTHY: ${{ steps.worthy.outputs.release-worthy }}
-        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
       run: |
         set -euo pipefail
         will_publish="$WILL_PUBLISH"
