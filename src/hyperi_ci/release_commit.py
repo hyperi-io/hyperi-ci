@@ -164,12 +164,23 @@ def _unchanged_on_tip(
     return kept
 
 
+def _released(repo: str, version: Version) -> bool:
+    """Say whether ``v<version>`` is a tag, so a VERSION naming it was released.
+
+    Only a 404 answers no: an API failure keeps the branch's copy.
+    """
+    if _api([f"repos/{repo}/git/ref/tags/v{version}"]) is not None:
+        return True
+    return "404" not in _last_api_error
+
+
 def _tip_is_newer(*, repo: str, root: Path, tip: str) -> bool:
     """Say whether the branch tip carries a later VERSION than this checkout.
 
     A retroactive dispatch or a forced bump below the latest tag stamps an older
     version, and committing it would move the branch backwards. A side that is
-    missing or unparseable skips the check.
+    missing or unparseable skips the check, and so does a tip VERSION no release
+    tag names, which is left over from a release that never published.
     """
     local = root / VERSION
     if not local.is_file():
@@ -185,6 +196,13 @@ def _tip_is_newer(*, repo: str, root: Path, tip: str) -> bool:
     except (InvalidVersion, binascii.Error):
         return False
     if ours >= theirs:
+        return False
+    if not _released(repo, theirs):
+        warn(
+            f"release-commit: the branch's VERSION says {theirs}, but no "
+            f"v{theirs} tag exists, so it was never released -- replacing it "
+            f"with {ours}"
+        )
         return False
     info(
         f"release-commit: the branch already carries v{theirs}, newer than "
