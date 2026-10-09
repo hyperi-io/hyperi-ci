@@ -22,6 +22,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from hyperi_ci.commit_range import last_version_tag
 from hyperi_ci.common import (
     env_true,
     error,
@@ -32,6 +33,7 @@ from hyperi_ci.common import (
     success,
     warn,
 )
+from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.release_branches import repo_prerelease_branches
 from hyperi_ci.version_source import seed_version
@@ -380,20 +382,26 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
 
     Returns ``None`` only when the starting version is unparseable.
     """
-    result = run_cmd(
-        ["git", "tag", "--list", "v*", "--sort=-v:refname"],
-        capture=True,
-        check=False,
-        cwd=cwd,
-    )
+    root = Path(cwd) if cwd else Path.cwd()
     latest: str | None = None
-    if result.returncode == 0 and result.stdout.strip():
-        # Plain vX.Y.Z only -- a prerelease sorts above its own release.
-        for line in result.stdout.splitlines():
-            candidate = explicit_version(line)
-            if candidate:
-                latest = candidate
-                break
+    if check_fork(root).fork:
+        # A fork bumps from its own last release, never an upstream tag.
+        own_tag = last_version_tag(first_parent=True, cwd=root)
+        latest = explicit_version(own_tag) if own_tag else None
+    else:
+        result = run_cmd(
+            ["git", "tag", "--list", "v*", "--sort=-v:refname"],
+            capture=True,
+            check=False,
+            cwd=cwd,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Plain vX.Y.Z only -- a prerelease sorts above its own release.
+            for line in result.stdout.splitlines():
+                candidate = explicit_version(line)
+                if candidate:
+                    latest = candidate
+                    break
 
     if not latest:
         cwd_path = Path(cwd) if cwd else Path.cwd()

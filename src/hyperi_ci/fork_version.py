@@ -168,6 +168,32 @@ def predict_version(root: Path) -> tuple[str, str]:
     )
 
 
+def fork_commit_bumps(root: Path, since_tag: str) -> list[tuple[str, str, str]]:
+    """Return the bump each first-parent commit in ``since_tag..HEAD`` implies.
+
+    Args:
+        root: The checkout root.
+        since_tag: The fork's last release tag on its first-parent chain.
+
+    Returns:
+        ``(sha, subject, bump)`` per commit, newest first, with ``none`` kept.
+
+    Raises:
+        ForkVersionError: git could not list the commits.
+
+    """
+    type_bump = load_type_bump(root)
+    commits = _first_parent_commits(f"{since_tag}..HEAD", root)
+    return [
+        (
+            commit.sha,
+            commit.message.splitlines()[0] if commit.message else "",
+            _commit_bump(commit, type_bump),
+        )
+        for commit in commits
+    ]
+
+
 def _first_release(root: Path, type_bump: dict[str, str]) -> tuple[str, str]:
     """Version a fork with no tag on its first-parent chain."""
     if _git(["tag", "--list", "v[0-9]*"], root):

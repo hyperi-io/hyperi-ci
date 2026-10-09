@@ -21,6 +21,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hyperi_ci.commit_range import last_version_tag
+from hyperi_ci.fork_version import ForkVersionError, check_fork, fork_commit_bumps
 from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, load_type_bump
 
 # classify_commit is re-exported for existing importers.
@@ -73,6 +75,10 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     cwd = str(project_dir) if project_dir else None
     prediction = BumpPrediction()
 
+    root = project_dir or Path.cwd()
+    if check_fork(root).fork:
+        return _predict_fork(root, prediction)
+
     last_tag = _last_version_tag(cwd)
     if last_tag is None:
         return prediction
@@ -97,6 +103,29 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
             continue
         bump = classify_commit(body, type_bump)
         subject = body.splitlines()[0]
+        if bump == "minor":
+            prediction.minor_reasons.append(subject)
+        elif bump == "major":
+            prediction.major_reasons.append(subject)
+        if _BUMP_ORDER[bump] > _BUMP_ORDER[best]:
+            best = bump
+    prediction.bump = best
+    return prediction
+
+
+def _predict_fork(root: Path, prediction: BumpPrediction) -> BumpPrediction:
+    """Predict from a fork's own first-parent history, as its release does."""
+    last_tag = last_version_tag(first_parent=True, cwd=root)
+    if last_tag is None:
+        return prediction
+    prediction.last_tag = last_tag
+
+    try:
+        commits = fork_commit_bumps(root, last_tag)
+    except ForkVersionError:
+        return prediction
+    best = "none"
+    for _sha, subject, bump in commits:
         if bump == "minor":
             prediction.minor_reasons.append(subject)
         elif bump == "major":
