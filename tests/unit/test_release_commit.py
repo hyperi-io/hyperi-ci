@@ -75,10 +75,20 @@ class _Api:
         # Successive answers to a branch ref read; the last one repeats.
         self.tips: list[str] = ["tip-sha"]
         self.ref_reads = 0
+        # Release tags answered as a 404; every other tag exists.
+        self.missing_tags: set[str] = set()
+        # stderr for a tag read that fails without an answer.
+        self.tag_error = "gh: Not Found (HTTP 404)"
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
         endpoint = args[-1]
+        if "/git/ref/tags/" in endpoint:
+            tag = endpoint.rsplit("/", 1)[1]
+            if tag in self.missing_tags:
+                release_commit._last_api_error = self.tag_error
+                return None
+            return {"object": {"sha": "tag-sha"}}
         if "/contents/" in endpoint:
             path = unquote(endpoint.split("/contents/", 1)[1].split("?", 1)[0])
             if path == SUPPLEMENT:
@@ -443,6 +453,25 @@ class TestTheBranchNeverMovesBackwards:
         api.tip_version = "2.9.17\n"
         commit_release_artefacts(version="2.10.0", project_dir=project)
         assert api.bodies_for("/git/commits")
+
+    def test_a_newer_version_no_tag_names_is_replaced(
+        self, api: _Api, project: Path
+    ) -> None:
+        """A VERSION a release wrote but never tagged must not block every later one."""
+        api.tip_version = "1.0.0\n"
+        api.missing_tags = {"v1.0.0"}
+        (project / "VERSION").write_text("0.3.1\n", encoding="utf-8")
+        assert commit_release_artefacts(version="0.3.1", project_dir=project) == 0
+        assert api.bodies_for("/git/commits")
+
+    def test_a_failed_tag_lookup_keeps_the_branch_copy(
+        self, api: _Api, project: Path
+    ) -> None:
+        api.tip_version = "3.2.0\n"
+        api.missing_tags = {"v3.2.0"}
+        api.tag_error = "gh: connection reset"
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert not api.bodies_for("/git/commits")
 
     def test_an_unparseable_tip_version_commits(self, api: _Api, project: Path) -> None:
         api.tip_version = "not a version\n"
