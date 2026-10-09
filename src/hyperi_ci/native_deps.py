@@ -62,10 +62,9 @@ _TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
 
 
 # Categories map to config subdirectories sharing one YAML schema (patterns,
-# manifest_files, dpkg_check, apt_repos, apt_packages, optional `versions:`).
-# native-deps installs only if a manifest matches. toolchains (the apt families
-# the image bakes: the default LLVM major, GCC 13/14) match in --auto mode and
-# --all bypasses the pattern check.
+# manifest_files, dpkg_check, apt_repos, apt_packages). native-deps installs
+# only if a manifest matches. toolchains (the apt families the image bakes: the
+# default LLVM major) match in --auto mode and --all bypasses the pattern check.
 _CATEGORY_DIRS: dict[str, Path] = {
     "native-deps": _NATIVE_DEPS_DIR,
     "toolchains": _TOOLCHAINS_DIR,
@@ -148,39 +147,21 @@ def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
     return text.replace("${OS_CODENAME}", os_codename)
 
 
-def _substitute_version(text: str, version: str) -> str:
-    """Substitute the {V} placeholder with a concrete version."""
-    return text.replace("{V}", version)
-
-
-def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
-    """Materialise one DepGroup from a YAML entry, optionally substituting {V}.
-
-    With `version` None the entry is used verbatim. Otherwise `{V}` is
-    substituted in `dpkg_check`, every `apt_repos[*].codename`, every
-    `apt_packages[*]` and the `name`.
-    """
-
-    def sub(text: str) -> str:
-        return _substitute_version(text, version) if version is not None else text
-
-    name = sub(entry["name"])
-    if version is not None:
-        name = f"{entry['name']} v{version}"
-
+def _dep_group_from_entry(entry: dict) -> DepGroup:
+    """Materialise one DepGroup from a YAML entry."""
     return DepGroup(
-        name=name,
+        name=entry["name"],
         patterns=entry.get("patterns", []),
         manifest_files=entry.get("manifest_files", []),
-        dpkg_check=sub(entry["dpkg_check"]),
-        apt_packages=[sub(p) for p in entry.get("apt_packages", [])],
+        dpkg_check=entry["dpkg_check"],
+        apt_packages=list(entry.get("apt_packages", [])),
         bake=entry.get("bake", True),
         apt_repos=[
             AptRepo(
                 key_url=r["key_url"],
                 keyring=r["keyring"],
                 url=r["url"],
-                codename=sub(r.get("codename", "auto")),
+                codename=r.get("codename", "auto"),
                 components=r.get("components", "main"),
                 key_fingerprint=r.get("key_fingerprint", ""),
             )
@@ -197,9 +178,8 @@ def _load_dep_groups(
 ) -> list[DepGroup]:
     """Load dep group definitions from bundled config.
 
-    An entry with a `versions:` list expands into one DepGroup per version, and
-    one without is loaded as-is. ``project_dir`` is where the designated LLVM
-    version's project config is read from.
+    ``project_dir`` is where the designated LLVM version's project config is
+    read from.
     """
     config_dir = _CATEGORY_DIRS.get(category)
     if config_dir is None:
@@ -216,22 +196,7 @@ def _load_dep_groups(
     if not raw:
         return []
 
-    groups: list[DepGroup] = []
-    for entry in raw:
-        versions = entry.get("versions")
-        if versions is None:
-            groups.append(_dep_group_from_entry(entry))
-        elif not versions:
-            # An empty list is a config bug that would leak {V} into the install
-            # command and fail with "package not found".
-            logger.warning(
-                f"entry {entry.get('name', '<unnamed>')!r} in "
-                f"{config_file} has empty `versions:` -- skipping"
-            )
-        else:
-            for v in versions:
-                groups.append(_dep_group_from_entry(entry, version=str(v)))
-    return groups
+    return [_dep_group_from_entry(entry) for entry in raw]
 
 
 def _read_manifests(project_dir: Path, manifest_files: list[str]) -> str:

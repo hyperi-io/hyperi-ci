@@ -36,38 +36,6 @@ def _metadata_runner(manifest_paths: list[Path], returncode: int = 0):
     return fake_run
 
 
-class TestStaleSysCrateCleaner:
-    @pytest.mark.parametrize(
-        ("rlib", "package"),
-        [
-            ("liblibz_sys-0a1b2c.rlib", "libz-sys"),
-            ("libbzip2_sys-0a1b2c.rlib", "bzip2-sys"),
-            ("libopenssl_sys-0a1b2c.rlib", "openssl-sys"),
-        ],
-    )
-    def test_a_wrong_arch_rlib_is_matched_by_its_crate_name(
-        self,
-        rlib: str,
-        package: str,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        target = "aarch64-unknown-linux-gnu"
-        deps = tmp_path / target / "release" / "deps"
-        deps.mkdir(parents=True)
-        (deps / rlib).write_bytes(b"")
-        monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path))
-        monkeypatch.setattr(build, "_expected_elf_machine", lambda _t: "aarch64")
-        monkeypatch.setattr(build, "_find_c_sys_crates", lambda: [package])
-        monkeypatch.setattr(build, "_rlib_has_wrong_arch", lambda _r, _e: True)
-        calls: list[list[str]] = []
-        monkeypatch.setattr(build, "run_cmd", lambda cmd, **_k: calls.append(cmd))
-
-        build._clean_stale_sys_crates(target)
-
-        assert calls == [["cargo", "clean", "--package", package, "--target", target]]
-
-
 class TestDetectCargoFeatures:
     """Feature detection unions the root manifest with every workspace member."""
 
@@ -178,7 +146,8 @@ class TestWorkspaceFeaturesReachTheCargoLine:
 class TestTier2Summary:
     """A Tier 2 build reports, once per target, what actually ran."""
 
-    _TARGETS = "x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu"
+    _AMD64 = "x86_64-unknown-linux-gnu"
+    _ARM64 = "aarch64-unknown-linux-gnu"
 
     @staticmethod
     def _config(optimize: dict) -> CIConfig:
@@ -188,15 +157,15 @@ class TestTier2Summary:
 
     @staticmethod
     def _patch_build(
-        monkeypatch: pytest.MonkeyPatch, on_build
+        monkeypatch: pytest.MonkeyPatch,
+        on_build,
+        native: str = "x86_64-unknown-linux-gnu",
     ) -> list[OptimizationOutcome]:
         """Neutralise everything in run() that shells out; collect the summaries."""
         logged: list[OptimizationOutcome] = []
         monkeypatch.setattr(build.shutil, "which", lambda _cmd: "/usr/bin/cargo")
-        monkeypatch.setattr(build, "is_macos", lambda: False)
-        monkeypatch.setattr(
-            build, "_get_native_target", lambda: "x86_64-unknown-linux-gnu"
-        )
+        monkeypatch.setattr(build, "is_ci", lambda: False)
+        monkeypatch.setattr(build, "_get_native_target", lambda: native)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
         monkeypatch.setattr(build, "_detect_cargo_features", lambda: {"jemalloc"})
         monkeypatch.setattr(build, "_resolve_build_channel", lambda _cfg: "release")
@@ -224,7 +193,6 @@ class TestTier2Summary:
             outcome.bolt_applied = target.startswith("x86_64")
             return 0
 
-        logged = self._patch_build(monkeypatch, on_build)
         config = self._config(
             {
                 "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
@@ -233,10 +201,14 @@ class TestTier2Summary:
             }
         )
 
-        rc = build.run(config, {"RUST_BUILD_TARGETS": self._TARGETS})
+        summaries: list[str] = []
+        for native in (self._AMD64, self._ARM64):
+            logged = self._patch_build(monkeypatch, on_build, native=native)
+            rc = build.run(config, {"RUST_BUILD_TARGETS": native})
+            assert rc == 0
+            summaries += [o.describe() for o in logged]
 
-        assert rc == 0
-        assert [o.describe() for o in logged] == [
+        assert summaries == [
             "optimised: pgo=yes bolt=yes allocator=jemalloc",
             "optimised: pgo=yes bolt=no allocator=jemalloc",
         ]
@@ -281,7 +253,7 @@ class TestTier2Summary:
 
         logged = self._patch_build(monkeypatch, on_build)
 
-        rc = build.run(self._config({}), {"RUST_BUILD_TARGETS": self._TARGETS})
+        rc = build.run(self._config({}), {"RUST_BUILD_TARGETS": self._AMD64})
 
         assert rc == 0
         assert logged == []
@@ -329,7 +301,8 @@ class TestTier2SkipFailsARelease:
             return 0
 
         errors: list[str] = []
-        TestTier2Summary._patch_build(monkeypatch, on_build)
+        arm64 = TestTier2Summary._ARM64
+        TestTier2Summary._patch_build(monkeypatch, on_build, native=arm64)
         monkeypatch.setattr(build, "error", errors.append)
         config = TestTier2Summary._config(
             {
@@ -338,7 +311,7 @@ class TestTier2SkipFailsARelease:
             }
         )
 
-        rc = build.run(config, {"RUST_BUILD_TARGETS": TestTier2Summary._TARGETS})
+        rc = build.run(config, {"RUST_BUILD_TARGETS": arm64})
 
         assert rc == 1
         assert any("aarch64" in e and "BOLT" in e for e in errors), errors
@@ -562,10 +535,10 @@ class TestBoltOptimizeArgsNeverShips:
 
 
 class TestNativeTargetFollowsTheMachine:
-    """An arm64 Linux runner must not read its own target as a cross build.
+    """An arm64 Linux runner must not read its own target as another arch's.
 
-    `_get_native_target` decides `cross` in `_build_for_target`, which skips
-    PGO, which the Tier 2 strict check then refuses to ship.
+    `_get_native_target` decides which targets `_host_targets` keeps, and in CI
+    a target it reads as foreign fails the build.
     """
 
     @pytest.mark.parametrize(
@@ -594,7 +567,7 @@ class TestNativeTargetFollowsTheMachine:
     def test_an_arm64_host_builds_its_own_target_natively(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The regression: aarch64 on aarch64 read as cross and lost PGO."""
+        """The regression: aarch64 on aarch64 read as foreign."""
         import platform as platform_module
 
         monkeypatch.setattr(build.sys, "platform", "linux")
@@ -627,56 +600,81 @@ class TestWindowsIsRefused:
         assert "Windows targets are not supported" in errors[0]
 
 
-class TestPgoAndCrossCompilation:
-    """The PGO path returns before the cross setup, so the two cannot combine."""
+class TestForeignTargetsAreNotCrossCompiled:
+    """A target for another arch is skipped locally and fails in CI."""
 
     _NATIVE = "x86_64-unknown-linux-gnu"
     _FOREIGN = "aarch64-unknown-linux-gnu"
 
     @staticmethod
-    def _patch(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-        warnings: list[str] = []
-        monkeypatch.setattr(build, "_ensure_target_installed", lambda _t: True)
-        monkeypatch.setattr(
-            build, "_get_native_target", lambda: TestPgoAndCrossCompilation._NATIVE
-        )
-        monkeypatch.setattr(build, "is_linux", lambda: True)
-        monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
-        monkeypatch.setattr(build, "_ensure_cross_toolchain", lambda _t: None)
-        monkeypatch.setattr(build, "_setup_cross_sysroot", lambda _a, _t: None)
-        monkeypatch.setattr(build, "_clean_stale_sys_crates", lambda _t: None)
-        monkeypatch.setattr(build, "_cross_env", lambda _t, sysroot=None: {})
-        monkeypatch.setattr(build, "warn", warnings.append)
-        monkeypatch.setattr(
-            build, "run_cmd", lambda *_a, **_kw: subprocess.CompletedProcess([], 0)
-        )
-        return warnings
+    def _patch(monkeypatch: pytest.MonkeyPatch, *, ci: bool) -> dict[str, list]:
+        seen: dict[str, list] = {"built": [], "warnings": [], "errors": []}
 
-    def test_a_cross_target_builds_plain_and_says_so(
+        def on_build(target, *_args, **_kwargs) -> int:
+            seen["built"].append(target)
+            return 0
+
+        TestTier2Summary._patch_build(
+            monkeypatch, on_build, native=TestForeignTargetsAreNotCrossCompiled._NATIVE
+        )
+        monkeypatch.setattr(build, "is_ci", lambda: ci)
+        monkeypatch.setattr(build, "warn", seen["warnings"].append)
+        monkeypatch.setattr(build, "error", seen["errors"].append)
+        return seen
+
+    def test_locally_the_foreign_target_is_skipped_with_a_warning(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        warnings = self._patch(monkeypatch)
-        called: list[str] = []
-        monkeypatch.setattr(
-            "hyperi_ci.languages.rust.pgo.run_pgo_build",
-            lambda **kwargs: called.append(kwargs["target"]) or 0,
-        )
+        seen = self._patch(monkeypatch, ci=False)
 
-        rc = build._build_for_target(
-            self._FOREIGN,
-            "",
-            False,
-            profile=OptimizationProfile(channel="release", pgo_enabled=True),
+        rc = build.run(
+            TestTier2Summary._config({}),
+            {"RUST_BUILD_TARGETS": f"{self._NATIVE},{self._FOREIGN}"},
         )
 
         assert rc == 0
-        assert called == []
-        assert any("not wired for a cross build" in w for w in warnings), warnings
+        assert seen["built"] == [self._NATIVE]
+        assert any(self._FOREIGN in w for w in seen["warnings"]), seen["warnings"]
 
-    def test_a_native_target_still_takes_the_pgo_path(
+    def test_in_ci_a_foreign_target_fails_before_any_build(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._patch(monkeypatch)
+        seen = self._patch(monkeypatch, ci=True)
+
+        rc = build.run(
+            TestTier2Summary._config({}), {"RUST_BUILD_TARGETS": self._FOREIGN}
+        )
+
+        assert rc == 1
+        assert seen["built"] == []
+        assert any(self._FOREIGN in e and self._NATIVE in e for e in seen["errors"])
+
+    def test_in_ci_the_host_target_builds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = self._patch(monkeypatch, ci=True)
+
+        rc = build.run(
+            TestTier2Summary._config({}), {"RUST_BUILD_TARGETS": self._NATIVE}
+        )
+
+        assert rc == 0
+        assert seen["built"] == [self._NATIVE]
+        assert seen["errors"] == []
+
+
+class TestPgoTakesTheHostTarget:
+    """A PGO profile on the host target goes through the PGO pipeline."""
+
+    _NATIVE = "x86_64-unknown-linux-gnu"
+
+    def test_a_native_target_takes_the_pgo_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
+        monkeypatch.setattr(
+            build, "run_cmd", lambda *_a, **_kw: subprocess.CompletedProcess([], 0)
+        )
         called: list[str] = []
         monkeypatch.setattr(
             "hyperi_ci.languages.rust.pgo.run_pgo_build",

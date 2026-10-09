@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The language runtimes a runner image pre-installs. Distinct from
-# native-deps (apt system libraries) and toolchains (LLVM/GCC apt families):
+# native-deps (apt system libraries) and toolchains (the LLVM apt family):
 # these are the compilers themselves, installed from vendor channels rather
 # than apt.
 #
@@ -19,7 +19,7 @@
 # setup-nextest composites install pinned on every Rust job.
 #
 # These pass it, because hyperi-ci does NOT install them per job: it assumes
-# they are already there (`rust/build.py` calls `rustup target add`). sccache
+# they are already there. sccache
 # is baked as well, at its versions.yaml pin, because the ARC image sets
 # RUSTC_WRAPPER=sccache and no CI step installs it.
 #
@@ -36,9 +36,6 @@ rust:
   components:
     - clippy
     - rustfmt
-  # Cross-compilation targets to preinstall. arm64 release builds need this.
-  targets:
-    - aarch64-unknown-linux-gnu
 
 go:
   enabled: true

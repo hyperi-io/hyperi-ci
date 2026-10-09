@@ -221,7 +221,6 @@ class TestRunnerImageBake:
         # image is built with no project in front of it.
         for expected in (
             "toolchains/llvm",
-            "toolchains/gcc",
             "native-deps/rust",
             "native-deps/golang",
             "native-deps/python",
@@ -274,7 +273,7 @@ class TestRunnerImageBake:
         # rust.yaml and typescript.yaml both carry entries -- seeing both
         # proves the fan-out rather than a single default language.
         assert "mold linker" in combined
-        assert "sharp / image processing" in combined
+        assert "canvas / image processing" in combined
 
 
 class TestTheRunSaysWhichVersionRan:

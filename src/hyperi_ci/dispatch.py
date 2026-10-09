@@ -510,7 +510,7 @@ def run_stage(
     Args:
         stage: Stage name (setup, quality, test, build, release).
         project_dir: Project root directory. Defaults to cwd.
-        local: If True, skip cross-compilation targets (native build only).
+        local: If True, ignore `build.rust.targets` and build the host target.
 
     Returns:
         Exit code (0 = success).

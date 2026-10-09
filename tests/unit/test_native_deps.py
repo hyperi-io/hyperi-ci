@@ -706,14 +706,8 @@ class TestDepGroupLoading:
         assert native_deps._patterns_match(manifest, group.patterns)
 
 
-class TestMultiVersionToolchains:
-    """The toolchains category, and its `versions:` expansion.
-
-    One YAML entry with `versions: [13, 14]` becomes two DepGroups with `{V}`
-    substituted in `dpkg_check`, `apt_repos[*].codename`, and every
-    `apt_packages[*]`. The `name` is suffixed " vN" so log lines distinguish
-    versions. LLVM carries no list: it bakes versions.yaml `llvm` alone.
-    """
+class TestToolchains:
+    """The toolchains category: LLVM bakes versions.yaml `llvm` alone."""
 
     def test_llvm_yaml_bakes_one_group_for_the_default_major(
         self, monkeypatch: pytest.MonkeyPatch
@@ -821,9 +815,8 @@ class TestBakeFlag:
     ) -> None:
         """Existing YAMLs without a `bake` key stay unconditionally baked."""
         monkeypatch.setenv("OS_CODENAME", "noble")
-        groups = _load_dep_groups("gcc", category="toolchains")
-        multi = next(g for g in groups if g.name == "gcc-toolchain v14")
-        assert multi.bake is True
+        groups = _load_dep_groups("llvm", category="toolchains")
+        assert [g.bake for g in groups] == [True]
 
     def test_all_mode_skips_bake_false_entries(
         self,
@@ -912,17 +905,6 @@ class TestBakeFlag:
         assert rc == 0
         assert "lldb-22" in installed  # pattern matched → installed regardless of bake
 
-    def test_substitutes_version_in_dpkg_check_and_packages(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OS_CODENAME", "noble")
-        groups = _load_dep_groups("gcc", category="toolchains")
-        v14 = next(g for g in groups if g.name.endswith("v14"))
-        assert v14.dpkg_check == "gcc-14"
-        assert v14.apt_packages == ["gcc-14", "g++-14", "libstdc++-14-dev"]
-        # {V} must not leak into the final packages
-        assert not any("{V}" in p for p in v14.apt_packages)
-
     def test_substitutes_os_codename_and_version_in_repo(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -933,46 +915,8 @@ class TestBakeFlag:
         assert groups[0].apt_repos[0].url == "https://apt.llvm.org/resolute/"
         assert groups[0].apt_repos[0].codename == f"llvm-toolchain-resolute-{major}"
 
-    def test_gcc_expansion_no_repos(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """GCC uses distro repos -- empty apt_repos after expansion."""
-        monkeypatch.setenv("OS_CODENAME", "trixie")
-        groups = _load_dep_groups("gcc", category="toolchains")
-        assert len(groups) == 2
-        for g in groups:
-            assert g.apt_repos == []
-
     def test_unknown_category_returns_empty(self) -> None:
         assert _load_dep_groups("llvm", category="bogus") == []
-
-    def test_empty_versions_list_is_skipped_with_warning(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """An empty `versions: []` is a config bug -- warn and skip."""
-        # Redirect the toolchains dir to a tmp location we control
-        bogus_dir = tmp_path / "toolchains"
-        bogus_dir.mkdir()
-        (bogus_dir / "broken.yaml").write_text(
-            "- name: broken-entry\n"
-            "  versions: []\n"
-            "  patterns: []\n"
-            "  manifest_files: []\n"
-            "  dpkg_check: 'clang-{V}'\n"
-            "  apt_packages:\n"
-            "    - 'clang-{V}'\n"
-        )
-        monkeypatch.setitem(native_deps._CATEGORY_DIRS, "toolchains", bogus_dir)
-        # Loguru bypasses stdlib logging / capsys -- capture via .warning patch
-        warnings: list[str] = []
-        monkeypatch.setattr(
-            native_deps.logger, "warning", lambda msg: warnings.append(msg)
-        )
-        groups = _load_dep_groups("broken", category="toolchains")
-        assert groups == []
-        assert len(warnings) == 1
-        assert "empty `versions:`" in warnings[0]
-        assert "broken-entry" in warnings[0]
 
 
 class TestExpandTemplateVarsOsCodename:
@@ -1037,15 +981,13 @@ class TestAllModeBypass:
 
         # Empty project dir → no manifests → patterns would normally match nothing
         rc = native_deps.install_native_deps(
-            "gcc",
+            "llvm",
             project_dir=tmp_path,
             category="toolchains",
             all_mode=True,
         )
         assert rc == 0
-        # All GCC versions should have been queued regardless of patterns
-        assert "gcc-13" in installed_packages
-        assert "gcc-14" in installed_packages
+        assert f"clang-{runtime_version('llvm')}" in installed_packages
 
     def test_conditional_mode_skips_when_no_manifest_match(
         self,
@@ -1069,7 +1011,7 @@ class TestAllModeBypass:
 
         # Empty project dir → no patterns match → nothing installed
         rc = native_deps.install_native_deps(
-            "gcc",
+            "llvm",
             project_dir=tmp_path,
             category="toolchains",
             all_mode=False,

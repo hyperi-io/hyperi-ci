@@ -83,7 +83,7 @@ class TestMissingStripTool:
         _binary(release, "app")
         monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))
 
-        assert build._package_binaries([_NATIVE], ["app"], "v1.0.0", _NATIVE) == 1
+        assert build._package_binaries([_NATIVE], ["app"], "v1.0.0") == 1
 
     def test_a_failed_strip_is_reported_too(self, tmp_path, monkeypatch) -> None:
         reports = _Reports(monkeypatch, ci=True)
@@ -141,35 +141,6 @@ class TestMissingStripTool:
         assert build._strip_binary(binary, _NATIVE) is True
         assert binary.stat().st_size < before
         assert reports.announced == []
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64"
-    or not all(shutil.which(tool) for tool in ("cc", "ar", "file")),
-    reason="needs an x86_64 host with cc, ar and file",
-)
-class TestStaleRlibDetection:
-    """The arch check reads a real object out of a real archive."""
-
-    @pytest.fixture
-    def rlib(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-        source = tmp_path / "probe.c"
-        source.write_text("int probe(void) { return 1; }\n", encoding="utf-8")
-        obj = tmp_path / "probe.o"
-        subprocess.run(["cc", "-c", "-o", str(obj), str(source)], check=True)
-        deps = tmp_path / "target" / "deps"
-        deps.mkdir(parents=True)
-        archive = deps / "libprobe_sys-0123.rlib"
-        subprocess.run(["ar", "rcs", str(archive), str(obj)], check=True)
-        # A relative path, as the stale-crate scan passes it.
-        monkeypatch.chdir(tmp_path)
-        return archive.relative_to(tmp_path)
-
-    def test_a_native_object_is_the_right_arch(self, rlib: Path) -> None:
-        assert build._rlib_has_wrong_arch(rlib, "x86-64") is False
-
-    def test_a_native_object_is_the_wrong_arch_for_aarch64(self, rlib: Path) -> None:
-        assert build._rlib_has_wrong_arch(rlib, "ARM aarch64") is True
 
 
 def _process_calls(path: Path) -> list[str]:
@@ -365,10 +336,7 @@ class TestCargoLaunchesKeepTheirShape:
         assert launch.get("stdout") is None
         assert launch.get("stderr") is None
 
-    def test_the_plain_build_for_a_target(self, monkeypatch, launches) -> None:
-        monkeypatch.setattr(build, "_ensure_target_installed", lambda _t: True)
-        monkeypatch.setattr(build, "_get_native_target", lambda: _NATIVE)
-
+    def test_the_plain_build_for_a_target(self, launches) -> None:
         rc = build._build_for_target(
             _NATIVE, "", False, extra_env={"CARGO_PROFILE_RELEASE_LTO": "fat"}
         )

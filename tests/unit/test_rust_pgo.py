@@ -1754,7 +1754,6 @@ class TestBuildHandsFeaturesToPgo:
         bin_dir.mkdir(parents=True)
         (bin_dir / "my-bin").touch()
 
-        monkeypatch.setattr(build, "_ensure_target_installed", lambda _target: True)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: ["my-bin"])
 
         with (
@@ -2017,7 +2016,6 @@ class TestBuildsAreScopedToTheShippedBinaries:
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
         bin_dir.mkdir(parents=True)
         (bin_dir / "my-bin").touch()
-        monkeypatch.setattr(build, "_ensure_target_installed", lambda _target: True)
         monkeypatch.setattr(
             build, "_detect_binary_names", lambda: ["my-bin", "my-bin-admin"]
         )

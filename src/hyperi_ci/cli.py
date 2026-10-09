@@ -1869,7 +1869,7 @@ def install_toolchains(
         ),
     ] = False,
 ) -> None:
-    """Install the apt toolchain families: the default LLVM major, GCC 13/14.
+    """Install the apt toolchain families: the default LLVM major.
 
     By default fans out across every family in `config/toolchains/` and
     matches project manifests to decide what to install. Pass `--all` on
@@ -1966,8 +1966,8 @@ def install_all_cmd(
         typer.echo("install-all found no toolchain or native-deps config", err=True)
         raise typer.Exit(1)
 
-    # Language toolchains first: the apt families below include BOLT and the
-    # cross-compilers a Rust build links against.
+    # Language toolchains first: the apt families below include the BOLT and
+    # lld a Rust build links with.
     if not skip_toolchains:
         typer.echo("install-all: language toolchains", err=True)
         if dry_run:
