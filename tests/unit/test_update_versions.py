@@ -26,84 +26,69 @@ update_versions = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(update_versions)
 
 
-def _apply(text: str, versions: dict) -> str:
-    for pattern, replacement, _desc in update_versions._build_replacements(versions):
-        text = pattern.sub(replacement, text)
-    return text
+class TestSemanticReleaseInstall:
+    """The release tagger installs only versions the SSOT holds.
 
-
-class TestSemanticReleasePin:
-    def test_pins_bare_npm_package(self) -> None:
-        out = _apply(
-            "npm i -g semantic-release@20", {"semantic_release": {"core": "25"}}
-        )
-        assert "semantic-release@25" in out
-
-    def test_does_not_touch_setup_semantic_release_action_ref(self) -> None:
-        # Regression: the action name ends in "semantic-release"; the npm pin
-        # regex must not rewrite the action ref's @main to @25.
-        ref = "uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main"
-        out = _apply(ref, {"semantic_release": {"core": "25"}})
-        assert out == ref
-
-
-class TestSemanticReleasePluginMajors:
-    """A plugin pin in the install line must be driven from the SSOT.
-
-    An unpinned plugin takes whatever npm serves that morning:
-    conventional-changelog-conventionalcommits v10 landed needing
-    conventional-changelog-writer@9, which core 25 does not bring, and the
-    dry-run broke in every repo at once. A pin fixes that only if the SSOT
-    owns the number -- a literal typed into the action drifts silently.
+    `semantic-release@25` once floated on its major, so an upstream 25.x
+    reached every repo's release tagging with no cooldown, and no audit read
+    the plugin pins. Each package is now a `tools:` entry, mirrored by marker.
     """
 
-    VERSIONS = {
-        "semantic_release": {
-            "core": "25",
-            "plugin_pins": {"conventional-changelog-conventionalcommits": "9"},
-        }
-    }
+    ROOT = Path(__file__).resolve().parents[2]
+    ACTION = ROOT / ".github" / "actions" / "setup-semantic-release" / "action.yml"
 
-    def test_pins_the_plugin_major(self) -> None:
-        out = _apply("  conventional-changelog-conventionalcommits@7", self.VERSIONS)
-        assert "conventional-changelog-conventionalcommits@9" in out
+    def _install_step(self) -> dict:
+        action = yaml.safe_load(self.ACTION.read_text(encoding="utf-8"))
+        steps = [
+            s for s in action["runs"]["steps"] if "npm install" in s.get("run", "")
+        ]
+        assert len(steps) == 1, "expected exactly one npm install step"
+        return steps[0]
 
-    def test_rewrites_a_drifted_pin_back_to_the_ssot(self) -> None:
-        out = _apply("  conventional-changelog-conventionalcommits@10", self.VERSIONS)
-        assert "conventional-changelog-conventionalcommits@9" in out
-        assert "@10" not in out
+    def test_every_package_takes_its_version_from_a_marked_env_value(self) -> None:
+        step = self._install_step()
+        specs = re.findall(r'"((?:@[\w.-]+/)?[\w.-]+)@\$(\w+)"', step["run"])
+        assert specs, "no package@$VAR spec found; this guard would test nothing"
+        assert not re.search(r"@v?\d", step["run"]), "a package carries a literal"
+        tools = update_versions._load_versions()["tools"]
+        npm_to_key = {spec.get("npm"): key for key, spec in tools.items()}
+        text = self.ACTION.read_text(encoding="utf-8")
+        for package, var in specs:
+            key = npm_to_key.get(package)
+            assert key, f"{package} is installed but has no `tools:` entry"
+            assert re.search(
+                rf"#\s*hyperi-ci:pin\s+tools\.{re.escape(key)}\s*\n\s*{var}:", text
+            ), f"{var} is not marked `# hyperi-ci:pin tools.{key}`"
 
-    def test_leaves_an_unlisted_plugin_alone(self) -> None:
-        line = "  @semantic-release/changelog"
-        assert _apply(line, self.VERSIONS) == line
-
-    def test_absent_plugin_pins_is_not_an_error(self) -> None:
-        line = "  conventional-changelog-conventionalcommits@9"
-        assert _apply(line, {"semantic_release": {"core": "25"}}) == line
+    def test_the_37_git_plugin_is_not_installed(self) -> None:
+        # Nothing depends on it and no honoured config loads it (issue #37).
+        assert "@semantic-release/git@" not in self._install_step()["run"]
 
     def test_the_shipped_action_matches_the_shipped_ssot(self) -> None:
         """The real files, so a hand-edited pin fails here rather than in CI."""
-        import yaml
+        problems = [
+            p
+            for p in update_versions._pin_mismatches(update_versions._load_versions())
+            if "setup-semantic-release" in p
+        ]
+        assert not problems
 
-        root = Path(__file__).resolve().parents[2]
-        versions = yaml.safe_load(
-            (root / "src" / "hyperi_ci" / "config" / "versions.yaml").read_text(
-                encoding="utf-8", errors="replace"
-            )
-        )
-        action = (
-            root / ".github" / "actions" / "setup-semantic-release" / "action.yml"
-        ).read_text(encoding="utf-8", errors="replace")
 
-        majors = versions["semantic_release"].get("plugin_pins") or {}
-        assert majors, "the SSOT records no plugin pins; this guard would test nothing"
-        for pkg, major in majors.items():
-            assert f"{pkg}@{major}" in action, (
-                f"{pkg} is pinned to {major} in versions.yaml but the action "
-                f"install line disagrees"
-            )
-        assert _apply(action, versions) == action, (
-            "applying the SSOT replacements changed the action -- it has drifted"
+class TestMajorHold:
+    """`major:` keeps a held tool off a major a known incompatibility rules out."""
+
+    def test_a_held_tool_never_resolves_past_its_major(self) -> None:
+        spec = {"version": "9.3.1", "major": 9, "npm": "preset"}
+        releases = [_rel("9.3.1", 90), _rel("9.4.0", 30), _rel("10.4.0", 30)]
+        assert update_versions._tool_releases(spec, releases) == [
+            releases[0],
+            releases[1],
+        ]
+
+    def test_without_a_hold_every_major_is_eligible(self) -> None:
+        releases = [_rel("9.3.1", 90), _rel("10.4.0", 30)]
+        assert update_versions._tool_releases({"version": "9.3.1"}, releases) == (
+            releases
         )
 
 
@@ -1056,9 +1041,6 @@ class TestSetToolVersionInYaml:
         "\n"
         "runtimes:\n"
         '  python: "3.12"\n'
-        "\n"
-        "semantic_release:\n"
-        '  core: "25"\n'
     )
 
     def test_rewrites_only_the_named_tool(self) -> None:
@@ -1084,13 +1066,12 @@ class TestSetToolVersionInYaml:
 
     def test_does_not_bleed_into_later_sections(self) -> None:
         # The tools: block must end at the next top-level key, or a rewrite
-        # walks on into watch:/runtimes:/semantic_release:.
+        # walks on into watch:/runtimes:.
         out = update_versions._set_tool_version_in_yaml(
             self.YAML, "gitleaks", "v8.31.0"
         )
         assert "watch:\n  gitleaks:\n    version: v0.0.1\n" in out
         assert '  python: "3.12"\n' in out
-        assert '  core: "25"\n' in out
 
     def test_comments_survive(self) -> None:
         # yaml.safe_dump would strip every comment in the file - the whole
@@ -1224,12 +1205,13 @@ _RESOLVER_YAML = (
     "  down:\n"
     "    version: v1.0.0\n"
     "    repo: o/down\n"
+    # npm-sourced and lock-free, as the semantic-release toolchain is.
+    "  tagger:\n"
+    "    version: 25.0.9\n"
+    "    npm: tagger\n"
     "\n"
     "runtimes:\n"
     '  python: "3.14"\n'
-    "\n"
-    "semantic_release:\n"
-    '  core: "25"\n'
 )
 
 _UPSTREAM = {
@@ -1238,6 +1220,7 @@ _UPSTREAM = {
     "locked": ("1.1.0", "ok"),
     "o/current": (None, "current"),
     "o/down": (None, "lookup-failed"),
+    "tagger": ("25.1.0", "ok"),
 }
 
 
@@ -1257,7 +1240,6 @@ class TestOneResolver:
             "_latest_tool_release",
             lambda spec, _now: _UPSTREAM[spec.get("repo") or spec.get("npm")],
         )
-        monkeypatch.setattr(update_versions, "_get_latest_npm_major", lambda _p: "26")
         monkeypatch.setattr(update_versions, "_gh_json", lambda _path: None)
 
     @staticmethod
@@ -1275,8 +1257,7 @@ class TestOneResolver:
     def test_resolve_splits_writes_from_hand_bumps(self, monkeypatch) -> None:
         self._upstream(monkeypatch)
         res = update_versions._resolve(yaml.safe_load(_RESOLVER_YAML), self.NOW)
-        assert res.tools == {"plain": "v1.1.0"}
-        assert res.semantic_release == ("25", "26")
+        assert res.tools == {"plain": "v1.1.0", "tagger": "25.1.0"}
         assert (res.manual, res.lookup_failures) == (2, 1)
 
     def test_stable_reports_the_writes_and_writes_nothing(
@@ -1308,7 +1289,6 @@ class TestOneResolver:
         for name, spec in before["tools"].items():
             want = planned.tools.get(name, spec["version"])
             assert after["tools"][name]["version"] == want, name
-        assert after["semantic_release"]["core"] == planned.semantic_release[1]
 
     def test_a_hand_bump_still_fails_the_drift_audit(self, monkeypatch) -> None:
         # The weekly audit must keep flagging a tool it cannot bump itself.
