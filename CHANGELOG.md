@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.22...v2.14.0) (2026-10-10)
+
+### Features
+
+* **quality:** run lint-iac in the quality stage, add iac-ci.yml ([#659](https://github.com/hyperi-io/hyperi-ci/issues/659)) ([74385c7](https://github.com/hyperi-io/hyperi-ci/commit/74385c7b59a91f6b2d9684f70d7a433fa2e61b04))
+
+### Bug Fixes
+
+* **ci:** decide fork mode once, in Plan, and hand it to the release tail ([#666](https://github.com/hyperi-io/hyperi-ci/issues/666)) ([d0028dc](https://github.com/hyperi-io/hyperi-ci/commit/d0028dccbda7314d62872806f639b85da8b93b4d))
+* **ci:** stop setup-runtime piping an installer to sh, and its bin-dir warning ([#665](https://github.com/hyperi-io/hyperi-ci/issues/665)) ([bf03bd6](https://github.com/hyperi-io/hyperi-ci/commit/bf03bd6d5d802a00a1305eb7fd4d70e99792cd60))
+
 ## [2.13.22](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.21...v2.13.22) (2026-10-10)
 
 ### Bug Fixes
