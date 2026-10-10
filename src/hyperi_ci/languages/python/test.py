@@ -64,10 +64,12 @@ def _resolve_cmd(cmd: list[str]) -> list[str]:
     """Resolve the command, going through `uv run` in a uv project (uv.lock).
 
     A PATH pytest sits outside the project venv and misses its plugins
-    (pytest-cov, pytest-xdist).
+    (pytest-cov, pytest-xdist). ``--all-extras`` matches the environment
+    python-ci.yml's Test job syncs, so a fresh local checkout whose test plugins
+    sit in an extra runs the same suite.
     """
     if shutil.which("uv") and Path("uv.lock").exists():
-        return ["uv", "run", *cmd]
+        return ["uv", "run", "--all-extras", *cmd]
     if shutil.which(cmd[0]):
         return cmd
     if shutil.which("uv"):
