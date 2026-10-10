@@ -38,6 +38,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.tools import installed_version, missing_tool, warn_on_pin_drift
+from hyperi_ci.versions import runtime_version
 
 # Directory names never scanned as Python source, beside the handler's own
 # excludes and every hidden directory.
@@ -440,7 +441,10 @@ def resolve_tool_cmd(
             serves.
         python: Interpreter version for a ``uvx`` run, e.g. ``3.14``. A tool
             that parses source with ``ast`` reads only the syntax of the Python
-            it runs on, and uvx otherwise picks any interpreter.
+            it runs on. Defaults to the baseline in versions.yaml
+            ``runtimes.python``: left to itself uvx picks any interpreter,
+            including one newer than a dependency ships wheels for, which then
+            builds from source and fails on a runner with no C compiler.
 
     Returns:
         The command to run. It equals ``cmd`` both when the PATH copy is the
@@ -454,7 +458,7 @@ def resolve_tool_cmd(
     pinned = "==" in spec
     wants_uv_form = via in ("uvx", "uv-with")
     uv = shutil.which("uv")
-    uvx = ["uvx", "--python", python] if python else ["uvx"]
+    uvx = ["uvx", "--python", python or runtime_version("python")]
 
     if pinned and wants_uv_form and uv:
         if via == "uv-with":

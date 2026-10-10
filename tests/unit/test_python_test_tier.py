@@ -971,3 +971,29 @@ class TestAgainstRealPytest:
         )
         assert py_test.run(config, extra_env={"TEST_TIER": "full"}) == 0
         assert subtest_skips.errors == []
+
+
+class TestResolveCmd:
+    """A uv project runs pytest in the environment the CI Test job syncs."""
+
+    def test_a_uv_project_syncs_every_extra(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # pytest-cov can sit in an extra (scalo-py's `dev`), which plain uv run skips.
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "uv.lock").write_text("", encoding="utf-8")
+        monkeypatch.setattr(py_test.shutil, "which", lambda name: f"/usr/bin/{name}")
+        assert py_test._resolve_cmd(["pytest", "-q"]) == [
+            "uv",
+            "run",
+            "--all-extras",
+            "pytest",
+            "-q",
+        ]
+
+    def test_without_a_lock_a_path_pytest_runs_as_is(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(py_test.shutil, "which", lambda name: f"/usr/bin/{name}")
+        assert py_test._resolve_cmd(["pytest"]) == ["pytest"]

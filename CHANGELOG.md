@@ -3,6 +3,27 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.22](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.21...v2.13.22) (2026-10-10)
+
+### Bug Fixes
+
+* **python:** run tests with every extra synced, as CI does ([#664](https://github.com/hyperi-io/hyperi-ci/issues/664)) ([efea40c](https://github.com/hyperi-io/hyperi-ci/commit/efea40c79c921e79171ff57aa8d1d1ab8dba6b37))
+* **typescript:** enable corepack in the user directory when Node's bin is read-only ([#663](https://github.com/hyperi-io/hyperi-ci/issues/663)) ([757bdc3](https://github.com/hyperi-io/hyperi-ci/commit/757bdc33fe163df03b020667172e2a5acdc747d5))
+
+## [2.13.21](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.20...v2.13.21) (2026-10-10)
+
+### Bug Fixes
+
+* **quality:** point checkov chart findings at the chart, and say why checkov failed to start ([#660](https://github.com/hyperi-io/hyperi-ci/issues/660)) ([9501b86](https://github.com/hyperi-io/hyperi-ci/commit/9501b86fee7d1ccb79cd5948294e117efaf3dded)), closes [#658](https://github.com/hyperi-io/hyperi-ci/issues/658)
+* **quality:** run uvx tools on the baseline Python, not whatever uv picks ([#661](https://github.com/hyperi-io/hyperi-ci/issues/661)) ([1f5aa03](https://github.com/hyperi-io/hyperi-ci/commit/1f5aa0316471a4ccd59058e3b0e6809ca25a26fd))
+* **release:** name classic branch protection when the bot's commit-back is refused ([#662](https://github.com/hyperi-io/hyperi-ci/issues/662)) ([af1adc0](https://github.com/hyperi-io/hyperi-ci/commit/af1adc030f7ed02e3bcf99e2d2e7f2ab5f27e761))
+
+## [2.13.20](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.19...v2.13.20) (2026-10-10)
+
+### Bug Fixes
+
+* **release:** back off and retry longer when the branch keeps moving ([#657](https://github.com/hyperi-io/hyperi-ci/issues/657)) ([b4b4672](https://github.com/hyperi-io/hyperi-ci/commit/b4b467239f1852ebcd2deddbc82ec2b642ec4567)), closes [#241](https://github.com/hyperi-io/hyperi-ci/issues/241) [#531](https://github.com/hyperi-io/hyperi-ci/issues/531)
+
 ## [2.13.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.18...v2.13.19) (2026-10-10)
 
 ### Bug Fixes

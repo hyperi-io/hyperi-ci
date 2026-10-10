@@ -22,6 +22,8 @@ that did not move is a ruleset or permission refusal and fails at once.
 import base64
 import binascii
 import os
+import random
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -54,7 +56,10 @@ SUPPLEMENT = SUPPLEMENT_FILE
 # trailer.
 _MESSAGE = "chore(release): v{version} [skip ci]"
 
-_RETRIES = 3
+# A merge burst outlasts a few immediate retries, so each one waits longer,
+# jittered so two releases racing the same branch do not retry in step.
+_RETRIES = 6
+_BACKOFF_CAP_SECONDS = 30.0
 
 # gh's stderr from the most recent `gh api` call, "" when it had none, quoted
 # in refusal reports.
@@ -340,13 +345,24 @@ def commit_release_artefacts(
         )
         if outcome != "retry":
             return 0 if outcome == "ok" else 1
+        if attempt == _RETRIES:
+            break
+        delay = _backoff(attempt)
         warn(
             f"release-commit: {branch} moved while committing "
-            f"(attempt {attempt}/{_RETRIES}) -- rebuilding on the new tip"
+            f"(attempt {attempt}/{_RETRIES}) -- rebuilding on the new tip "
+            f"in {delay:.1f}s"
         )
+        time.sleep(delay)
 
     error(f"release-commit: {branch} kept moving -- giving up after {_RETRIES} tries")
     return 1
+
+
+def _backoff(attempt: int) -> float:
+    """Return the wait before retry ``attempt + 1``: doubling, capped, jittered."""
+    ceiling = min(2.0**attempt, _BACKOFF_CAP_SECONDS)
+    return random.uniform(ceiling / 2, ceiling)  # noqa: S311 - jitter, not a secret
 
 
 def _attempt(
