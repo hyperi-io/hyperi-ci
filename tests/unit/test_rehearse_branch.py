@@ -1021,13 +1021,51 @@ class TestOnlyPullRequestWorkflowsAreWaitedOn:
     def test_no_swapped_workflow_on_pull_request_is_a_failure(
         self, monkeypatch, capsys
     ) -> None:
-        fake, changes = _fake_fixture(None, ci_yml=_PRUNE_YML)
+        fake, changes = _fake_fixture(
+            None, ci_yml=_PRUNE_YML.replace("ghcr-prune.yml", "go-ci.yml")
+        )
         monkeypatch.setattr(rehearse_branch, "_run", fake)
         argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
         monkeypatch.setattr(sys, "argv", [*argv, "--no-cli-override"])
         assert rehearse_branch.main() == 1
         assert "run on pull_request" in capsys.readouterr().err
         assert not any(c[:3] == ["gh", "pr", "create"] for c in changes)
+
+
+class TestTheDeclaredWorkflowMustBeCalled:
+    """A rehearsal that never runs the workflow the gate selected the fixture for
+    would record a pass for a change no fixture ran.
+    """
+
+    @staticmethod
+    def _main(monkeypatch, ci_yml: str):
+        fake, changes = _fake_fixture(None, ci_yml=ci_yml, pr_create_rc=1)
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, "--no-cli-override"])
+        return rehearse_branch.main(), changes
+
+    def test_a_fixture_that_never_calls_its_workflow_is_unproven(
+        self, monkeypatch, capsys
+    ) -> None:
+        other = _CI_YML.replace("go-ci.yml", "python-ci.yml")
+        code, changes = self._main(monkeypatch, other)
+        assert code == 2
+        out = capsys.readouterr().out
+        assert "REHEARSAL UNPROVEN" in out
+        assert "go-ci.yml" in out
+        assert changes == []
+
+    def test_a_fixture_that_calls_its_workflow_goes_ahead(self, monkeypatch) -> None:
+        _code, changes = self._main(monkeypatch, _CI_YML)
+        assert any(c[:3] == ["gh", "pr", "create"] for c in changes)
+
+    def test_the_declared_workflow_is_read_from_the_fleet(self) -> None:
+        assert (
+            rehearse_branch.declared_workflow("hyperi-io/ci-test-manifests")
+            == "iac-ci.yml"
+        )
+        assert rehearse_branch.declared_workflow("o/not-in-the-fleet") is None
 
 
 class TestRunsOnPullRequest:

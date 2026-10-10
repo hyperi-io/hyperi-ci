@@ -63,6 +63,10 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import fixture_fleet  # noqa: E402
+
 _HYPERI_CI_REPO = "hyperi-io/hyperi-ci"
 # The fleet sweep treats a fixture carrying any branch under this as held.
 REHEARSAL_PREFIX = "rehearse/"
@@ -120,6 +124,25 @@ def runs_on_pull_request(text: str) -> bool:
     if isinstance(triggers, (list, dict)):
         return any(event in _PR_EVENTS for event in triggers)
     return False
+
+
+def declared_workflow(repo: str) -> str | None:
+    """The reusable workflow the fleet declares ``repo``'s ci.yml calls, if any.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+
+    Returns:
+        The workflow filename, or None when the fleet does not name one.
+    """
+    name = repo.rsplit("/", 1)[-1]
+    entry = next((e for e in fixture_fleet.load_fleet() if e["name"] == name), None)
+    return entry.get("workflow") if entry else None
+
+
+def calls_workflow(text: str, workflow: str) -> bool:
+    """Whether a workflow file's text calls hyperi-ci's ``workflow`` at a ref."""
+    return f"{_HYPERI_CI_REPO}/.github/workflows/{workflow}@" in text
 
 
 def rehearse_slug(branch: str) -> str:
@@ -816,14 +839,25 @@ def main() -> int:
         # that run on a pull request.
         swapped_workflows: list[str] = []
         total_swaps = 0
+        declared = declared_workflow(repo)
+        declared_called = False
         for wf in sorted((clone / ".github" / "workflows").glob("*.yml")):
             new_text, count = swap_refs(wf.read_text(encoding="utf-8"), branch)
             if count:
                 wf.write_text(new_text, encoding="utf-8", newline="\n")
                 swapped_workflows.append(wf.name)
                 total_swaps += count
+                declared_called |= declared is not None and calls_workflow(
+                    new_text, declared
+                )
         if total_swaps == 0:
             return _fail(f"{repo} has no hyperi-io/hyperi-ci@main refs to swap")
+        if declared is not None and not declared_called:
+            print(
+                f"REHEARSAL UNPROVEN: {repo} main never calls {declared}; prove it "
+                "from a fixture branch. Nothing was changed."
+            )
+            return 2
         print(
             f"Swapped {total_swaps} ref(s) in {len(swapped_workflows)} file(s) "
             f"({', '.join(swapped_workflows)}) -> @{branch}"

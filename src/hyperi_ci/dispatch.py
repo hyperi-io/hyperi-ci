@@ -240,7 +240,8 @@ def _run_lint_iac(config: CIConfig) -> int:
         rc = lint_iac.run(Path.cwd(), config, dimensions=lint_iac.QUALITY_DIMENSIONS)
     if rc != 0:
         warn(
-            "lint-iac: a dimension failed to run, which does not fail the "
+            "lint-iac: reported a failure it could not downgrade (a dimension "
+            "crashed or its config is invalid), which does not fail the "
             "quality stage while quality.iac is warn"
         )
     return 0

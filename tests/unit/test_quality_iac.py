@@ -28,7 +28,7 @@ from hyperi_ci.languages.quality_common import (
 )
 from hyperi_ci.quality import lint_iac
 
-_NOT_FAILING = "quality.iac is warn"
+_NOT_FAILING = "crashed or its config is invalid"
 
 
 class _Recorder:
@@ -177,6 +177,12 @@ class TestModeCeiling:
         with mode_ceiling("warn"):
             assert resolve_tool_mode("tofu", config) == mode
 
+    def test_does_not_cap_a_security_tool(self) -> None:
+        assert "gitleaks" in SECURITY_TOOLS
+        config = CIConfig(_raw={"quality": {"gitleaks": "blocking"}})
+        with mode_ceiling("warn"):
+            assert resolve_tool_mode("gitleaks", config) == "blocking"
+
     def test_resets_after_an_exception(self) -> None:
         with pytest.raises(RuntimeError), mode_ceiling("warn"):
             raise RuntimeError
@@ -232,3 +238,52 @@ class TestStageWiring:
         recorder = _lint(monkeypatch, rc=1)
         assert dispatch.stage_quality("python", _config("warn")) == 0
         assert len(recorder.calls) == 1
+
+    def test_a_disabled_quality_stage_never_runs_lint_iac(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorder = _lint(monkeypatch, rc=1)
+        config = CIConfig(
+            _raw={"quality": {"enabled": False, "reason": "test", "iac": "blocking"}}
+        )
+        assert dispatch.stage_quality("python", config) == 0
+        assert recorder.calls == []
+
+
+class TestARealDimensionUnderTheCap:
+    """compose-pins runs for real: it needs no external binary."""
+
+    @pytest.fixture(autouse=True)
+    def _unpinned_compose_tree(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / "docker-compose.yml").write_text(
+            "services:\n  web:\n    image: nginx\n", encoding="utf-8", newline="\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(lint_iac.compose_config, "run", lambda *a, **k: 0)
+
+    @staticmethod
+    def _surfaced(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[str]]]:
+        seen: list[tuple[str, list[str]]] = []
+
+        def _surface(tool: str, findings: list, **_kwargs: object) -> int:
+            seen.append((tool, [f.level for f in findings]))
+            return 0
+
+        monkeypatch.setattr(lint_iac.fdg, "surface", _surface)
+        return seen
+
+    def test_warn_surfaces_the_unpinned_image_as_a_warning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = self._surfaced(monkeypatch)
+        assert dispatch._run_lint_iac(_config("warn")) == 0
+        assert ("compose-pins", ["warning"]) in seen
+
+    def test_blocking_surfaces_it_as_an_error_and_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = self._surfaced(monkeypatch)
+        assert dispatch._run_lint_iac(_config("blocking")) == 1
+        assert ("compose-pins", ["error"]) in seen

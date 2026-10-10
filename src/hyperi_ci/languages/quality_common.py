@@ -177,6 +177,7 @@ def mode_ceiling(mode: str) -> Iterator[None]:
 
     An umbrella gate at ``warn`` runs its tools with this, so a tool configured
     ``blocking`` reports a warning rather than an error in a stage that passes.
+    A tool in :data:`SECURITY_TOOLS` is never capped.
     """
     token = _MODE_CEILING.set(mode)
     try:
@@ -373,7 +374,7 @@ def resolve_tool_mode(
     needs. A force-skip (:func:`is_skipped`) wins and makes the tool
     ``disabled``. Under strict mode (:func:`strict_quality`) ``warn`` becomes
     ``blocking``. Inside :func:`mode_ceiling` the result is capped at the
-    ceiling.
+    ceiling, except for a tool in :data:`SECURITY_TOOLS`.
 
     Raises:
         GateReasonRequiredError: A security gate is relaxed with no reason.
@@ -386,7 +387,12 @@ def resolve_tool_mode(
     note_gate_downgrade(key, mode, reason)
     resolved = apply_strict(mode)
     ceiling = _MODE_CEILING.get()
-    if ceiling is not None and stricter(resolved, ceiling):
+    # A security gate is only ever relaxed with a reason, which a ceiling cannot give.
+    if (
+        ceiling is not None
+        and tool not in SECURITY_TOOLS
+        and stricter(resolved, ceiling)
+    ):
         return ceiling
     return resolved
 
