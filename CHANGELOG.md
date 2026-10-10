@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.22](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.21...v2.13.22) (2026-10-10)
+
+### Bug Fixes
+
+* **python:** run tests with every extra synced, as CI does ([#664](https://github.com/hyperi-io/hyperi-ci/issues/664)) ([efea40c](https://github.com/hyperi-io/hyperi-ci/commit/efea40c79c921e79171ff57aa8d1d1ab8dba6b37))
+* **typescript:** enable corepack in the user directory when Node's bin is read-only ([#663](https://github.com/hyperi-io/hyperi-ci/issues/663)) ([757bdc3](https://github.com/hyperi-io/hyperi-ci/commit/757bdc33fe163df03b020667172e2a5acdc747d5))
+
 ## [2.13.21](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.20...v2.13.21) (2026-10-10)
 
 ### Bug Fixes
