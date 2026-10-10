@@ -31,6 +31,9 @@ quality:
   # into every local check, which is how a check stops being read.
   exclude_paths:
     - docs/superpowers
+    # The scalo-service skeleton `chart assemble` tests build on; its library
+    # dependency is supplied at assembly, so helm cannot render it standalone.
+    - tests/unit/data/scalo-service
 
   # Gates that run as their own CI JOB, repeated here so a local
   # `hyperi-ci check` green actually predicts a CI green. Both are blocking in

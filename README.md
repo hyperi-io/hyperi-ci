@@ -302,6 +302,7 @@ Your Project                          hyperi-ci
 ├── .githooks/commit-msg              │   │   ├── python-ci.yml       (per-language)
 └── Makefile                          │   │   ├── go-ci.yml           (per-language)
                                       │   │   ├── ts-ci.yml           (per-language)
+                                      │   │   ├── iac-ci.yml          (IaC-only repos: lint-iac)
                                       │   │   └── _release-tail.yml   (shared: container + publish)
                                       │   └── actions/
                                       │       └── predict-version/    (shared composite)

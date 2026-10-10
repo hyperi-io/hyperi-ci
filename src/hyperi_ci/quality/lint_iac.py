@@ -73,6 +73,10 @@ DIMENSIONS = (
     "generated",
 )
 
+# What the quality stage runs. It already runs hadolint itself, and checkov
+# scans the whole tree on every run as an advisory only.
+QUALITY_DIMENSIONS = tuple(d for d in DIMENSIONS if d not in ("dockerfile", "checkov"))
+
 # What the deprecated `lint-manifests` and `lint-compose` verbs ran.
 MANIFEST_DIMENSIONS = ("helm", "kustomize", "manifests", "kube-linter", "checkov")
 COMPOSE_DIMENSIONS = ("compose",)

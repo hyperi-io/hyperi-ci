@@ -32,7 +32,9 @@ from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.languages.quality_common import (
     GateReasonRequiredError,
+    mode_ceiling,
     note_quality_disabled,
+    resolve_tool_mode,
 )
 from hyperi_ci.languages.rust._jobs import capped_cargo_jobs
 from hyperi_ci.languages.tiering import (
@@ -48,6 +50,7 @@ from hyperi_ci.quality import (
     gitleaks,
     hadolint,
     lint_docs,
+    lint_iac,
     repo_advisor,
     semgrep,
 )
@@ -219,6 +222,30 @@ def _run_local_gates(config: CIConfig) -> int:
     return 0
 
 
+def _run_lint_iac(config: CIConfig) -> int:
+    """Run lint-iac's quality dimensions over the repo under ``quality.iac``.
+
+    ``warn`` caps every dimension's mode at ``warn``, so a blocking tool reports
+    warnings and the stage passes. ``blocking`` runs each dimension at its own
+    mode and returns the result, and ``disabled`` runs nothing. Each dimension
+    opens its own log group, so this opens none.
+    """
+    mode = resolve_tool_mode("iac", config, default="warn")
+    if mode == "disabled":
+        info("lint-iac: quality.iac is disabled - skipping")
+        return 0
+    if mode == "blocking":
+        return lint_iac.run(Path.cwd(), config, dimensions=lint_iac.QUALITY_DIMENSIONS)
+    with mode_ceiling("warn"):
+        rc = lint_iac.run(Path.cwd(), config, dimensions=lint_iac.QUALITY_DIMENSIONS)
+    if rc != 0:
+        warn(
+            "lint-iac: a dimension failed to run, which does not fail the "
+            "quality stage while quality.iac is warn"
+        )
+    return 0
+
+
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks -- gitleaks + language-specific checks."""
     # A non-fatal nudge, so it runs first and even when quality is disabled.
@@ -268,6 +295,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
             return rc
     with group("droast Dockerfile advisory"):
         droast.run(config)
+
+    rc = _run_lint_iac(config)
+    if rc != 0:
+        return rc
 
     # Every doc check defaults to `warn` until a repo promotes it.
     docs_rc = lint_docs.run(Path.cwd(), config)

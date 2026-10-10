@@ -12,12 +12,14 @@ code, relaxed rules on test directories. Both come from defaults.yaml and are
 overridable in .hyperi-ci.yaml.
 """
 
+import contextlib
 import fnmatch
 import os
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
 
@@ -54,6 +56,9 @@ _NOT_PYTHON_SOURCE = (
 _VALID_MODES = {"blocking", "warn", "disabled"}
 
 _MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
+
+# The hardest mode any tool resolves to inside :func:`mode_ceiling`, else None.
+_MODE_CEILING: ContextVar[str | None] = ContextVar("mode_ceiling", default=None)
 
 # Lines a non-blocking tool shows inline before the rest is only counted.
 WARN_OUTPUT_CAP = 25
@@ -164,6 +169,20 @@ def stricter(mode: str, than: str) -> bool:
     same finding that must agree on which one decides whether it fails.
     """
     return _MODE_STRENGTH.get(mode, 0) > _MODE_STRENGTH.get(than, 0)
+
+
+@contextlib.contextmanager
+def mode_ceiling(mode: str) -> Iterator[None]:
+    """Cap every mode :func:`resolve_tool_mode` returns inside the block at ``mode``.
+
+    An umbrella gate at ``warn`` runs its tools with this, so a tool configured
+    ``blocking`` reports a warning rather than an error in a stage that passes.
+    """
+    token = _MODE_CEILING.set(mode)
+    try:
+        yield
+    finally:
+        _MODE_CEILING.reset(token)
 
 
 def quality_skip() -> frozenset[str]:
@@ -353,7 +372,8 @@ def resolve_tool_mode(
     such as Checkov's ``frameworks`` and the ``reason`` a relaxed security gate
     needs. A force-skip (:func:`is_skipped`) wins and makes the tool
     ``disabled``. Under strict mode (:func:`strict_quality`) ``warn`` becomes
-    ``blocking``.
+    ``blocking``. Inside :func:`mode_ceiling` the result is capped at the
+    ceiling.
 
     Raises:
         GateReasonRequiredError: A security gate is relaxed with no reason.
@@ -364,7 +384,11 @@ def resolve_tool_mode(
     key = f"quality.{language}.{tool}" if language else f"quality.{tool}"
     mode, reason = checked_mode(key, config.get(key, default), default)
     note_gate_downgrade(key, mode, reason)
-    return apply_strict(mode)
+    resolved = apply_strict(mode)
+    ceiling = _MODE_CEILING.get()
+    if ceiling is not None and stricter(resolved, ceiling):
+        return ceiling
+    return resolved
 
 
 def checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:

@@ -76,6 +76,7 @@ keys:
   quality.compose_pins: src/hyperi_ci/quality/compose_pins.py
   quality.tofu: src/hyperi_ci/quality/tofu.py
   quality.ansible_lint: src/hyperi_ci/quality/ansible_lint.py
+  quality.iac: src/hyperi_ci/dispatch.py
   quality.iac_generated: src/hyperi_ci/quality/lint_iac.py
   quality.render_stable: src/hyperi_ci/quality/lint_iac.py
   quality.charset: src/hyperi_ci/quality/charset.py

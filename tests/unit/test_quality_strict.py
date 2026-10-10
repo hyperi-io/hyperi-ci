@@ -64,6 +64,7 @@ _NOT_SECURITY = frozenset(
         "compose_pins",
         "tofu",
         "ansible_lint",
+        "iac",
         "iac_generated",
         "render_stable",
         "cargo_flags",

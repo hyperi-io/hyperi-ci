@@ -2753,3 +2753,54 @@ def test_a_caller_with_an_explicit_secrets_list_can_pass_the_app_key(
     triggers = workflow.get("on") or workflow.get(True, {})
     secrets = triggers["workflow_call"]["secrets"]
     assert secrets.get("GH_APP_PRIVATE_KEY") == {"required": False}
+
+
+class TestIacWorkflow:
+    """iac-ci.yml lints an IaC-only repo and does nothing else.
+
+    It takes no secrets and builds, tags and publishes nothing, so a caller can
+    run it on a fork PR, and its one job follows the default runner chain.
+    """
+
+    @staticmethod
+    def _workflow() -> dict:
+        return _load_workflow("iac-ci.yml")
+
+    def _job(self) -> dict:
+        jobs = self._workflow()["jobs"]
+        assert list(jobs) == ["iac"], list(jobs)
+        return jobs["iac"]
+
+    def test_the_job_follows_the_default_runner_chain(self) -> None:
+        assert self._job()["runs-on"] == TestRunnerSelection.DEFAULT_CHAIN
+
+    def test_it_declares_no_secrets_and_reads_only_contents(self) -> None:
+        workflow = self._workflow()
+        triggers = workflow.get("on") or workflow.get(True, {})
+        assert "secrets" not in triggers["workflow_call"]
+        assert workflow["permissions"] == {"contents": "read"}
+        assert "permissions" not in self._job()
+
+    def test_the_cli_install_matches_the_language_workflows(self) -> None:
+        # A rehearsal sets HYPERCI_INSTALL_OVERRIDE, which only works through
+        # the same expression every other workflow reads.
+        expected = _load_workflow("python-ci.yml")["env"]["HYPERCI_INSTALL"]
+        assert self._workflow()["env"]["HYPERCI_INSTALL"] == expected
+
+    def test_it_runs_every_lint_iac_dimension(self) -> None:
+        runs = [str(s.get("run", "")) for s in self._job()["steps"] if "run" in s]
+        assert runs == ["${{ env.HYPERCI_INSTALL }} lint-iac ."]
+
+    def test_the_checkout_keeps_no_credential(self) -> None:
+        checkout = next(
+            s
+            for s in self._job()["steps"]
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout["with"]["persist-credentials"] is False
+
+    def test_its_concurrency_group_differs_from_the_language_workflows(self) -> None:
+        # One caller runs both, and a shared group cancels one of them.
+        ours = self._workflow()["concurrency"]["group"]
+        for name in LANGUAGE_WORKFLOWS:
+            assert _load_workflow(name)["concurrency"]["group"] != ours, name
