@@ -584,9 +584,21 @@ class TestRefusals:
         monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
         stub = _Api(ref_update=False)
         stub.tips = [f"tip-{n}" for n in range(10)]
-        with patch("hyperi_ci.release_commit._api", stub):
+        waits: list[float] = []
+        with (
+            patch("hyperi_ci.release_commit._api", stub),
+            patch("hyperi_ci.release_commit.time.sleep", waits.append),
+        ):
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
-        assert len(stub.bodies_for("/git/refs/heads/")) == 3
+        assert len(stub.bodies_for("/git/refs/heads/")) == 6
+        # No wait after the last try, and each wait sits in its doubling band.
+        assert len(waits) == 5
+        for attempt, wait in enumerate(waits, start=1):
+            ceiling = min(2.0**attempt, 30.0)
+            assert ceiling / 2 <= wait <= ceiling
+
+    def test_the_backoff_is_capped(self) -> None:
+        assert all(release_commit._backoff(n) <= 30.0 for n in range(1, 20))
 
     def test_a_refusal_on_a_branch_that_did_not_move_fails_at_once(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -643,8 +655,12 @@ class TestRefusals:
                 return {"ref": "refs/heads/main"}
             return stub(args, body=body)
 
-        with patch("hyperi_ci.release_commit._api", one_refusal):
+        with (
+            patch("hyperi_ci.release_commit._api", one_refusal),
+            patch("hyperi_ci.release_commit.time.sleep") as sleep,
+        ):
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        sleep.assert_called_once()
         parents = [body["parents"] for body in stub.bodies_for("/git/commits")]
         assert parents == [["tip-a"], ["tip-b"]]
 
