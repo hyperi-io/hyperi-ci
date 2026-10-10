@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.20](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.19...v2.13.20) (2026-10-10)
+
+### Bug Fixes
+
+* **release:** back off and retry longer when the branch keeps moving ([#657](https://github.com/hyperi-io/hyperi-ci/issues/657)) ([b4b4672](https://github.com/hyperi-io/hyperi-ci/commit/b4b467239f1852ebcd2deddbc82ec2b642ec4567)), closes [#241](https://github.com/hyperi-io/hyperi-ci/issues/241) [#531](https://github.com/hyperi-io/hyperi-ci/issues/531)
+
 ## [2.13.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.18...v2.13.19) (2026-10-10)
 
 ### Bug Fixes
