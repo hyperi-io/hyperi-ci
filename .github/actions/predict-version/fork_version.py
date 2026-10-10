@@ -50,8 +50,13 @@ def _load_package() -> None:
         sys.modules["hyperi_ci"] = package
 
 
-def run() -> int:
-    """Classify the repo and, for a fork, predict and write its version."""
+def run(forced_bump: str | None = None) -> int:
+    """Classify the repo and, for a fork, predict and write its version.
+
+    With ``forced_bump`` (``patch`` or ``minor``) the fork's version is that
+    bump from its own last release, and the output flag is ``fork-forced``.
+    """
+    flag = "first-parent" if forced_bump is None else "fork-forced"
     workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
     try:
         _load_package()
@@ -59,33 +64,41 @@ def run() -> int:
 
         check = check_fork(workspace)
     except Exception as exc:
-        _write_outputs(**{"first-parent": "false"})
+        _write_outputs(**{flag: "false"})
         print(
-            f"::warning title=fork release::classification check failed ({exc}) -- versioning with semantic-release"
+            f"::warning title=fork release::classification check failed ({exc}) -- versioning as a non-fork"
         )
         return 0
 
     if check.warning:
         print(
-            f"::warning title=fork release::{check.warning} -- versioning with semantic-release"
+            f"::warning title=fork release::{check.warning} -- versioning as a non-fork"
         )
     if not check.fork:
-        _write_outputs(**{"first-parent": "false"})
+        _write_outputs(**{flag: "false"})
         print(f"first-parent versioning off: {check.reason}", file=sys.stderr)
         return 0
 
     try:
-        from hyperi_ci.fork_version import predict_version
+        if forced_bump is None:
+            from hyperi_ci.fork_version import predict_version
 
-        version, how = predict_version(workspace)
+            version, how = predict_version(workspace)
+        else:
+            from hyperi_ci.fork_version import forced_version
+
+            version = forced_version(workspace, forced_bump)
+            how = f"forced {forced_bump} from the fork's own last release"
     except Exception as exc:
         print(f"::error title=fork release::{exc}")
         return 1
 
-    _write_outputs(**{"first-parent": "true", "version": version})
+    _write_outputs(**{flag: "true", "version": version})
     print(f"::notice title=fork release::Predicted next version: v{version} -- {how}")
     return 0
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--forced":
+        sys.exit(run(sys.argv[2]))
     sys.exit(run())

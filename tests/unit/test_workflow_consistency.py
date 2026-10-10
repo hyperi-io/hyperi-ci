@@ -892,7 +892,7 @@ _DERIVE_INPUTS = {
     "${{ inputs.branch-build }}": "branch_build",
     "${{ github.ref }}": "git_ref",
     "${{ steps.worthy.outputs.release-worthy }}": "release_worthy",
-    "${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
+    "${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
 }
 
 _MATRIX_INPUTS = {
