@@ -32,42 +32,47 @@ def package_script_env() -> dict[str, str]:
     return {k: v for k, v in _STREAM_OUTPUT_ENV.items() if k not in os.environ}
 
 
-def _corepack_enable() -> bool:
-    """Enable Corepack, retrying into ``~/.corepack/bin`` if Node's bin is read-only.
+def _run_corepack_enable(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run ``corepack enable`` with ``args``, capturing its output."""
+    return subprocess.run(
+        ["corepack", "enable", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
 
-    The retry directory is added to PATH.
+
+def _corepack_enable() -> bool:
+    """Enable Corepack, into ``~/.corepack/bin`` when Node's bin is read-only.
+
+    Corepack writes its shims beside its own binary, which a runner image often
+    installs root-owned, so a read-only directory goes straight to the user
+    directory. That directory is added to PATH.
 
     Returns:
         True if corepack was enabled successfully.
 
     """
-    if not shutil.which("corepack"):
+    corepack = shutil.which("corepack")
+    if not corepack:
         warn("corepack not found on PATH")
         return False
 
-    cp = subprocess.run(
-        ["corepack", "enable"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if cp.returncode == 0:
-        info("  corepack enabled")
-        return True
-
-    stderr = cp.stderr.strip() if cp.stderr else "unknown error"
-    warn(f"corepack enable failed ({stderr}) -- retrying with user directory")
+    node_bin = Path(corepack).parent
+    if os.access(node_bin, os.W_OK):
+        cp = _run_corepack_enable()
+        if cp.returncode == 0:
+            info("  corepack enabled")
+            return True
+        stderr = cp.stderr.strip() if cp.stderr else "unknown error"
+        warn(f"corepack enable failed ({stderr}) -- retrying with user directory")
+    else:
+        info(f"  {node_bin} is read-only -- enabling corepack in the user directory")
 
     user_dir = Path.home() / ".corepack" / "bin"
     user_dir.mkdir(parents=True, exist_ok=True)
-    cp = subprocess.run(
-        ["corepack", "enable", "--install-directory", str(user_dir)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    cp = _run_corepack_enable("--install-directory", str(user_dir))
     if cp.returncode == 0:
         os.environ["PATH"] = str(user_dir) + os.pathsep + os.environ.get("PATH", "")
         info(f"  corepack enabled (install-directory={user_dir})")
