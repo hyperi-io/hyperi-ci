@@ -71,12 +71,19 @@ runs:
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
         FORCE_PYTHON_INSTALL: ${{ inputs.force-python-install }}
+      # A self-hosted runner skips setup-uv, so its image must provide uv; an
+      # unpinned install script is never piped to a shell here.
+      # --no-bin: the bin links land in ~/.local/bin, which is not on PATH, and
+      # uv finds its own interpreters without them.
       run: |
-        command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+        if ! command -v uv >/dev/null; then
+          echo "::error::uv is not on PATH: setup-uv did not run or failed, and a self-hosted runner image must provide uv"
+          exit 1
+        fi
         if [ "$FORCE_PYTHON_INSTALL" = "true" ]; then
-          uv python install "$PYTHON_VERSION"
+          uv python install --no-bin "$PYTHON_VERSION"
         else
-          command -v python3 || uv python install "$PYTHON_VERSION"
+          command -v python3 || uv python install --no-bin "$PYTHON_VERSION"
         fi
 
     - name: Install native dependencies
