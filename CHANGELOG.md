@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.18](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.17...v2.13.18) (2026-10-10)
+
+### Bug Fixes
+
+* **ci:** retry the uv install in python-ci.yml ([#650](https://github.com/hyperi-io/hyperi-ci/issues/650)) ([f84ec00](https://github.com/hyperi-io/hyperi-ci/commit/f84ec008a13dd20bcd82fe4f77424a1068500f5f)), closes [#649](https://github.com/hyperi-io/hyperi-ci/issues/649)
+* **push:** apply the fork bump gate on main only ([#652](https://github.com/hyperi-io/hyperi-ci/issues/652)) ([b1ce23a](https://github.com/hyperi-io/hyperi-ci/commit/b1ce23aba0bc4af6e36ae41155502b1316747abb)), closes [#649](https://github.com/hyperi-io/hyperi-ci/issues/649)
+* **release:** base a fork's forced bump on its own last release ([#651](https://github.com/hyperi-io/hyperi-ci/issues/651)) ([94c6514](https://github.com/hyperi-io/hyperi-ci/commit/94c65148179b38a8ec327163b5eb471e11c15837)), closes [#642](https://github.com/hyperi-io/hyperi-ci/issues/642)
+* **release:** keep upstream issue numbers out of a fork's release comments ([#653](https://github.com/hyperi-io/hyperi-ci/issues/653)) ([599d1b9](https://github.com/hyperi-io/hyperi-ci/commit/599d1b94b108f245abb88373fce5196fecc14ae0)), closes [#NNN](https://github.com/hyperi-io/hyperi-ci/issues/NNN) [#649](https://github.com/hyperi-io/hyperi-ci/issues/649)
+
 ## [2.13.17](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.16...v2.13.17) (2026-10-09)
 
 ### Bug Fixes
