@@ -1201,6 +1201,7 @@ class TestReleaseTailPublishesTheContractChart:
 
         monkeypatch.setattr(charts, "_helm", helm)
         monkeypatch.setattr(charts, "pinned_image", fake.pinned)
+        monkeypatch.setattr(charts, "anonymously_pullable", lambda _r, _n: True)
         monkeypatch.setattr(charts, "_ensure_helm", lambda: True)
         monkeypatch.setattr(assemble, "_helm", dependency_build)
         monkeypatch.setattr(assemble, "_ensure_helm", lambda: True)

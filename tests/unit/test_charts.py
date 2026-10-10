@@ -5,10 +5,14 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import http.server
 import json
 import shutil
 import subprocess
 import tarfile
+import threading
+import urllib.parse
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -243,12 +247,16 @@ class FakeHelm:
 
     def __init__(self, existing: dict[str, str] | None = None) -> None:
         self.existing = existing or {}
+        # Packages holding some earlier version, which `--devel` finds.
+        self.packages: set[str] = set()
         self.calls: list[tuple[str, ...]] = []
 
     def __call__(self, *args: str, registry: str = "") -> tuple[int, str]:
         self.calls.append(args)
         if args[:2] == ("show", "chart"):
             name = args[2].rsplit("/", 1)[-1]
+            if "--devel" in args and name in self.packages:
+                return 0, f"Pulled: x\nDigest: {OTHER}\napiVersion: v2\n"
             if name in self.existing and "--devel" not in args:
                 return 0, f"Pulled: x\nDigest: {self.existing[name]}\napiVersion: v2\n"
             return 1, "Error: not found"
@@ -261,8 +269,44 @@ class FakeHelm:
         return [c for c in self.calls if c[0] == "push"]
 
 
+class TokenEndpoint:
+    """A local stand-in for GHCR's token endpoint, answering ``status`` to each GET."""
+
+    def __init__(self) -> None:
+        self.status = 200
+        self.scopes: list[str] = []
+        endpoint = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                endpoint.scopes.extend(query.get("scope", []))
+                self.send_response(endpoint.status)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/token"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+
 @pytest.fixture
-def fake_helm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeHelm:
+def token_endpoint(monkeypatch: pytest.MonkeyPatch) -> Iterator[TokenEndpoint]:
+    endpoint = TokenEndpoint()
+    monkeypatch.setattr(charts, "GHCR_AUTH_URL", endpoint.url)
+    yield endpoint
+    endpoint.server.shutdown()
+    endpoint.server.server_close()
+
+
+@pytest.fixture
+def fake_helm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, token_endpoint: TokenEndpoint
+) -> FakeHelm:
     fake = FakeHelm()
     monkeypatch.setattr(charts, "_helm", fake)
     monkeypatch.setattr(charts, "_ensure_helm", lambda: True)
@@ -451,6 +495,65 @@ class TestPublish:
         assert notes is not None
         assert f"| web | 1.0.0 | `{DIGEST}` |" in notes
         assert f"| web | 1.0.1 | `{DIGEST}` |" in notes
+
+
+class TestFirstPushVisibility:
+    @staticmethod
+    def _publish(dfe_infra_shape: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        warnings: list[str] = []
+        monkeypatch.setattr(charts, "warn", warnings.append)
+        rc, _ = charts.publish_charts(
+            _enabled(["helm/charts/web"]),
+            dfe_infra_shape,
+            registry=REGISTRY,
+            version="1.0.0",
+        )
+        assert rc == 0
+        return warnings
+
+    def test_a_first_push_that_came_out_public_is_not_flagged(
+        self,
+        fake_helm: FakeHelm,
+        token_endpoint: TokenEndpoint,
+        dfe_infra_shape: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A public repo's new package inherits public, as every DFE chart did."""
+        assert self._publish(dfe_infra_shape, monkeypatch) == []
+        assert token_endpoint.scopes == ["repository:hyperi-io/charts/web:pull"]
+
+    def test_a_first_push_that_came_out_private_is_flagged(
+        self,
+        fake_helm: FakeHelm,
+        token_endpoint: TokenEndpoint,
+        dfe_infra_shape: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        token_endpoint.status = 401
+        warnings = self._publish(dfe_infra_shape, monkeypatch)
+        assert len(warnings) == 1
+        assert warnings[0].startswith("First push of web: ")
+
+    def test_a_later_version_never_asks_about_visibility(
+        self,
+        fake_helm: FakeHelm,
+        token_endpoint: TokenEndpoint,
+        dfe_infra_shape: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake_helm.packages = {"web"}
+        token_endpoint.status = 401
+        assert self._publish(dfe_infra_shape, monkeypatch) == []
+        assert token_endpoint.scopes == []
+
+    @pytest.mark.parametrize(
+        ("status", "pullable"), [(200, True), (401, False), (403, False)]
+    )
+    def test_the_token_status_decides(
+        self, token_endpoint: TokenEndpoint, status: int, pullable: bool
+    ) -> None:
+        token_endpoint.status = status
+        assert charts.anonymously_pullable(REGISTRY, "web") is pullable
 
 
 class TestConfig:
