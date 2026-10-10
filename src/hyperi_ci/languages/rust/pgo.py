@@ -30,6 +30,7 @@ from hyperi_ci.languages.rust.optimize import (
     cargo_feature_args,
 )
 from hyperi_ci.llvm_version import LLVMVersionError, designated_llvm_version
+from hyperi_ci.native_deps import group_matches
 from hyperi_ci.upgrade import CACHE_DIR
 from hyperi_ci.versions import tool_version
 
@@ -41,6 +42,11 @@ BOLT_NOTE_SECTION = ".note.bolt_info"
 # missing-profile warnings never arrives, leaving cargo waiting forever (#436).
 # Cargo reads an empty RUSTC_WRAPPER as "no wrapper", over any config.
 _PROFILE_USE_ENV = {"RUSTC_WRAPPER": ""}
+
+_CLANG_TOOLS = ("clang", "clang++")
+
+# The native-deps/rust.yaml group that installs clang-NN, named by its `name:`.
+_CLANG_DEP_GROUP = "llvm-clang"
 
 # cargo-pgo applies the BOLT profile to the layout `bolt build` recorded it on,
 # so `bolt build` and `bolt optimize` must both carry this flag or neither.
@@ -371,8 +377,22 @@ def _ensure_clang_available(project_dir: Path | None = None) -> bool:
     Under `-fuse-ld=lld` clang takes `ld.lld` from its own install first, so
     the designated major must own the driver too. Shimmed apart from
     `ld.lld`, so a runner without `clang-NN` still gets the designated lld.
+
+    native-deps installs `clang-NN` only for a cargo config that links through
+    clang, so any other project missing it keeps PATH unchanged rather than
+    falling back to another major.
     """
-    return _shim_llvm_tools(("clang", "clang++"), project_dir)
+    project = project_dir or Path.cwd()
+    major = designated_llvm_version(project).major
+    if _versioned_tools(_CLANG_TOOLS, major) is None and not group_matches(
+        "rust", _CLANG_DEP_GROUP, project
+    ):
+        info(
+            f"clang-{major} not installed and the cargo config does not link "
+            "through clang -- clang not shimmed"
+        )
+        return True
+    return _shim_llvm_tools(_CLANG_TOOLS, project_dir)
 
 
 # LLVM majors scanned, newest first, when the designated one is incomplete.

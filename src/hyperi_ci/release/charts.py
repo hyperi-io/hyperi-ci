@@ -22,19 +22,22 @@ import os
 import re
 import shutil
 import tempfile
+import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import yaml
 
 from hyperi_ci.common import (
+    URL_ERRORS,
     ReleaseVersionError,
     error,
     info,
     resolve_release_version,
     run_cmd,
     success,
+    url_read,
     warn,
 )
 from hyperi_ci.config import CIConfig
@@ -47,6 +50,10 @@ NOTES_FILE = "hyperi-ci-chart-digests.md"
 
 # Local registries serve no TLS, and helm will not guess that.
 _PLAIN_HTTP = frozenset({"localhost", "127.0.0.1"})
+
+GHCR_AUTH_URL = "https://ghcr.io/token"
+
+_GHCR_TIMEOUT_SECS = 10
 
 
 class ChartError(ValueError):
@@ -230,6 +237,23 @@ def is_new_package(registry: str, name: str) -> bool:
     return rc != 0
 
 
+def anonymously_pullable(registry: str, name: str) -> bool:
+    """Report whether GHCR lets anyone pull ``name``, False when it cannot tell.
+
+    GHCR's token endpoint answers an anonymous pull scope with 200 for a public
+    package, 401 for a private one and 403 for one it does not hold.
+    """
+    repo = f"{urlparse(registry).path.strip('/')}/{name}"
+    query = urlencode({"service": "ghcr.io", "scope": f"repository:{repo}:pull"})
+    url = f"{GHCR_AUTH_URL}?{query}"
+    request = urllib.request.Request(url)  # noqa: S310
+    try:
+        url_read(request, timeout=_GHCR_TIMEOUT_SECS, attempts=2)
+    except URL_ERRORS:
+        return False
+    return True
+
+
 def push(tgz: Path, registry: str) -> str:
     """Push a packaged chart and return its digest.
 
@@ -307,9 +331,8 @@ def _report(results: list[Published], registry: str, new: list[str]) -> None:
                 handle.write(section)
     if new:
         warn(
-            f"First push of {', '.join(new)}: GHCR set its visibility from the org "
-            "and repo defaults. Check the package settings: consumers that pull "
-            "anonymously need it public."
+            f"First push of {', '.join(new)}: GHCR refuses it an anonymous pull. "
+            "Make it public in the package settings if consumers pull anonymously."
         )
 
 
@@ -515,11 +538,13 @@ def publish_charts(
                         f"  {chart.name} {version} already in {registry}, not re-pushed"
                     )
                 else:
-                    if _host(registry) == "ghcr.io" and is_new_package(
+                    first = _host(registry) == "ghcr.io" and is_new_package(
                         registry, chart.name
-                    ):
-                        new.append(chart.name)
+                    )
                     digest = push(tgz, registry)
+                    # GHCR picks a new package's visibility at the push, so ask after it.
+                    if first and not anonymously_pullable(registry, chart.name):
+                        new.append(chart.name)
                 ref = f"{registry.removeprefix('oci://')}/{chart.name}@{digest}"
                 results.append(Published(chart.name, version, digest, ref))
     except ChartError as exc:

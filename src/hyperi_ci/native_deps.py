@@ -214,6 +214,26 @@ def _patterns_match(content: str, patterns: list[str]) -> bool:
     return any(pattern in content for pattern in patterns)
 
 
+def _group_matches(group: DepGroup, project_dir: Path) -> bool:
+    """Report whether ``group``'s manifest patterns match ``project_dir``."""
+    content = _read_manifests(project_dir, group.manifest_files)
+    return bool(content) and _patterns_match(content, group.patterns)
+
+
+def group_matches(language: str, name: str, project_dir: Path) -> bool:
+    """Report whether native-deps installs the group ``name`` for ``project_dir``.
+
+    Raises:
+        ValueError: ``language`` defines no native-deps group called ``name``.
+        LLVMVersionError: The designated LLVM version is not a whole-number major.
+
+    """
+    for group in _load_dep_groups(language, project_dir=project_dir):
+        if group.name == name:
+            return _group_matches(group, project_dir)
+    raise ValueError(f"no native-deps group {name!r} for {language}")
+
+
 def _get_os_codename() -> str:
     """Get the current OS codename via lsb_release, or "" if unavailable.
 
@@ -713,12 +733,8 @@ def install_native_deps(
                     "install-on-demand only)"
                 )
                 continue
-        else:
-            content = _read_manifests(cwd, group.manifest_files)
-            if not content:
-                continue
-            if not _patterns_match(content, group.patterns):
-                continue
+        elif not _group_matches(group, cwd):
+            continue
 
         if _is_dpkg_installed(group.dpkg_check, group.dpkg_min_version):
             logger.info(f"[{group.name}] already installed ({group.dpkg_check})")
@@ -860,8 +876,7 @@ def print_needed(
         if all_mode:
             matched = group.bake
         else:
-            content = _read_manifests(cwd, group.manifest_files)
-            matched = bool(content) and _patterns_match(content, group.patterns)
+            matched = _group_matches(group, cwd)
         installed = (
             _is_dpkg_installed(group.dpkg_check)
             if platform.system() == "Linux"

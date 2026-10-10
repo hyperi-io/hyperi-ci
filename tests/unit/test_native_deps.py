@@ -685,6 +685,34 @@ class TestDepGroupLoading:
         assert "clang" not in installed
         assert f"bolt-{runtime_version('llvm')}" in installed
 
+    @pytest.mark.parametrize(
+        ("cargo_config", "expected"),
+        [
+            ('[target.aarch64-unknown-linux-gnu]\nlinker = "clang"\n', True),
+            ('[target.aarch64-unknown-linux-gnu]\nlinker = "gcc"\n', False),
+            (None, False),
+        ],
+    )
+    def test_group_matches_answers_what_the_install_would_pick(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cargo_config: str | None,
+        expected: bool,
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        if cargo_config is not None:
+            (tmp_path / ".cargo").mkdir()
+            (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
+        assert native_deps.group_matches("rust", "llvm-clang", tmp_path) is expected
+
+    def test_group_matches_refuses_an_unknown_group(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        with pytest.raises(ValueError, match="no-such-group"):
+            native_deps.group_matches("rust", "no-such-group", tmp_path)
+
     # The groups every Rust project gets regardless of its dependencies.
     _ALWAYS_ON = ("mold linker", "llvm-bolt")
 
