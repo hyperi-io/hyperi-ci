@@ -172,15 +172,16 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
 
 
 def last_version_tag(
-    *, first_parent: bool = False, cwd: Path | None = None
+    *, first_parent: bool = False, cwd: Path | None = None, rev: str = "HEAD"
 ) -> str | None:
-    """Return the nearest ``v*`` tag reachable from HEAD, or None if there is none.
+    """Return the nearest ``v*`` tag reachable from ``rev``, or None if there is none.
 
     Args:
         first_parent: Walk only HEAD's first-parent chain and skip prerelease
             tags, so a tag reachable only through a merged-in branch is never
             taken as this branch's last release.
         cwd: Repository to ask. Defaults to the current directory.
+        rev: The commit to look back from. Defaults to HEAD.
 
     Returns:
         The tag name, or None when no tag matches or git could not answer.
@@ -189,6 +190,7 @@ def last_version_tag(
     args = ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]
     if first_parent:
         args += ["--exclude", "v*-*", "--first-parent"]
+    args.append(rev)
     result = subprocess.run(
         args,
         capture_output=True,

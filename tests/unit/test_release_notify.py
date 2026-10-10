@@ -14,8 +14,9 @@ red, which is worse than the missing notification it was meant to fix.
 
 import shutil
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from typer.testing import CliRunner
 
 from hyperi_ci import release_notify
 from hyperi_ci.cli import app
+from hyperi_ci.common import run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_notify import (
     COMMIT_BACK_LABEL,
@@ -83,6 +85,49 @@ class TestReferencedIssues:
     def test_empty_when_git_fails(self) -> None:
         with patch("hyperi_ci.release_notify.run_cmd", return_value=_git("", 128)):
             assert referenced_issues("1.2.3") == []
+
+
+class TestReferencedIssuesOnARealRepo:
+    """Tags and history are real git, because the fork rule is about topology."""
+
+    @staticmethod
+    def _release(root: Path, *, fork: bool) -> None:
+        if fork:
+            (root / ".hyperi-ci.yaml").write_text(
+                "classification: fork\n", encoding="utf-8"
+            )
+        run_cmd(["git", "tag", "v0.2.9"], capture=True, check=True, cwd=root)
+
+    def test_a_fork_ignores_upstream_issue_numbers(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        root = make_fork_history(
+            tmp_path,
+            own=("fix: x (#7)",),
+            upstream_feature="feat: upstream feature (#5)",
+        )
+        self._release(root, fork=True)
+        assert referenced_issues("0.2.9", cwd=str(root)) == [7, 121]
+
+    def test_a_fork_range_starts_at_its_own_tag_not_upstreams(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        root = make_fork_history(
+            tmp_path, upstream_feature="feat: upstream feature (#5)"
+        )
+        self._release(root, fork=True)
+        assert referenced_issues("0.2.9", cwd=str(root)) == [121]
+
+    def test_a_non_fork_still_reads_every_commit(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        root = make_fork_history(
+            tmp_path,
+            own=("fix: x (#7)",),
+            upstream_feature="feat: upstream feature (#5)",
+        )
+        self._release(root, fork=False)
+        assert referenced_issues("0.2.9", cwd=str(root)) == [5, 7, 121]
 
 
 class TestNotifySuccess:
