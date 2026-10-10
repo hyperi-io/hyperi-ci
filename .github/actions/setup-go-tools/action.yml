@@ -42,7 +42,7 @@ inputs:
     description: golangci-lint release tag to pin (must include the leading `v`)
     required: false
     # hyperi-ci:pin tools.golangci-lint
-    default: v2.13.2
+    default: v2.14.0
   gosec-version:
     description: gosec release tag to pin (must include the leading `v`)
     required: false
@@ -57,12 +57,12 @@ inputs:
     description: sha256 of the linux-amd64 golangci-lint tarball
     required: false
     # hyperi-ci:pin tools.golangci-lint.sha256.amd64
-    default: 2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6
+    default: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
   golangci-lint-sha256-arm64:
     description: sha256 of the linux-arm64 golangci-lint tarball
     required: false
     # hyperi-ci:pin tools.golangci-lint.sha256.arm64
-    default: a2a4e0065aa41be71f7c5ac90f271b61751331e5d04314e62afe4027855f0893
+    default: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
   gosec-sha256-amd64:
     description: sha256 of the linux-amd64 gosec tarball
     required: false
