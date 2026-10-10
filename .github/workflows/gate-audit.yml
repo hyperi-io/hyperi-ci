@@ -59,6 +59,9 @@ jobs:
       - name: Mint an org-wide read token
         # An org sweep reads workflow runs and jobs across SIBLING repos, which
         # GITHUB_TOKEN cannot do -- it is scoped to this repo alone.
+        # No `repositories`: the sweep audits every repo `orgs/<org>/repos`
+        # returns, reading runs and jobs (actions) and .hyperi-ci.yaml plus the
+        # caller workflow (contents).
         id: bot
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
