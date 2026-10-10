@@ -115,6 +115,10 @@ quality:
 
   # IaC linting (`hyperi-ci lint-iac`). May be a mode string OR a dict with
   # `mode` + tool options (see docs/quality-gate-tools.md).
+  # `iac` is the umbrella for lint-iac inside the quality stage: `warn` caps
+  # every tool below at warn, per the ratchet. Promote it to `blocking` once the
+  # repo is clean, and the per-tool modes apply. `hyperi-ci lint-iac` ignores it.
+  iac: warn
   kubeconform: blocking      # k8s schema GATE; also gates helm/kustomize render failures
   render_stable: blocking    # Two helm/kustomize renders must be byte-equal (test hooks excluded)
   kube_linter: warn          # k8s best-practice ADVISORY; never gates

@@ -130,6 +130,8 @@ Without one, the stage fails and names the security gates the repo loses: gitlea
 
 [quality-gate-tools.md](quality-gate-tools.md) has the per-tool table (gitleaks, semgrep, charset, hadolint, the language handlers). It also has the config knobs: `quality.exclude_paths`, the ruff keys, the Rust feature matrix, and the gitleaks config and its canary. The Container, k8s and IaC linting paths and the two advisory hygiene nudges are there too.
 
+lint-iac runs inside the stage under one umbrella mode, `quality.iac`, which ships `warn`. A repo whose IaC is clean promotes it to `blocking` ([quality-gate-tools.md](quality-gate-tools.md#where-lint-iac-runs)). It is not a security gate, so turning it down owes no reason.
+
 [quality-gate-doc-linting.md](quality-gate-doc-linting.md) covers `hyperi-ci lint-docs <dir>` and the same five checks inside the quality stage (doc-paths, lychee, mermaid-parse, markdownlint, docs-touched). It has gate semantics, how findings surface, config, coverage caveats and adoption impact.
 
 `--strict`, `HYPERCI_QUALITY_SKIP` and `quality.ignore` are in [quality-gate-overrides.md](quality-gate-overrides.md).

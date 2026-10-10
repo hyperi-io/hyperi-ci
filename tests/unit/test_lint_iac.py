@@ -117,6 +117,22 @@ class TestOrchestration:
         assert captured[0][0].findings == 2
 
 
+class TestManifestDiscoveryRunsOnce:
+    def test_manifests_and_kube_linter_share_one_discovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[Path] = []
+
+        def _discover(root: Path, *, exclude_dirs: object = ()) -> list[Path]:
+            calls.append(root)
+            return []
+
+        monkeypatch.setattr(lint_iac, "discover_manifests", _discover)
+        monkeypatch.setattr(lint_iac.kube_linter, "run", lambda *a, **k: 0)
+        lint_iac.run(tmp_path, _cfg(), dimensions=("manifests", "kube-linter"))
+        assert len(calls) == 1
+
+
 class TestGuardrailSettings:
     def test_timeout_and_memory_come_from_config(
         self, stubbed: dict, tmp_path: Path

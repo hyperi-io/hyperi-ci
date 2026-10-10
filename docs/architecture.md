@@ -62,6 +62,8 @@ flowchart TB
     style RT fill:#dbeafe,color:#000
 ```
 
+A repo with no language pipeline calls `iac-ci.yml@main` instead: one job running `hyperi-ci lint-iac .`, with no plan, build, release or secrets ([quality-gate-tools.md](quality-gate-tools.md#where-lint-iac-runs)).
+
 Level 1 is the consumer's `ci.yml` calling `<lang>-ci.yml@main`. Level 2 is that language workflow calling the shared `_release-tail.yml` and the composites. There are no `_setup.yml` / `_ci.yml` orchestrator chains. Mature multi-language repos (astral-sh/uv, tokio-rs/tokio, vercel/turborepo) keep CI flat the same way: a plan job and gates.
 
 ## Workflow internals: job contract and composites

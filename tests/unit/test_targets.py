@@ -8,6 +8,9 @@
 
 from pathlib import Path
 
+import pytest
+
+from hyperi_ci.quality import targets
 from hyperi_ci.quality.targets import (
     discover_dockerfiles,
     discover_helm_charts,
@@ -147,6 +150,26 @@ class TestDiscoverManifests:
         (tmp_path / "manifest.yaml").write_text(
             "apiVersion: v1\nkind: Service\nmetadata:\n  name: s\n", encoding="utf-8"
         )
+        assert discover_manifests(tmp_path) == []
+
+    def test_a_file_without_both_keys_is_never_parsed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "values.yaml").write_text("replicas: 3\n", encoding="utf-8")
+        (tmp_path / "only-kind.yaml").write_text("kind: Thing\n", encoding="utf-8")
+        parsed: list[str] = []
+        real = targets.yaml.safe_load_all
+
+        def _spy(text: str):  # noqa: ANN202
+            parsed.append(text)
+            return real(text)
+
+        monkeypatch.setattr(targets.yaml, "safe_load_all", _spy)
+        assert discover_manifests(tmp_path) == []
+        assert parsed == []
+
+    def test_a_file_that_is_not_utf8_is_skipped(self, tmp_path: Path) -> None:
+        (tmp_path / "bad.yaml").write_bytes(b"apiVersion: v1\nkind: \xff\xfe\n")
         assert discover_manifests(tmp_path) == []
 
     def test_chart_at_root_is_discovered_as_chart(self, tmp_path: Path) -> None:

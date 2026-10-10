@@ -289,8 +289,12 @@ def _looks_like_manifest(path: Path) -> bool:
     fails the parse.
     """
     try:
-        docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
-    except (OSError, yaml.YAMLError):
+        raw = path.read_bytes()
+        # Both keys must appear literally, and the parse is the slow part.
+        if b"apiVersion" not in raw or b"kind" not in raw:
+            return False
+        docs = list(yaml.safe_load_all(raw.decode("utf-8")))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return False
     return any(isinstance(d, dict) and "apiVersion" in d and "kind" in d for d in docs)
 

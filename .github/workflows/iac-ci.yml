@@ -1,0 +1,76 @@
+# Project:   HyperI CI
+# File:      .github/workflows/iac-ci.yml
+# Purpose:   Reusable IaC lint workflow for repos with no language pipeline
+#
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Runs `hyperi-ci lint-iac` over the checkout: charts, manifests, kustomize,
+# OpenTofu, ansible, compose and Dockerfiles, each switched on by marker. It
+# builds, tags and publishes nothing and takes no secrets, so a caller needs no
+# `secrets: inherit`. A language repo gets the same linters inside its quality
+# stage instead (`quality.iac`).
+
+name: IaC CI
+
+on:
+  workflow_call:
+    inputs:
+      runner-mode:
+        type: string
+        default: ""
+        description: "Runner mode: 'free' forces ubuntu-latest"
+
+concurrency:
+  # The literal keeps this group apart from a language workflow the same caller
+  # runs beside it, which would otherwise cancel one or the other.
+  group: ${{ github.workflow }}-iac-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a
+  # rehearsal points it at `uvx --from git+...@<branch> hyperi-ci`, an incident pins
+  # `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  # `--python` pins the CLI's OWN interpreter (issue #157).
+  HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
+  # HYPERCI_QUALITY_SKIP (repo/org variable, e.g. "kubeconform") force-skips a
+  # tool whose false positive is halting CI until the real fix lands.
+  HYPERCI_QUALITY_SKIP: ${{ vars.HYPERCI_QUALITY_SKIP }}
+
+permissions:
+  contents: read
+
+jobs:
+  iac:
+    name: IaC lint
+    # Each tool call is capped at iac.timeout_seconds (600) on its own.
+    timeout-minutes: 45
+    # lint-iac fetches helm, kubeconform, kube-linter, kustomize, tofu and
+    # hadolint at their versions.yaml pins and runs checkov and ansible-lint
+    # through uvx, so the default runner is enough (issue #291).
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
+      - name: Install uv
+        id: uv_try1
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Lint IaC
+        run: ${{ env.HYPERCI_INSTALL }} lint-iac .

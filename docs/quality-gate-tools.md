@@ -224,6 +224,18 @@ hadolint and droast auto-detect Dockerfiles inside `hyperi-ci run quality`, like
 
 `lint-manifests` and `lint-compose` are deprecated aliases. They print one notice and run lint-iac's helm, kustomize, manifests, kube-linter and checkov dimensions, or its compose dimension.
 
+## Where lint-iac runs
+
+- **Inside `hyperi-ci run quality`**, for a language repo. Every dimension runs except dockerfile (hadolint already runs in the stage) and checkov. One umbrella mode, `quality.iac`, decides whether a gate failure fails the stage. It ships `warn`, which caps every tool at `warn`: findings show as warnings and the stage passes. `blocking` runs each tool at its own mode from the table, so a blocking tool's failure fails the stage. `disabled` skips lint-iac.
+- **In `iac-ci.yml`**, for a repo with no language pipeline. It runs `hyperi-ci lint-iac .` with every dimension, checkov included, on the `GH_RUNNER_DEFAULT` runner. It takes no secrets and builds, tags and publishes nothing. `quality.iac` does not apply there.
+
+```yaml
+# .github/workflows/ci.yml in an IaC-only repo
+jobs:
+  iac:
+    uses: hyperi-io/hyperi-ci/.github/workflows/iac-ci.yml@main
+```
+
 ## How lint-iac runs
 
 - **lint-iac never writes into the tree it lints.** `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.

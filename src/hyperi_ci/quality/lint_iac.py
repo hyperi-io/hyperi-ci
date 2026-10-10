@@ -73,6 +73,10 @@ DIMENSIONS = (
     "generated",
 )
 
+# What the quality stage runs. It already runs hadolint itself, and checkov
+# scans the whole tree on every run as an advisory only.
+QUALITY_DIMENSIONS = tuple(d for d in DIMENSIONS if d not in ("dockerfile", "checkov"))
+
 # What the deprecated `lint-manifests` and `lint-compose` verbs ran.
 MANIFEST_DIMENSIONS = ("helm", "kustomize", "manifests", "kube-linter", "checkov")
 COMPOSE_DIMENSIONS = ("compose",)
@@ -94,6 +98,13 @@ class _Context:
     exclude: list[str]
     helm_renders: list[render.Rendered] = field(default_factory=list)
     kustomize_renders: list[render.Rendered] = field(default_factory=list)
+    manifests: list[Path] | None = None
+
+    def discovered_manifests(self) -> list[Path]:
+        """Plain manifests under the root, found once per run."""
+        if self.manifests is None:
+            self.manifests = discover_manifests(self.root, exclude_dirs=self.exclude)
+        return self.manifests
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,7 +237,7 @@ def _kustomize(ctx: _Context) -> tuple[int, int]:
 
 
 def _manifests(ctx: _Context) -> tuple[int, int]:
-    manifests = discover_manifests(ctx.root, exclude_dirs=ctx.exclude)
+    manifests = ctx.discovered_manifests()
     if not manifests:
         info("  manifests: no plain k8s manifest - skipping")
         return 0, 0
@@ -248,7 +259,7 @@ def _kube_linter(ctx: _Context) -> tuple[int, int]:
     }
     targets = [
         *(c for c in charts if c not in rendered),
-        *discover_manifests(ctx.root, exclude_dirs=ctx.exclude),
+        *ctx.discovered_manifests(),
         *sources,
     ]
     kube_linter.run(

@@ -52,8 +52,9 @@ fleet:
 
   - name: ci-test-manifests
     language: none
-    workflow: python-ci.yml
+    workflow: iac-ci.yml
     covers: container, Kubernetes and IaC linting
+    rehearsal: default
     negative_cases: true
 
   - name: ci-test-python-app
