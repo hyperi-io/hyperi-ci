@@ -322,6 +322,15 @@ class TestNotifyCommitBackFailed:
         assert "bypass list with mode Always" in body
         assert "`hypersec-ci-bot`" in body
 
+    def test_a_bot_refusal_names_classic_branch_protection_too(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules > Insights does not show classic protection, which refuses the same way."""
+        monkeypatch.setenv(release_notify.IDENTITY_ENV, "app")
+        body = release_notify._commit_back_body(_REPO, "0.3.2", "http://run/1")
+        assert "Settings > Branches" in body
+        assert "bypass required pull requests" in body
+
     def test_a_github_actions_refusal_names_both_key_fixes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
