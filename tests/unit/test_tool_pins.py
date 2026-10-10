@@ -24,7 +24,7 @@ from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.golang import quality as go_quality
 from hyperi_ci.languages.rust import quality as rust_quality
 from hyperi_ci.quality import osv_scanner, semgrep
-from hyperi_ci.versions import tool_version
+from hyperi_ci.versions import runtime_version, tool_version
 
 Run = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -68,7 +68,14 @@ class TestSemgrepRunsItsPin:
     ) -> None:
         cmd = self._scan(monkeypatch, "semgrep", "uv", "uvx")
         spec = f"semgrep=={tool_version('semgrep')}"
-        assert cmd[:4] == ["uvx", "--from", spec, "semgrep"]
+        assert cmd[:6] == [
+            "uvx",
+            "--python",
+            runtime_version("python"),
+            "--from",
+            spec,
+            "semgrep",
+        ]
 
     def test_without_uv_the_path_copy_runs_with_a_warning(
         self, monkeypatch: pytest.MonkeyPatch

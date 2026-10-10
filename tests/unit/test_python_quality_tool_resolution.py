@@ -17,6 +17,7 @@ import pytest
 
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import resolve_tool_cmd
+from hyperi_ci.versions import runtime_version
 
 
 class TestPinnedSpecBeatsPath:
@@ -29,7 +30,15 @@ class TestPinnedSpecBeatsPath:
         resolved = resolve_tool_cmd(
             ["vulture", "src/"], via="uvx", spec="vulture==2.16"
         )
-        assert resolved == ["uvx", "--from", "vulture==2.16", "vulture", "src/"]
+        assert resolved == [
+            "uvx",
+            "--python",
+            runtime_version("python"),
+            "--from",
+            "vulture==2.16",
+            "vulture",
+            "src/",
+        ]
 
     def test_pinned_spec_runs_through_uv_with_even_when_the_tool_is_on_path(
         self, monkeypatch: pytest.MonkeyPatch
