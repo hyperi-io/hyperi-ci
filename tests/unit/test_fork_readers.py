@@ -64,6 +64,18 @@ class TestPredictedBump:
         assert prediction.bump == "minor"
         assert prediction.minor_reasons == ["feat: own feature"]
 
+    def test_fork_off_main_is_gated_like_the_release_that_runs_there(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        """A prerelease branch keeps semantic-release, so the gate counts every parent."""
+        repo = make_fork_history(tmp_path)
+        _drop_upstream_tag(repo)
+        _declare(repo, "fork")
+        run_cmd(
+            ["git", "checkout", "-q", "-b", "beta"], capture=True, check=True, cwd=repo
+        )
+        assert predict_bump(repo).bump == "major"
+
     def test_non_fork_still_counts_upstream(
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:

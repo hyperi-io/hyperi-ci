@@ -76,7 +76,8 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     prediction = BumpPrediction()
 
     root = project_dir or Path.cwd()
-    if check_fork(root).fork:
+    # CI versions a fork from first-parent history on main only.
+    if check_fork(root).fork and _current_branch(root) == "main":
         return _predict_fork(root, prediction)
 
     last_tag = _last_version_tag(cwd)
@@ -111,6 +112,20 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
             best = bump
     prediction.bump = best
     return prediction
+
+
+def _current_branch(root: Path) -> str:
+    """Return the checked-out branch name, or ``HEAD`` when detached."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=root,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "HEAD"
 
 
 def _predict_fork(root: Path, prediction: BumpPrediction) -> BumpPrediction:
