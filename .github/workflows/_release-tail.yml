@@ -821,6 +821,8 @@ jobs:
           # Also a push to the default branch, so it needs the bypass actor
           # for the same reason the tag does.
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+          # A refusal's cause and fix depend on which identity pushed.
+          HYPERCI_RELEASE_IDENTITY: ${{ steps.bot.outcome == 'success' && 'app' || 'github-actions' }}
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           RELEASE_VERSION: ${{ inputs.next-version }}
           RELEASE_BRANCH: ${{ github.ref_name }}
@@ -835,6 +837,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HYPERCI_RELEASE_IDENTITY: ${{ steps.bot.outcome == 'success' && 'app' || 'github-actions' }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify

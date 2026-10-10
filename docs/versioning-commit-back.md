@@ -48,6 +48,13 @@ git describe --tags --abbrev=0     # the last released version
 hyperi-ci --version                # what this checkout would build as, if editable
 ```
 
+## When GitHub refuses the commit-back
+
+A protected default branch takes the commit only from an identity its rulesets let bypass, and `github-actions` cannot be one. A refusal is never retried, never turns the release red, and opens one `release-commit-back` issue per repo, with a comment for each later version. The workflow passes `HYPERCI_RELEASE_IDENTITY` (`app` or `github-actions`) so the error and the issue name the cause that applies:
+
+- `github-actions`: the release App key did not reach the job. Add the repo to the `GH_APP_PRIVATE_KEY` org secret's selected repositories, and to the caller's `secrets:` list where it passes one explicitly.
+- `app`: `hypersec-ci-bot` pushed and a ruleset still refused it. The repo's Settings > Rules > Insights names the ruleset. Add the app to its bypass list with mode Always, or drop the rule.
+
 ## Other files that carry the version
 
 A committed file with the version baked in -- a generated OpenAPI spec's `info.version` -- goes stale on every release unless something regenerates it. Name the generator and what it writes:

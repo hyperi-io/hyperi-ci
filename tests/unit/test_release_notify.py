@@ -312,6 +312,44 @@ class TestNotifyCommitBackFailed:
             "repositories." in body
         )
 
+    def test_a_bot_refusal_points_at_the_ruleset_not_the_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The bot pushed, so the secret's selected list cannot be the fix."""
+        monkeypatch.setenv(release_notify.IDENTITY_ENV, "app")
+        body = release_notify._commit_back_body(_REPO, "1.7.6", "http://run/1")
+        assert "selected repositories" not in body
+        assert "bypass list with mode Always" in body
+        assert "`hypersec-ci-bot`" in body
+
+    def test_a_github_actions_refusal_names_both_key_fixes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit secrets list in the caller drops the key as surely as the org secret."""
+        monkeypatch.setenv(release_notify.IDENTITY_ENV, "github-actions")
+        body = release_notify._commit_back_body(_REPO, "1.18.46", "http://run/1")
+        assert "selected repositories" in body
+        assert "explicit `secrets:` list" in body
+        assert "bypass list" not in body
+
+    def test_an_unknown_identity_gives_both_causes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(release_notify.IDENTITY_ENV, raising=False)
+        advice = release_notify.refusal_advice()
+        assert "selected repositories" in advice
+        assert "bypass list" in advice
+
+    def test_a_later_version_comments_with_its_own_cause(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The cause can change between releases, so each comment carries its own."""
+        monkeypatch.setenv(release_notify.IDENTITY_ENV, "app")
+        with patch(_CALL, side_effect=_answers([_OPEN], [], {"id": 1})) as api:
+            notify_commit_back_failed(version="1.2.4", repo=_REPO)
+        comment = api.call_args_list[-1].kwargs["body"]["body"]
+        assert "bypass list with mode Always" in comment
+
     def test_a_later_version_comments_on_the_open_issue(self) -> None:
         """One issue per repo: the cause is configuration, not the version."""
         with patch(_CALL, side_effect=_answers([_OPEN], [], {"id": 1})) as api:

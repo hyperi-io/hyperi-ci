@@ -32,6 +32,7 @@ from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
 from hyperi_ci.gh import gh_api
 from hyperi_ci.release_branches import is_prerelease_version, repo_prerelease_branches
+from hyperi_ci.release_notify import refusal_advice
 from hyperi_ci.stamp import (
     CHANGELOG_FILE,
     SUPPLEMENT_FILE,
@@ -439,9 +440,5 @@ def _classify_refused_update(*, repo: str, branch: str, tip: str) -> str:
         f"moved -- a ruleset or the token's permissions blocked the push"
         + (f": {reason}" if reason else "")
     )
-    error(
-        "release-commit: a protected branch takes this commit only from the "
-        "release bot. If this run warned that GH_APP_PRIVATE_KEY is not "
-        "visible to the repo, add the repo to that org secret's selected list."
-    )
+    error(f"release-commit: {refusal_advice()}")
     return "fail"
