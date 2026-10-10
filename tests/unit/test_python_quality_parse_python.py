@@ -18,6 +18,7 @@ import pytest
 
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.quality_common import resolve_tool_cmd
+from hyperi_ci.versions import runtime_version
 
 _RUNNING = f"{sys.version_info.major}.{sys.version_info.minor}"
 
@@ -38,12 +39,22 @@ class TestUvxTakesTheInterpreter:
             "src/",
         ]
 
-    def test_no_python_leaves_uvx_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_python_takes_the_baseline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Left to itself uvx may pick an interpreter a dependency has no wheel for.
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = resolve_tool_cmd(
-            ["vulture", "src/"], via="uvx", spec="vulture==2.16"
+        resolved = resolve_tool_cmd(["checkov"], via="uvx", spec="checkov==3.3.20")
+        assert resolved[:3] == ["uvx", "--python", runtime_version("python")]
+
+    def test_the_unpinned_uvx_fallback_takes_the_baseline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
         )
-        assert resolved[:2] == ["uvx", "--from"]
+        resolved = resolve_tool_cmd(["ansible-lint"], via="uvx")
+        assert resolved[:3] == ["uvx", "--python", runtime_version("python")]
 
     def test_python_is_ignored_by_the_project_environment_form(
         self, monkeypatch: pytest.MonkeyPatch
