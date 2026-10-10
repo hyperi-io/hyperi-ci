@@ -81,17 +81,17 @@ inputs:
     description: cargo-semver-checks release tag to pin (upstream tags carry a `v`)
     required: false
     # hyperi-ci:pin tools.cargo-semver-checks
-    default: v0.50.0
+    default: v0.51.0
   cargo-semver-checks-sha256-amd64:
     description: sha256 of the x86_64-gnu cargo-semver-checks tarball
     required: false
     # hyperi-ci:pin tools.cargo-semver-checks.sha256.amd64
-    default: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
+    default: cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65
   cargo-semver-checks-sha256-arm64:
     description: sha256 of the aarch64-gnu cargo-semver-checks tarball
     required: false
     # hyperi-ci:pin tools.cargo-semver-checks.sha256.arm64
-    default: e35f435ea322659381f52e7034bb4f0470108f5b267d29f13cf08152fa4af29b
+    default: 58531fa492d237c71b97d113a6d2a36209d96105956569cd0406aa66226ac928
 
 runs:
   using: composite
