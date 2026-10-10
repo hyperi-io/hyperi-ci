@@ -62,10 +62,12 @@ _KEY_MISSING = (
 
 _BYPASS_MISSING = (
     "The run pushed as the release bot, `hypersec-ci-bot`, and GitHub still "
-    "refused it, so a ruleset on the branch has a rule the bot cannot bypass. "
-    "The repo's Settings > Rules > Insights names the ruleset. Add the "
-    "`hypersec-ci-bot` app to its bypass list with mode Always, or drop the rule. "
-    "The App key is not the problem."
+    "refused it, so the branch has a rule the bot cannot bypass. It is either a "
+    "ruleset or classic branch protection. A ruleset shows in the repo's "
+    "Settings > Rules > Insights: add the `hypersec-ci-bot` app to its bypass "
+    "list with mode Always, or drop the rule. Classic protection shows under "
+    "Settings > Branches: add the app to `Allow specified actors to bypass "
+    "required pull requests`. The App key is not the problem."
 )
 
 
