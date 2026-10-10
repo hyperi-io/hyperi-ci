@@ -13,6 +13,7 @@ without Corepack the global binary refuses to run the project at all, so
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -116,3 +117,53 @@ def test_the_first_defined_candidate_script_wins(tmp_path, monkeypatch):
     found = quality._find_npm_script(["format:check", "check-format", "check:format"])
     assert found == "check-format"
     assert quality._find_npm_script(["lint"]) is None
+
+
+class TestCorepackEnable:
+    """Corepack writes shims beside its binary, which a runner may own as root."""
+
+    @staticmethod
+    def _setup(monkeypatch, tmp_path: Path, *, writable: bool, rcs: list[int]):
+        node_bin = tmp_path / "node" / "bin"
+        node_bin.mkdir(parents=True)
+        monkeypatch.setattr(
+            _common.shutil, "which", lambda _name: str(node_bin / "corepack")
+        )
+        monkeypatch.setattr(_common.os, "access", lambda _p, _m: writable)
+        monkeypatch.setattr(_common.Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setenv("PATH", "/usr/bin")
+        calls: list[tuple[str, ...]] = []
+
+        def _run(*args: str):
+            calls.append(args)
+            return SimpleNamespace(returncode=rcs.pop(0), stderr="")
+
+        monkeypatch.setattr(_common, "_run_corepack_enable", _run)
+        warned: list[str] = []
+        monkeypatch.setattr(_common, "warn", warned.append)
+        return calls, warned
+
+    def test_a_read_only_bin_goes_straight_to_the_user_directory(
+        self, monkeypatch, tmp_path
+    ):
+        calls, warned = self._setup(monkeypatch, tmp_path, writable=False, rcs=[0])
+        assert _common._corepack_enable() is True
+        assert calls == [
+            ("--install-directory", str(tmp_path / "home" / ".corepack" / "bin"))
+        ]
+        assert warned == []
+        assert _common.os.environ["PATH"].startswith(
+            str(tmp_path / "home" / ".corepack" / "bin")
+        )
+
+    def test_a_writable_bin_enables_in_place(self, monkeypatch, tmp_path):
+        calls, warned = self._setup(monkeypatch, tmp_path, writable=True, rcs=[0])
+        assert _common._corepack_enable() is True
+        assert calls == [()]
+        assert warned == []
+
+    def test_an_unexpected_failure_still_warns_and_retries(self, monkeypatch, tmp_path):
+        calls, warned = self._setup(monkeypatch, tmp_path, writable=True, rcs=[1, 0])
+        assert _common._corepack_enable() is True
+        assert len(calls) == 2
+        assert "retrying with user directory" in warned[0]
