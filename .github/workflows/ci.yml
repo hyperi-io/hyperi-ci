@@ -271,10 +271,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
+      - name: Scope the token to the fleet
+        id: fleet
+        run: uv run --no-sources python scripts/fixture_fleet.py >> "$GITHUB_OUTPUT"
+
       - name: Mint a fleet read token
         # The fixtures are private, so reading their records needs more than
         # GITHUB_TOKEN. A fork PR cannot mint one and the gate stays red rather
         # than passing on an unreadable fleet.
+        # This repo is in the list because the gate reads the PR's changed
+        # files from it.
         id: bot
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -282,6 +288,7 @@ jobs:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }},${{ steps.fleet.outputs.repos }}
           permission-actions: read
           permission-pull-requests: read
 

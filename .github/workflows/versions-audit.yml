@@ -65,6 +65,9 @@ jobs:
       - name: Mint a fleet read token
         # The fixtures are private and GITHUB_TOKEN sees only this repo, so the
         # check below would read every fixture as missing from the org.
+        # No `repositories`: `gh repo list` has to see a ci-test-* repo that
+        # config/fixtures.yaml does not list yet, and listing names needs
+        # metadata only.
         id: bot
         if: always()
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -72,6 +75,7 @@ jobs:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          permission-metadata: read
 
       - name: Check the fixture fleet against the org
         # Scheduled rather than on the PR path: it needs network and an

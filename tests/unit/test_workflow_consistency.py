@@ -2102,7 +2102,7 @@ def test_release_tail_mints_a_bot_token() -> None:
 
 
 def _app_token_steps() -> list[tuple[str, str, dict]]:
-    """Every create-github-app-token step in every workflow here.
+    """Every create-github-app-token step in every workflow and composite here.
 
     Found by CONTENT rather than by naming the files that mint one today, so a
     workflow added later is covered without anyone remembering to list it
@@ -2115,6 +2115,11 @@ def _app_token_steps() -> list[tuple[str, str, dict]]:
             for step in job.get("steps") or []:
                 if "create-github-app-token" in str(step.get("uses", "")):
                     found.append((path.name, job_name, step))
+    for path in sorted(ACTIONS_DIR.glob("*/action.yml")):
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for step in (action.get("runs") or {}).get("steps") or []:
+            if "create-github-app-token" in str(step.get("uses", "")):
+                found.append((f"{path.parent.name}/action.yml", "runs", step))
     return found
 
 
@@ -2140,6 +2145,26 @@ def test_no_workflow_mints_an_app_token_from_the_app_id() -> None:
         assert "client-id" in with_, (
             f"{workflow}.{job}: App token step has neither client-id nor app-id"
         )
+
+
+def test_every_app_token_mint_names_its_permissions() -> None:
+    """A mint with no `permission-*` input gets every permission the App holds.
+
+    The token then carries far more than the job uses, across every repo it
+    reaches. Naming the permissions caps it at what the step actually needs.
+    """
+    for workflow, job, step in _app_token_steps():
+        with_ = step.get("with") or {}
+        perms = {k: v for k, v in with_.items() if k.startswith("permission-")}
+        assert perms, (
+            f"{workflow}.{job}: step {step.get('name')!r} mints an App token "
+            f"with no `permission-*` input, so it gets the App's full set. "
+            f"Name the permissions the job uses, e.g. `permission-contents: read`."
+        )
+        for key, value in perms.items():
+            assert value in ("read", "write"), (
+                f"{workflow}.{job}: {key} is {value!r}, expected read or write"
+            )
 
 
 @pytest.mark.parametrize("step_name", _PUSHING_STEPS)
