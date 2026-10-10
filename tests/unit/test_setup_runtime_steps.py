@@ -48,9 +48,18 @@ def _shim(bin_dir: Path, name: str, log: Path) -> None:
 
 
 def _run(
-    step_name: str, inputs: dict[str, str], tmp_path: Path, shims: tuple[str, ...]
+    step_name: str,
+    inputs: dict[str, str],
+    tmp_path: Path,
+    shims: tuple[str, ...],
+    *,
+    rc: int = 0,
+    stdout: list[str] | None = None,
 ) -> list[str]:
-    """Run one step with the action's defaults overlaid by ``inputs``."""
+    """Run one step with the action's defaults overlaid by ``inputs``.
+
+    Asserts the step exits ``rc``; ``stdout``, when given, receives its output.
+    """
     values = {
         f"inputs.{key}": str(spec.get("default", ""))
         for key, spec in _action()["inputs"].items()
@@ -76,7 +85,9 @@ def _run(
         env={"PATH": str(bin_dir), **env},
         check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == rc, result.stderr
+    if stdout is not None:
+        stdout.extend(result.stdout.splitlines())
     return log.read_text(encoding="utf-8").splitlines()
 
 
@@ -94,12 +105,12 @@ class TestForcePythonInstall:
         self, tmp_path: Path
     ) -> None:
         calls = _run("Set up Python", {"python-version": "3.13"}, tmp_path, ("uv",))
-        assert calls == ["uv python install 3.13"]
+        assert calls == ["uv python install --no-bin 3.13"]
 
     def test_true_installs_over_the_runner_python3(self, tmp_path: Path) -> None:
         inputs = {"python-version": "3.13", "force-python-install": "true"}
         calls = _run("Set up Python", inputs, tmp_path, ("uv", "python3"))
-        assert calls == ["uv python install 3.13"]
+        assert calls == ["uv python install --no-bin 3.13"]
 
     @pytest.mark.parametrize("value", ["false", "", "TRUE", "yes", "1"])
     def test_anything_but_true_is_the_guarded_install(
@@ -108,6 +119,18 @@ class TestForcePythonInstall:
         inputs = {"force-python-install": value}
         calls = _run("Set up Python", inputs, tmp_path, ("uv", "python3"))
         assert calls == []
+
+
+class TestUvMustBePresent:
+    def test_no_uv_fails_instead_of_fetching_an_installer(self, tmp_path: Path) -> None:
+        # No uv and no curl shim: a pipe-to-shell fallback would fail differently.
+        out: list[str] = []
+        calls = _run("Set up Python", {}, tmp_path, ("python3",), rc=1, stdout=out)
+        assert calls == []
+        assert any(line.startswith("::error::uv is not on PATH") for line in out)
+
+    def test_the_step_never_pipes_a_script_to_a_shell(self) -> None:
+        assert "| sh" not in str(_step("Set up Python")["run"])
 
 
 class TestNativeDependencies:
