@@ -127,6 +127,24 @@ def next_version(base: str, bump: str) -> str:
     raise ValueError(f"not a bump level: {bump!r}")
 
 
+def forced_version(root: Path, bump: str) -> str:
+    """Return the version a forced ``patch`` or ``minor`` bump gives a fork.
+
+    The base is the fork's own last release on its first-parent chain, else
+    the version its manifest declares, never an upstream tag a sync brought in.
+
+    Raises:
+        ValueError: ``bump`` is not ``patch`` or ``minor``.
+
+    """
+    if bump not in ("patch", "minor"):
+        raise ValueError(f"not a forced bump level: {bump!r}")
+    tag = last_version_tag(first_parent=True, cwd=root)
+    match = _STABLE_TAG.match(tag) if tag else None
+    base = ".".join(match.groups()) if match else seed_version(root)[0]
+    return next_version(base, bump)
+
+
 def predict_version(root: Path) -> tuple[str, str]:
     """Return the version a fork's release from main ships, and how.
 

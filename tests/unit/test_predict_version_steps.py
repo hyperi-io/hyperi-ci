@@ -215,7 +215,7 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "inputs.branch-build": "",
             "github.ref": "refs/heads/main",
             "steps.worthy.outputs.release-worthy": "",
-            "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
         },
         repo,
     )[0]
@@ -573,6 +573,45 @@ class TestAForkRelease:
         assert expected in str(_steps()["derive"]["env"])
 
 
+@needs_uv
+class TestAForkForcedBump:
+    """A forced bump on a fork starts from its own release, not upstream's tag."""
+
+    @pytest.mark.parametrize(
+        ("bump", "version"), [("patch", "0.2.9"), ("minor", "0.3.0")]
+    )
+    def test_a_fork_bumps_from_its_own_tag(
+        self,
+        tmp_path: Path,
+        make_fork_history: Callable[..., Path],
+        bump: str,
+        version: str,
+    ) -> None:
+        repo = _fork(make_fork_history(tmp_path))
+        outputs, _ = _run_step("forkforced", {"inputs.bump": bump}, repo)
+        assert outputs == {"fork-forced": "true", "version": version}
+
+    def test_a_repo_that_is_not_a_fork_is_left_to_the_forced_step(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        repo = make_fork_history(tmp_path)
+        outputs, _ = _run_step("forkforced", {"inputs.bump": "patch"}, repo)
+        assert outputs == {"fork-forced": "false"}
+
+    def test_the_step_takes_only_a_bump_level(self) -> None:
+        condition = str(_steps()["forkforced"]["if"])
+        assert "inputs.bump == 'patch' || inputs.bump == 'minor'" in condition
+        assert "steps.forkforced.outputs.fork-forced != 'true'" in str(
+            _steps()["forced"]["if"]
+        )
+
+    def test_the_version_output_reads_the_step(self) -> None:
+        action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
+        expected = "steps.forkforced.outputs.version"
+        assert expected in action["outputs"]["version"]["value"]
+        assert expected in str(_steps()["derive"]["env"])
+
+
 _AMD64 = "x86_64-unknown-linux-gnu"
 _ARM64 = "aarch64-unknown-linux-gnu"
 
@@ -737,7 +776,7 @@ class TestAPython3WithoutPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
-                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
             bare_python3,
@@ -858,7 +897,7 @@ class TestUvCannotSupplyPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
-                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
             env=broken_uv,

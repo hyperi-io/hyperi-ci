@@ -21,6 +21,7 @@ from hyperi_ci.commit_range import git_log, last_version_tag
 from hyperi_ci.fork_version import (
     ForkVersionError,
     check_fork,
+    forced_version,
     next_version,
     predict_version,
 )
@@ -153,6 +154,34 @@ class TestASyncMerge:
         repo = make_fork_history(tmp_path)
         _git(repo, "tag", "v0.3.0-beta.1", "HEAD~1")
         assert predict_version(repo)[0] == "0.2.9"
+
+
+class TestAForcedBump:
+    """A forced bump starts from the fork's own release, not upstream's tag."""
+
+    @pytest.mark.parametrize(
+        ("bump", "version"), [("patch", "0.2.9"), ("minor", "0.3.0")]
+    )
+    def test_the_base_is_the_forks_own_tag(
+        self,
+        tmp_path: Path,
+        make_fork_history: Callable[..., Path],
+        bump: str,
+        version: str,
+    ) -> None:
+        assert forced_version(make_fork_history(tmp_path), bump) == version
+
+    def test_a_tag_less_fork_bumps_from_its_seed(self, tmp_path: Path) -> None:
+        _git(tmp_path, "init", "-q", "-b", "main")
+        _git(tmp_path, "config", "user.email", "ci@example.invalid")
+        _git(tmp_path, "config", "user.name", "CI")
+        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
+        (tmp_path / "package.json").write_text('{"version": "2.4.0"}', encoding="utf-8")
+        assert forced_version(tmp_path, "patch") == "2.4.1"
+
+    def test_a_major_is_not_a_forced_bump(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="not a forced bump level"):
+            forced_version(tmp_path, "major")
 
 
 class TestTheGuards:

@@ -68,7 +68,7 @@ outputs:
     value: ${{ steps.gate.outputs.will-publish }}
   version:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
-    value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+    value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
   prerelease:
     description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) -- this run does not consume a stable version"
     value: ${{ steps.derive.outputs.prerelease }}
@@ -381,6 +381,18 @@ runs:
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Predicted next version: v$version"
 
+    - name: Predict next version (fork, forced bump)
+      # The highest v* tag in a fork can be one a sync merge brought in from
+      # upstream, so a fork's forced bump starts from its own last release.
+      # Writes fork-forced=false for every other repo.
+      id: forkforced
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && (inputs.bump == 'patch' || inputs.bump == 'minor') }}
+      shell: bash
+      env:
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        BUMP: ${{ inputs.bump }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/fork_version.py" --forced "$BUMP"
+
     - name: Predict next version (forced bump / explicit version)
       # from-head dispatch with a non-auto bump (issue #35). The `bump` channel
       # carries a bump level (patch|minor, computed as `last v* tag + bump`) or an
@@ -389,7 +401,7 @@ runs:
       # plan + build stamp the value tag-head later creates. push.tag_head holds the
       # same computation for the real tag.
       id: forced
-      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' && steps.forkforced.outputs.fork-forced != 'true' }}
       shell: bash
       env:
         BUMP: ${{ inputs.bump }}
@@ -464,7 +476,7 @@ runs:
         BRANCH_BUILD: ${{ inputs.branch-build }}
         GIT_REF: ${{ github.ref }}
         RELEASE_WORTHY: ${{ steps.worthy.outputs.release-worthy }}
-        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
       run: |
         set -euo pipefail
         will_publish="$WILL_PUBLISH"
