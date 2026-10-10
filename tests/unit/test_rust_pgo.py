@@ -2248,17 +2248,29 @@ class TestDesignatedLlvmWins:
             assert self._resolves_to(name) == (usr_bin / f"{name}-23").resolve()
         assert warnings == []
 
+    @staticmethod
+    def _project(tmp_path: Path, *, linker: str | None) -> Path:
+        """A project whose cargo config sets ``linker``, or sets none."""
+        project = tmp_path / "project"
+        (project / ".cargo").mkdir(parents=True)
+        target = f'linker = "{linker}"\n' if linker else ""
+        (project / ".cargo" / "config.toml").write_text(
+            f"[target.aarch64-unknown-linux-gnu]\n{target}", encoding="utf-8"
+        )
+        return project
+
     def test_missing_designated_clang_does_not_move_ld_lld(
         self, tmp_path, monkeypatch
     ) -> None:
         """clang falls back on its own, so ld.lld stays on the designated major."""
         usr_bin = self._image(tmp_path, {23: ("ld.lld",), 21: ("clang", "clang++")})
+        project = self._project(tmp_path, linker="clang")
         monkeypatch.setenv("PATH", str(usr_bin))
         monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
         warnings = self._capture(monkeypatch, "warn")
 
-        assert _ensure_ld_lld_available() is True
-        assert pgo._ensure_clang_available() is True
+        assert _ensure_ld_lld_available(project) is True
+        assert pgo._ensure_clang_available(project) is True
 
         assert self._resolves_to("ld.lld") == (usr_bin / "ld.lld-23").resolve()
         assert self._resolves_to("clang") == (usr_bin / "clang-21").resolve()
@@ -2267,9 +2279,34 @@ class TestDesignatedLlvmWins:
             "clang-23, clang++-23 not found -- using LLVM 21 instead"
         ]
 
+    def test_missing_clang_is_not_a_fallback_when_nothing_links_through_it(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The hosted arm64 runner: lld-23 installed, clang only the image's 18."""
+        usr_bin = self._image(tmp_path, {23: ("ld.lld",)})
+        llvm18 = tmp_path / "usr-lib" / "llvm-18" / "bin"
+        for name in ("clang", "clang++"):
+            (usr_bin / name).symlink_to(_executable(llvm18 / name))
+        project = self._project(tmp_path, linker=None)
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+        lines = self._capture(monkeypatch, "info")
+
+        assert pgo._ensure_clang_available(project) is True
+
+        assert warnings == []
+        assert lines == [
+            "clang-23 not installed and the cargo config does not link through "
+            "clang -- clang not shimmed"
+        ]
+        assert os.environ["PATH"] == str(usr_bin)
+        assert self._resolves_to("clang") == (llvm18 / "clang").resolve()
+
     def test_no_clang_at_all_is_reported(self, tmp_path, monkeypatch) -> None:
+        project = self._project(tmp_path, linker="clang")
         monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-        assert pgo._ensure_clang_available() is False
+        assert pgo._ensure_clang_available(project) is False
 
     def test_a_clang_of_unknown_major_is_reported_too(
         self, tmp_path, monkeypatch
@@ -2278,9 +2315,10 @@ class TestDesignatedLlvmWins:
         local_bin = tmp_path / "usr-local-bin"
         for name in ("clang", "clang++"):
             _executable(local_bin / name)
+        project = self._project(tmp_path, linker="clang")
         monkeypatch.setenv("PATH", str(local_bin))
         monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
-        assert pgo._ensure_clang_available() is False
+        assert pgo._ensure_clang_available(project) is False
         assert pgo.shutil.which("clang") == str(local_bin / "clang")
 
     def test_the_pgo_build_shims_clang_for_the_project_it_builds(
