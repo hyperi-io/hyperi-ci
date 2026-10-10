@@ -26,10 +26,13 @@ holding a webhook URL.
 import json
 import os
 import re
+from pathlib import Path
 
+from hyperi_ci.commit_range import last_version_tag
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.curl_config import config_line
+from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_api
 
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
@@ -94,13 +97,20 @@ def referenced_issues(version: str, *, cwd: str | None = None) -> list[int]:
     """Issue and PR numbers referenced by the commits in this release.
 
     Reads the commit range since the previous tag, including a squash-merge's
-    ``(#123)`` suffix.
+    ``(#123)`` suffix. A fork walks only its own first-parent history, because
+    upstream's sync-merged commits carry upstream's issue numbers.
     """
-    previous = _previous_tag(version, cwd=cwd)
+    root = Path(cwd) if cwd else Path.cwd()
+    fork = check_fork(root).fork
+    if fork:
+        previous = last_version_tag(first_parent=True, cwd=root, rev=f"v{version}^")
+    else:
+        previous = _previous_tag(version, cwd=cwd)
     span = f"{previous}..v{version}" if previous else f"v{version}"
-    result = run_cmd(
-        ["git", "log", "--format=%B", span], capture=True, check=False, cwd=cwd
-    )
+    log = ["git", "log", "--format=%B"]
+    if fork:
+        log.append("--first-parent")
+    result = run_cmd([*log, span], capture=True, check=False, cwd=cwd)
     if result.returncode != 0:
         return []
     numbers = {int(match) for match in _ISSUE_REF.findall(result.stdout)}

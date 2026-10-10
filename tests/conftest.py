@@ -127,12 +127,18 @@ def make_elf() -> Callable[..., Path]:
     return _write_elf
 
 
-def _fork_history(root: Path, *, own: tuple[str, ...] = ("fix: own fix",)) -> Path:
+def _fork_history(
+    root: Path,
+    *,
+    own: tuple[str, ...] = ("fix: own fix",),
+    upstream_feature: str = "feat: upstream feature",
+) -> Path:
     """Build a fork's main at ``root``: v0.2.8, then a sync merge of upstream.
 
     Upstream adds a ``feat:`` and a breaking ``feat!:`` and tags ``v9.0.0``,
     all reachable from main only through the merge's second parent. ``own``
-    are the fork's commits before the merge; a ``docs:`` commit follows it.
+    are the fork's commits before the merge and ``upstream_feature`` is the
+    message of upstream's first commit; a ``docs:`` commit follows it.
     """
 
     def git(*args: str) -> None:
@@ -152,7 +158,7 @@ def _fork_history(root: Path, *, own: tuple[str, ...] = ("fix: own fix",)) -> Pa
     git("tag", "v0.2.8")
 
     git("checkout", "-q", "upstream")
-    commit("feat: upstream feature")
+    commit(upstream_feature)
     commit("feat(api)!: upstream breaking change")
     git("tag", "v9.0.0")
 
