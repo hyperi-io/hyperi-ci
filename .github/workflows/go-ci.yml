@@ -204,6 +204,7 @@ jobs:
       run-build: ${{ steps.predict.outputs.run-build }}
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
+      fork: ${{ steps.predict.outputs.fork }}
       test-tier: ${{ steps.predict.outputs.test-tier }}
       full-required-for-release: ${{ steps.predict.outputs.full-required-for-release }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
@@ -534,6 +535,7 @@ jobs:
       runner-mode: ${{ inputs.runner-mode }}
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
+      fork: ${{ needs.plan.outputs.fork }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}
       bump: ${{ inputs.bump }}

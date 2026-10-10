@@ -69,6 +69,9 @@ outputs:
   version:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
     value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+  fork:
+    description: "'true' iff this run versions a fork from its first-parent commits, so the release tail tags HEAD with tag-head instead of running semantic-release; else 'false'"
+    value: ${{ steps.firstparent.outputs.first-parent == 'true' && 'true' || 'false' }}
   prerelease:
     description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) -- this run does not consume a stable version"
     value: ${{ steps.derive.outputs.prerelease }}
@@ -280,8 +283,9 @@ runs:
     - name: Predict next version (fork, first-parent commits)
       # semantic-release counts every commit a sync merge brings in, so a repo
       # classified `fork` versions a stable release from its first-parent
-      # commits instead. Writes first-parent=false for every other repo, and the
-      # release tail makes the same call from the same classification.
+      # commits instead. Writes first-parent=false for every other repo. The
+      # `fork` output carries this answer to the release tail, which never
+      # re-reads the classification.
       id: firstparent
       if: ${{ steps.gate.outputs.will-publish == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       shell: bash
