@@ -14,6 +14,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import checkov
+from hyperi_ci.quality import findings as fdg
 
 _SKIP = "HYPERCI_QUALITY_SKIP"
 
@@ -135,3 +136,84 @@ class TestRun:
         monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
         _stub(monkeypatch, _SARIF)
         assert checkov.run(tmp_path, _cfg()) == 1
+
+
+class TestNoReport:
+    def test_the_warning_quotes_the_cause_above_the_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
+        stderr = (
+            "Resolved 96 packages\n"
+            "error: Failed to build `pyyaml==5.4.1`\n"
+            "hint: Build failures usually indicate a problem with the package\n"
+        )
+        monkeypatch.setattr(
+            checkov,
+            "run_cmd",
+            lambda cmd, **kw: SimpleNamespace(stdout="", stderr=stderr, returncode=1),
+        )
+        said: list[str] = []
+        monkeypatch.setattr(checkov, "warn", said.append)
+        assert checkov.run(tmp_path, _cfg()) == 0
+        assert "Failed to build `pyyaml==5.4.1`" in said[0]
+
+    def test_blocking_fails_on_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
+        monkeypatch.setattr(
+            checkov,
+            "run_cmd",
+            lambda cmd, **kw: SimpleNamespace(stdout="", stderr="boom", returncode=2),
+        )
+        cfg = _cfg({"quality": {"checkov": "blocking"}})
+        assert checkov.run(tmp_path, cfg) == 1
+
+
+def _chart(root: Path, chart_dir: str) -> None:
+    chart = root / chart_dir if chart_dir else root
+    (chart / "templates").mkdir(parents=True)
+    (chart / "Chart.yaml").write_text("name: web\n", encoding="utf-8")
+    (chart / "templates" / "deployment.yaml").write_text("", encoding="utf-8")
+
+
+def _finding(path: str) -> fdg.Finding:
+    return fdg.Finding("checkov", path, 3, "warning", "CKV_K8S_31", "seccomp")
+
+
+class TestInTree:
+    """A rendered-template finding points at the template in the repo."""
+
+    def test_a_chart_in_a_subdirectory(self, tmp_path: Path) -> None:
+        # helm template writes <chart dir>/<chart name>/templates/...
+        _chart(tmp_path, "chart")
+        found = checkov._in_tree(
+            _finding("tmps6jyk9ar/chart/web/templates/deployment.yaml"), tmp_path
+        )
+        assert found.path == "chart/templates/deployment.yaml"
+
+    def test_a_chart_at_the_root(self, tmp_path: Path) -> None:
+        _chart(tmp_path, "")
+        found = checkov._in_tree(
+            _finding("tmpab12cd34/web/templates/deployment.yaml"), tmp_path
+        )
+        assert found.path == "templates/deployment.yaml"
+
+    def test_a_nested_charts_directory(self, tmp_path: Path) -> None:
+        _chart(tmp_path, "charts/app")
+        found = checkov._in_tree(
+            _finding("/tmp/x/tmpab12cd34/charts/app/web/templates/deployment.yaml"),
+            tmp_path,
+        )
+        assert found.path == "charts/app/templates/deployment.yaml"
+
+    def test_a_repo_path_is_left_alone(self, tmp_path: Path) -> None:
+        (tmp_path / "manifests").mkdir()
+        (tmp_path / "manifests" / "cm.yaml").write_text("", encoding="utf-8")
+        found = checkov._in_tree(_finding("manifests/cm.yaml"), tmp_path)
+        assert found.path == "manifests/cm.yaml"
+
+    def test_an_unknown_path_is_kept(self, tmp_path: Path) -> None:
+        found = checkov._in_tree(_finding("tmpab/elsewhere/x.yaml"), tmp_path)
+        assert found.path == "tmpab/elsewhere/x.yaml"

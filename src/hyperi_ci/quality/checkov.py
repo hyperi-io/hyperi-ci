@@ -31,6 +31,8 @@ from hyperi_ci.versions import tool_version
 _DEFAULT_FRAMEWORKS = ["kubernetes", "helm", "kustomize", "terraform"]
 # Regexes for --skip-path: worktree copies and scratch.
 _DEFAULT_SKIP_PATHS = [r".*/\.worktrees/.*", r".*/\.tmp/.*"]
+# Output lines quoted when checkov exits with no report.
+_FAILURE_LINES = 8
 
 
 def _base_cmd() -> list[str] | None:
@@ -44,15 +46,23 @@ def _base_cmd() -> list[str] | None:
 def _in_tree(finding: fdg.Finding, root: Path) -> fdg.Finding:
     """Point a finding at the longest tail of its path that exists under ``root``.
 
-    Checkov names a rendered Helm template through its own temp dir
-    (``tmpab12cd34/charts/app/templates/x.yaml``) whenever ``root`` and that
-    temp dir share an ancestor below ``/``, as a scratch copy under TMPDIR does.
+    Checkov names a rendered Helm template through its own temp dir, with the
+    chart's name after the chart's directory, as ``helm template`` writes it:
+    ``tmpab12cd34/charts/app/<name>/templates/x.yaml`` for the repo's
+    ``charts/app/templates/x.yaml``. Each tail is tried as is, then with the
+    segment after a directory holding a Chart.yaml dropped.
     """
     parts = Path(finding.path).parts
     for start in range(len(parts)):
-        tail = Path(*parts[start:])
-        if (root / tail).exists():
-            return dataclasses.replace(finding, path=tail.as_posix())
+        tail = parts[start:]
+        candidates = [tail] + [
+            tail[:i] + tail[i + 1 :]
+            for i in range(1, len(tail) - 1)
+            if (root / Path(*tail[:i]) / "Chart.yaml").is_file()
+        ]
+        for candidate in candidates:
+            if (root / Path(*candidate)).exists():
+                return dataclasses.replace(finding, path=Path(*candidate).as_posix())
     return finding
 
 
@@ -132,7 +142,8 @@ def run(
             # --soft-fail exits 0 on findings: a failing exit with no report is a crash.
             if result.returncode != 0 and not text:
                 tail = (result.stderr or result.stdout).strip().splitlines()
-                detail = tail[-1] if tail else "no output"
+                # uv's last line is a generic hint; the cause sits above it.
+                detail = " | ".join(tail[-_FAILURE_LINES:]) if tail else "no output"
                 problem = (
                     f"  checkov exited {result.returncode} with no report ({detail})"
                 )
