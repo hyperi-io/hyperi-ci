@@ -609,6 +609,22 @@ class TestRefusals:
         assert "Repository rule violations found" in errors[0]
         assert "GH_APP_PRIVATE_KEY" in errors[1]
 
+    def test_a_refusal_of_the_bot_names_the_ruleset_bypass(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The bot pushed, so pointing at the App key sends the owner the wrong way."""
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
+        monkeypatch.setenv("HYPERCI_RELEASE_IDENTITY", "app")
+        stub = _Api(ref_update=False)
+        errors: list[str] = []
+        with (
+            patch("hyperi_ci.release_commit._api", stub),
+            patch("hyperi_ci.release_commit.error", errors.append),
+        ):
+            assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
+        assert "bypass list with mode Always" in errors[1]
+        assert "selected repositories" not in errors[1]
+
     def test_a_branch_that_moved_once_lands_on_the_retry(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

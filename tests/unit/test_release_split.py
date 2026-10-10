@@ -356,6 +356,9 @@ class TestPublishRunsNoRepoCode:
         assert not any("login-action" in str(s.get("uses")) for s in job["steps"])
 
 
+_IDENTITY = "${{ steps.bot.outcome == 'success' && 'app' || 'github-actions' }}"
+
+
 class TestCommitBackFailureIsRecorded:
     """A refused commit-back leaves the job green, so it must open an issue."""
 
@@ -378,8 +381,17 @@ class TestCommitBackFailureIsRecorded:
         assert record["continue-on-error"] is True
         assert record["env"] == {
             "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+            "HYPERCI_RELEASE_IDENTITY": _IDENTITY,
             "RELEASE_VERSION": "${{ inputs.next-version }}",
         }
+
+    def test_the_refusal_names_the_identity_that_pushed(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        """The cause and fix differ between the bot and github-actions."""
+        commit = next(s for s in steps if s.get("id") == "releasecommit")
+        assert commit["env"]["HYPERCI_RELEASE_IDENTITY"] == _IDENTITY
+        assert commit["env"]["GH_TOKEN"].startswith("${{ steps.bot.outputs.token")
 
     def test_it_runs_after_the_commit_back(self, steps: list[dict[str, Any]]) -> None:
         commit = next(i for i, s in enumerate(steps) if s.get("id") == "releasecommit")

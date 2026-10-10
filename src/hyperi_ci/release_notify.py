@@ -49,6 +49,48 @@ _FAILURE_TITLE = "Release v{version} failed"
 COMMIT_BACK_TITLE = "Release commit-back to main is failing"
 COMMIT_BACK_LABEL = "release-commit-back"
 
+# Set by the release workflow to the identity its pushes used: `app` or `github-actions`.
+IDENTITY_ENV = "HYPERCI_RELEASE_IDENTITY"
+
+_KEY_MISSING = (
+    "The release App key did not reach this job, so the run pushed as "
+    "`github-actions`, which no ruleset can exempt. Add this repo to the "
+    "`GH_APP_PRIVATE_KEY` org secret's selected repositories. Where the caller "
+    "workflow passes an explicit `secrets:` list, add `GH_APP_PRIVATE_KEY` to it "
+    "too."
+)
+
+_BYPASS_MISSING = (
+    "The run pushed as the release bot, `hypersec-ci-bot`, and GitHub still "
+    "refused it, so a ruleset on the branch has a rule the bot cannot bypass. "
+    "The repo's Settings > Rules > Insights names the ruleset. Add the "
+    "`hypersec-ci-bot` app to its bypass list with mode Always, or drop the rule. "
+    "The App key is not the problem."
+)
+
+
+def refusal_advice(identity: str | None = None) -> str:
+    """Say why GitHub refused a release push to a branch, and what fixes it.
+
+    Args:
+        identity: ``app`` or ``github-actions``, the identity the push used.
+            Defaults to :data:`IDENTITY_ENV`. Anything else gives both causes.
+
+    Returns:
+        The cause and the fix as one paragraph.
+
+    """
+    if identity is None:
+        identity = os.environ.get(IDENTITY_ENV, "")
+    if identity == "app":
+        return _BYPASS_MISSING
+    if identity == "github-actions":
+        return _KEY_MISSING
+    return (
+        "The run's *Report the release identity* step says who pushed. As "
+        f"`github-actions`: {_KEY_MISSING} As `hypersec-ci-bot`: {_BYPASS_MISSING}"
+    )
+
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | list | None:
     """Call `gh api`, returning the parsed response or None on failure."""
@@ -337,15 +379,10 @@ def _commit_back_body(repo: str, version: str, run_url: str) -> str:
         f"main were NOT updated, so they still describe an earlier release.\n"
         f"- Run: {run}\n\n"
         f"Nothing needs re-publishing. This is not a failed release.\n\n"
-        f"**Likely cause.** main's ruleset takes the commit-back only from the "
-        f"release bot, and the `GH_APP_PRIVATE_KEY` org secret is not visible "
-        f"to this repo, so the run pushed as `github-actions` and GitHub "
-        f"refused it. The run's *Report the release identity* step says which "
-        f"identity it used, and the *Commit rendered release artefacts* step "
-        f"carries GitHub's own refusal.\n\n"
-        f"**Fix.** Add this repo to the `GH_APP_PRIVATE_KEY` org secret's "
-        f"selected repositories. The next release then commits `VERSION` and "
-        f"`CHANGELOG.md` back. Close this issue once one does.\n\n"
+        f"**Cause and fix.** {refusal_advice()} The *Commit rendered release "
+        f"artefacts* step carries GitHub's own refusal.\n\n"
+        f"The next release then commits `VERSION` and `CHANGELOG.md` back. "
+        f"Close this issue once one does.\n\n"
         f"Later releases that hit the same refusal add a comment here rather "
         f"than a new issue."
     )
@@ -417,7 +454,8 @@ def notify_commit_back_failed(
 
     comment = (
         f"{_MARKER}\nv{version} shipped too, and its commit-back to main "
-        f"also failed. Run: {run_url or 'see the Actions tab'}"
+        f"also failed. Run: {run_url or 'see the Actions tab'}\n\n"
+        f"{refusal_advice()}"
     )
     if _api(
         ["-X", "POST", f"repos/{repo}/issues/{number}/comments"],
