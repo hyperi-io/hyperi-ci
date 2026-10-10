@@ -14,9 +14,10 @@ loaded out of the action's own checkout, the same by-path approach
 
 A repo that is not a fork writes ``first-parent=false`` and the semantic-release
 steps predict as before. A failed classification check does the same with a
-warning, because the release tail reads the classification again and an
-over-counted bump is the behaviour every repo had before. A fork whose
-first-parent history gives no version fails the step.
+warning, because an over-counted bump is the behaviour every repo had before.
+The composite's ``fork`` output is this flag, and the release tail tags from
+it without reading the classification again. A fork whose first-parent history
+gives no version fails the step.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).

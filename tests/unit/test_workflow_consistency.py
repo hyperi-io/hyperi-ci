@@ -2163,88 +2163,108 @@ def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
         )
 
 
-_FORK_CONFIG = "fromJSON(steps.classification.outputs.config || '{}').classification"
+_SETUP_SEMANTIC_RELEASE = (
+    "Setup semantic-release (shared toolchain -- single source of truth)"
+)
+_FORK_TAG = "Tag HEAD (fork, first-parent version)"
 
 
 class TestReleaseTailForkTagging:
-    """A fork on main is tagged at the plan's first-parent version by tag-head."""
+    """A fork on main is tagged at the plan's first-parent version by tag-head.
+
+    Plan's predict-version composite is the only reader of the classification.
+    Its ``fork`` output reaches the tail as the ``fork`` input.
+    """
 
     def _step(self, name: str) -> dict:
         steps = _tag_and_release_steps()
         return next(s for s in steps if s.get("name") == name)
 
-    def test_the_classification_is_read_only_for_a_stable_release_from_main(
-        self,
-    ) -> None:
-        step = self._step("Read the release classification")
-        assert step["id"] == "classification"
-        condition = str(step["if"])
-        assert "github.ref == 'refs/heads/main'" in condition
-        assert "inputs.bump == 'auto'" in condition
-        assert "config --json" in step["run"]
-
-    def test_it_is_read_before_semantic_release_is_set_up(self) -> None:
-        names = [s.get("name") for s in _tag_and_release_steps()]
-        read = names.index("Read the release classification")
-        assert read < names.index(
-            "Setup semantic-release (shared toolchain -- single source of truth)"
+    def test_the_composite_declares_the_fork_output(self) -> None:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        outputs = yaml.safe_load(path.read_text(encoding="utf-8"))["outputs"]
+        assert outputs["fork"]["value"] == (
+            "${{ steps.firstparent.outputs.first-parent == 'true' "
+            "&& 'true' || 'false' }}"
         )
-        assert read < names.index("Tag (semantic-release)")
+
+    def test_the_tail_declares_an_optional_fork_input(self) -> None:
+        wf = _load_workflow("_release-tail.yml")
+        on = wf.get("on") or wf.get(True, {})
+        spec = on["workflow_call"]["inputs"]["fork"]
+        assert spec["type"] == "string"
+        assert spec["default"] == ""
+        assert not spec.get("required", False)
+
+    @pytest.mark.parametrize("workflow_name", [*LANGUAGE_WORKFLOWS, "ci.yml"])
+    def test_the_plan_fork_output_reaches_the_tail(self, workflow_name: str) -> None:
+        jobs = _load_workflow(workflow_name)["jobs"]
+        assert jobs["plan"]["outputs"]["fork"] == "${{ steps.predict.outputs.fork }}"
+        tail = [j for j in jobs.values() if "_release-tail.yml" in str(j.get("uses"))]
+        assert len(tail) == 1, f"{workflow_name}: expected one _release-tail call"
+        assert tail[0]["with"]["fork"] == "${{ needs.plan.outputs.fork }}"
+
+    def test_the_tail_reads_no_config_for_the_classification(self) -> None:
+        text = (WORKFLOW_DIR / "_release-tail.yml").read_text(encoding="utf-8")
+        assert "config --json" not in text
+        assert "steps.classification" not in text
 
     @pytest.mark.parametrize(
-        "name",
-        [
-            "Setup semantic-release (shared toolchain -- single source of truth)",
-            "Tag (semantic-release)",
-        ],
+        "name", [_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"]
     )
     def test_semantic_release_stands_down_for_a_fork(self, name: str) -> None:
-        assert f"{_FORK_CONFIG} != 'fork'" in str(self._step(name)["if"])
+        assert "inputs.fork != 'true'" in str(self._step(name)["if"])
 
     def test_a_fork_is_tagged_at_the_plans_version(self) -> None:
-        step = self._step("Tag HEAD (fork, first-parent version)")
-        assert str(step["if"]) == "${{ " + _FORK_CONFIG + " == 'fork' }}"
+        step = self._step(_FORK_TAG)
+        assert str(step["if"]) == "${{ inputs.fork == 'true' }}"
         assert (
             step["run"]
             == '${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"'
         )
         assert step["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         names = [s.get("name") for s in _tag_and_release_steps()]
-        assert names.index("Tag HEAD (fork, first-parent version)") < names.index(
-            "Publish"
-        )
+        assert names.index(_FORK_TAG) < names.index("Publish")
 
     @pytest.mark.parametrize(
-        ("marker", "expected"),
-        [("classification: fork\n", "fork"), ("language: python\n", "")],
+        ("fork", "event", "from_head", "bump", "expected"),
+        [
+            # An older caller passes no fork input, which reads as not a fork.
+            (
+                "",
+                "push",
+                "",
+                "auto",
+                {_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"},
+            ),
+            (
+                "false",
+                "push",
+                "",
+                "auto",
+                {_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"},
+            ),
+            ("true", "push", "", "auto", {_FORK_TAG}),
+            ("true", "workflow_dispatch", "true", "auto", {_FORK_TAG}),
+            ("false", "workflow_dispatch", "true", "patch", set()),
+        ],
     )
-    def test_the_step_hands_on_the_resolved_classification(
-        self, tmp_path: Path, marker: str, expected: str
+    def test_which_tagger_runs(
+        self, fork: str, event: str, from_head: str, bump: str, expected: set[str]
     ) -> None:
-        cli = Path(sys.executable).parent / "hyperi-ci"
-        if not cli.is_file():
-            pytest.skip("the hyperi-ci entry point is not installed beside this python")
-        (tmp_path / ".hyperi-ci.yaml").write_text(marker, encoding="utf-8")
-        script = str(self._step("Read the release classification")["run"])
-        script = script.replace("${{ env.HYPERCI_INSTALL }}", str(cli))
-        output = tmp_path / "github-output"
-        output.write_text("", encoding="utf-8")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("HYPERCI_")}
-        result = subprocess.run(
-            ["bash", "-e", "-c", script],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env={**env, "GITHUB_OUTPUT": str(output)},
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        lines = output.read_text(encoding="utf-8").splitlines()
-        assert lines[0] == "config<<HYPERCI_CONFIG_JSON"
-        assert lines[-1] == "HYPERCI_CONFIG_JSON"
-        assert json.loads("\n".join(lines[1:-1]))["classification"] == expected
+        context = {
+            "github.event_name": event,
+            "inputs.from-head": from_head,
+            "inputs.bump": bump,
+            "inputs.fork": fork,
+        }
+        taggers = (_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)", _FORK_TAG)
+        fired = {
+            name
+            for name in taggers
+            if _fires(str(self._step(name)["if"]).strip()[3:-2], context)
+        }
+        assert fired == expected
 
 
 # Every workflow whose plan job feeds the checks gate, hyperi-ci's own

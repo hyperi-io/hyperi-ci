@@ -70,8 +70,8 @@ class ForkCheck(NamedTuple):
 def check_fork(root: Path) -> ForkCheck:
     """Read the repo's classification the way ``hyperi-ci config`` does.
 
-    The release tail asks the published CLI the same question, so a marker
-    the CLI reads as undeclared must read as undeclared here too.
+    ``hyperi-ci config`` reports the same classification, so a marker the CLI
+    reads as undeclared must read as undeclared here too.
 
     Args:
         root: The checkout root.

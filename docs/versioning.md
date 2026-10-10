@@ -61,7 +61,7 @@ Declare it in `.hyperi-ci.yaml`, or put `fork` in a `.hyperi-classification` fil
 classification: fork
 ```
 
-Plan predicts the version and Tag & Release cuts it with `tag-head`, not semantic-release, so the release adds no `CHANGELOG.md` entry. A declared prerelease branch keeps semantic-release.
+Plan reads the classification and predicts the version, and its `fork` output reaches the release tail as the `fork` input. The tail reads no config for this. Tag & Release cuts the version with `tag-head`, not semantic-release, so the release adds no `CHANGELOG.md` entry. A declared prerelease branch keeps semantic-release.
 
 ## A repo with no tags
 
