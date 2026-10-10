@@ -308,17 +308,11 @@ class PublishedImage:
     platforms: frozenset[str]
 
 
-def published_image(ref: str) -> PublishedImage | None:
-    """Return the image the registry already holds at ``ref``, else None.
-
-    None also covers a registry that could not be asked, so the caller builds
-    as it would have with no lookup at all.
-    """
+def _inspect_json(ref: str, template: str) -> dict[str, object] | None:
+    """Return ``imagetools inspect`` output for ``ref`` as a dict, else None."""
     cmd = ["docker", "buildx", "imagetools", "inspect", ref]
     try:
-        result = run_cmd(
-            [*cmd, "--format", "{{json .Manifest}}"], check=False, capture=True
-        )
+        result = run_cmd([*cmd, "--format", template], check=False, capture=True)
     except OSError as exc:
         warn(f"Could not ask the registry for {ref}, so building it: {exc}")
         return None
@@ -330,10 +324,49 @@ def published_image(ref: str) -> PublishedImage | None:
             warn(result.stderr or "")
         return None
     try:
-        manifest = json.loads(result.stdout or "")
+        parsed = json.loads(result.stdout or "")
     except ValueError:
         return None
-    if not isinstance(manifest, dict):
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _config_revision(image: Mapping[str, object]) -> str | None:
+    """Return the revision label from an image config, else None."""
+    config = image.get("config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    revision = (
+        labels.get("org.opencontainers.image.revision")
+        if isinstance(labels, dict)
+        else None
+    )
+    return revision if isinstance(revision, str) else None
+
+
+def _sole_child_digest(manifests: object) -> str | None:
+    """Return the digest of an index's only real image, else None."""
+    if not isinstance(manifests, list):
+        return None
+    digests = [
+        entry.get("digest")
+        for entry in manifests
+        if isinstance(entry, dict) and _index_platforms([entry])
+    ]
+    only = digests[0] if len(digests) == 1 else None
+    return only if isinstance(only, str) else None
+
+
+def published_image(ref: str) -> PublishedImage | None:
+    """Return the image the registry already holds at ``ref``, else None.
+
+    A multi-platform push carries the revision as an index annotation. A
+    single-platform push has none, so the revision comes from the image's own
+    config labels, and the platform from its os and architecture.
+
+    None also covers a registry that could not be asked, so the caller builds
+    as it would have with no lookup at all.
+    """
+    manifest = _inspect_json(ref, "{{json .Manifest}}")
+    if manifest is None:
         return None
     digest = manifest.get("digest")
     if not (isinstance(digest, str) and digest.startswith("sha256:")):
@@ -344,11 +377,21 @@ def published_image(ref: str) -> PublishedImage | None:
         if isinstance(annotations, dict)
         else None
     )
-    return PublishedImage(
-        digest=digest,
-        revision=revision if isinstance(revision, str) else None,
-        platforms=_index_platforms(manifest.get("manifests")),
-    )
+    revision = revision if isinstance(revision, str) else None
+    platforms = _index_platforms(manifest.get("manifests"))
+    if "manifests" not in manifest:
+        image = _inspect_json(ref, "{{json .Image}}")
+        if image is not None:
+            revision = _config_revision(image)
+            os_name, arch = image.get("os"), image.get("architecture")
+            if isinstance(os_name, str) and isinstance(arch, str):
+                platforms = frozenset({f"{os_name}/{arch}"})
+    elif revision is None and (child := _sole_child_digest(manifest["manifests"])):
+        # A single-platform push with an attestation is an index with no annotations.
+        image = _inspect_json(f"{ref.rpartition(':')[0]}@{child}", "{{json .Image}}")
+        if image is not None:
+            revision = _config_revision(image)
+    return PublishedImage(digest=digest, revision=revision, platforms=platforms)
 
 
 def _index_platforms(manifests: object) -> frozenset[str]:

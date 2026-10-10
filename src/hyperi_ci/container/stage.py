@@ -37,6 +37,7 @@ from hyperi_ci.common import (
     is_github_actions,
     normalise_tristate,
     resolve_release_version,
+    run_cmd,
     set_github_output,
     skip_optimize,
     success,
@@ -153,12 +154,29 @@ def _write_digest_outputs(version_tag: str, digest: str | None) -> None:
     set_github_output(digest=digest, image=f"{version_tag}@{digest}")
 
 
+def _repoint_tags(image_ref: str, tags: list[str]) -> bool:
+    """Point ``tags`` at ``image_ref`` in one registry write, True on success."""
+    cmd = ["docker", "buildx", "imagetools", "create"]
+    for tag in tags:
+        cmd.extend(["--tag", tag])
+    try:
+        result = run_cmd([*cmd, image_ref], check=False, capture=True)
+    except OSError as exc:
+        error(f"Could not point {', '.join(tags)} at {image_ref}: {exc}")
+        return False
+    if result.returncode != 0:
+        error(f"Could not point {', '.join(tags)} at {image_ref}:")
+        error(result.stderr or "")
+        return False
+    return True
+
+
 def _reuse_published(
-    version_tag: str,
+    tags: list[str],
     image: PublishedImage | None,
     revision: str,
     platforms: list[str],
-) -> bool:
+) -> int | None:
     """Hand on the image this commit already published at ``version_tag``.
 
     A rebuild of the same commit gets a new digest and moves the version tag,
@@ -167,29 +185,38 @@ def _reuse_published(
     leftover of a release that never tagged, and one missing a platform this
     run builds is incomplete. Both are rebuilt as before.
 
+    The run's other tags are pointed at the reused digest, since the earlier
+    attempt may have died before pushing them.
+
     Returns:
-        True when the published image was reused and nothing is to be built.
+        None when the image is to be built, else the stage's exit code.
 
     """
+    version_tag = tags[0]
     if image is None:
-        return False
+        return None
     if image.revision != revision:
         warn(
             f"{version_tag} already holds an image built from "
             f"{image.revision or 'an unrecorded commit'}; this run builds "
             f"{revision} and moves the tag."
         )
-        return False
+        return None
     missing = sorted(set(platforms) - image.platforms)
     if missing:
         warn(
             f"{version_tag} is already published from this commit but has no "
             f"{', '.join(missing)} image; rebuilding it with every platform."
         )
-        return False
+        return None
     info(f"{version_tag} is already published from this commit: reusing it")
+    others = tags[1:]
+    if others and not _repoint_tags(
+        f"{version_tag.rpartition(':')[0]}@{image.digest}", others
+    ):
+        return 1
     set_github_output(digest=image.digest, image=f"{version_tag}@{image.digest}")
-    return True
+    return 0
 
 
 def _log_builder_cgroups() -> None:
@@ -423,12 +450,10 @@ def _dispatch_build(
     platforms = config.setting("release.container.platforms")
     context = config.setting("release.container.context")
 
-    if (
-        push_mode == RELEASE
-        and tags
-        and _reuse_published(tags[0], published_image(tags[0]), revision, platforms)
-    ):
-        return 0
+    if push_mode == RELEASE and tags:
+        reused = _reuse_published(tags, published_image(tags[0]), revision, platforms)
+        if reused is not None:
+            return reused
 
     # Outside a release the Build job ships linux-amd64 only, so binary-backed
     # images keep the platforms whose binaries exist and source-built images

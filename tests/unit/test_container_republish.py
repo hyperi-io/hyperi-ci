@@ -35,11 +35,32 @@ def _inspect(
     returncode: int,
     stdout: str = "",
     stderr: str = "",
-) -> None:
+    image: dict[str, Any] | None = None,
+    children: dict[str, dict[str, Any]] | None = None,
+) -> list[list[str]]:
+    """Fake the registry; ``image`` answers ``.Image`` for ``_REF``."""
+    calls: list[list[str]] = []
+
     def fake(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if cmd[-1] == "{{json .Image}}":
+            ref = cmd[-3]
+            found = (children or {}).get(ref, image if ref == _REF else None)
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(found), "")
         return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
 
     monkeypatch.setattr(build, "run_cmd", fake)
+    return calls
+
+
+def _config(revision: str | None, arch: str = "amd64") -> dict[str, Any]:
+    """The ``.Image`` shape buildx prints for one image."""
+    labels = {"org.opencontainers.image.revision": revision} if revision else {}
+    return {
+        "architecture": arch,
+        "os": "linux",
+        "config": {"Labels": labels},
+    }
 
 
 class TestPublishedImage:
@@ -63,8 +84,66 @@ class TestPublishedImage:
     def test_an_image_with_no_revision_or_index_still_counts(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _inspect(monkeypatch, returncode=0, stdout=json.dumps({"digest": _DIGEST}))
-        assert published_image(_REF) == PublishedImage(_DIGEST, None, frozenset())
+        _inspect(
+            monkeypatch,
+            returncode=0,
+            stdout=json.dumps({"digest": _DIGEST}),
+            image=_config(None),
+        )
+        assert published_image(_REF) == PublishedImage(
+            _DIGEST, None, frozenset({"linux/amd64"})
+        )
+
+    def test_a_single_image_reads_its_revision_from_the_config_labels(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A single-platform push has no index, so no index annotations."""
+        manifest = {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": _DIGEST,
+            "size": 669,
+        }
+        calls = _inspect(
+            monkeypatch,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            image=_config(_REVISION, "arm64"),
+        )
+        assert published_image(_REF) == PublishedImage(
+            _DIGEST, _REVISION, frozenset({"linux/arm64"})
+        )
+        assert len(calls) == 2
+
+    def test_an_index_costs_one_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        manifest = {
+            "digest": _DIGEST,
+            "manifests": [_entry("linux", "amd64"), _entry("linux", "arm64")],
+            "annotations": {"org.opencontainers.image.revision": _REVISION},
+        }
+        calls = _inspect(monkeypatch, returncode=0, stdout=json.dumps(manifest))
+        published_image(_REF)
+        assert len(calls) == 1
+
+    def test_an_attested_single_platform_index_reads_its_image_labels(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """buildx pushes an unannotated index of one image plus attestations."""
+        child = "sha256:" + "b" * 64
+        manifest = {
+            "digest": _DIGEST,
+            "manifests": [_entry("linux", "amd64"), _entry("unknown", "unknown")],
+        }
+        _inspect(
+            monkeypatch,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            children={
+                f"ghcr.io/hyperi-io/thing@{child}": _config(_REVISION),
+            },
+        )
+        assert published_image(_REF) == PublishedImage(
+            _DIGEST, _REVISION, frozenset({"linux/amd64"})
+        )
 
     @pytest.mark.parametrize(
         "stderr", [f"ERROR: {_REF}: not found", "ERROR: unauthorized"]
@@ -118,14 +197,39 @@ class _Run:
         self.built = False
         self.asked: list[str] = []
         self.outputs: dict[str, str] = {}
+        self.writes: list[list[str]] = []
+
+
+def _answer_for(ref: str, digest: str, revision: str) -> Any:
+    """Fake registry holding one single-platform image at ``ref``."""
+
+    def fake(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[-1] == "{{json .Image}}":
+            body = _config(revision)
+        else:
+            body = {"mediaType": "application/vnd.oci.image.manifest.v1+json"}
+            body["digest"] = digest
+        assert cmd[-3] == ref
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(body), "")
+
+    return fake
 
 
 def _dispatch(
     monkeypatch: pytest.MonkeyPatch,
     existing: PublishedImage | None,
     push_mode: str = "release",
+    repoint_rc: int = 0,
+    raw: dict[str, Any] | None = None,
+    real_lookup: bool = False,
 ) -> tuple[int, _Run]:
     run = _Run()
+
+    def registry_write(
+        cmd: list[str], **_kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        run.writes.append(cmd)
+        return subprocess.CompletedProcess(cmd, repoint_rc, "", "denied")
 
     def lookup(ref: str) -> PublishedImage | None:
         run.asked.append(ref)
@@ -135,12 +239,16 @@ def _dispatch(
         run.built = True
         return 0
 
-    monkeypatch.setattr(stage, "published_image", lookup)
+    if not real_lookup:
+        monkeypatch.setattr(stage, "published_image", lookup)
+    else:
+        monkeypatch.setattr(stage, "published_image", published_image)
     monkeypatch.setattr(stage, "build_and_push", build_and_push)
+    monkeypatch.setattr(stage, "run_cmd", registry_write)
     monkeypatch.setattr(stage, "set_github_output", run.outputs.update)
     rc = stage._dispatch_build(
         dockerfile_path=Path("Dockerfile"),
-        config=CIConfig(_raw={}),
+        config=CIConfig(_raw=raw or {}),
         org=OrgConfig(),
         registry_bases=["ghcr.io/hyperi-io"],
         push_mode=push_mode,
@@ -193,6 +301,56 @@ class TestARepublishedVersion:
             "digest": _DIGEST,
             "image": f"ghcr.io/hyperi-io/{project.name}:v1.2.3@{_DIGEST}",
         }
+
+    def test_the_other_tags_are_pointed_at_the_reused_digest(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An earlier attempt may have died before pushing :latest and :sha-*."""
+        repo = f"ghcr.io/hyperi-io/{project.name}"
+        _rc, run = _dispatch(monkeypatch, PublishedImage(_DIGEST, _REVISION, _BOTH))
+        assert len(run.writes) == 1
+        cmd = run.writes[0]
+        assert cmd[:4] == ["docker", "buildx", "imagetools", "create"]
+        assert cmd[-1] == f"{repo}@{_DIGEST}"
+        tagged = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--tag"]
+        assert tagged
+        assert f"{repo}:v1.2.3" not in tagged
+        assert all(t.startswith(f"{repo}:") for t in tagged)
+
+    def test_a_failed_repoint_fails_the_stage(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rc, run = _dispatch(
+            monkeypatch, PublishedImage(_DIGEST, _REVISION, _BOTH), repoint_rc=1
+        )
+        assert rc == 1
+        assert not run.built
+        assert run.outputs == {}
+
+    @pytest.mark.parametrize(
+        ("revision", "reused"), [(_REVISION, True), ("0" * 40, False)]
+    )
+    def test_a_single_platform_image_is_reused_by_its_label_revision(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        revision: str,
+        reused: bool,
+    ) -> None:
+        """The whole path: the real lookup against a single-image manifest."""
+        monkeypatch.setattr(
+            build,
+            "run_cmd",
+            _answer_for(f"ghcr.io/hyperi-io/{project.name}:v1.2.3", _DIGEST, revision),
+        )
+        rc, run = _dispatch(
+            monkeypatch,
+            None,
+            raw={"release": {"container": {"platforms": ["linux/amd64"]}}},
+            real_lookup=True,
+        )
+        assert rc == 0
+        assert run.built is not reused
 
     @pytest.mark.parametrize("revision", ["0" * 40, None])
     def test_an_image_not_from_this_commit_is_rebuilt(
