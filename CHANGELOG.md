@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.18...v2.13.19) (2026-10-10)
+
+### Bug Fixes
+
+* **build:** quiet two release warnings that fired for nothing ([#655](https://github.com/hyperi-io/hyperi-ci/issues/655)) ([cad0131](https://github.com/hyperi-io/hyperi-ci/commit/cad0131f06570eca2fc8626aed502754d7444de0))
+* **container:** reuse single-platform images and re-point the other tags ([#656](https://github.com/hyperi-io/hyperi-ci/issues/656)) ([559af0c](https://github.com/hyperi-io/hyperi-ci/commit/559af0c49ed4d04d0ba24ad5114ecefe66d1ccc0)), closes [#649](https://github.com/hyperi-io/hyperi-ci/issues/649)
+* **release:** name the cause that applies when the commit-back is refused ([#654](https://github.com/hyperi-io/hyperi-ci/issues/654)) ([dc06f85](https://github.com/hyperi-io/hyperi-ci/commit/dc06f851f16242f2df0186a0602e33726a9cfc67)), closes [dfe-ui#492](https://github.com/hyperi-io/dfe-ui/issues/492) [dfe-loader#241](https://github.com/hyperi-io/dfe-loader/issues/241)
+
 ## [2.13.18](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.17...v2.13.18) (2026-10-10)
 
 ### Bug Fixes
