@@ -300,6 +300,31 @@ class TestOrchestrator:
         (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
         assert lint_docs.run(tmp_path, _config()) == 0
 
+    def test_excludes_apply_when_run_from_another_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # issue #669: the repo's own exclude_paths must prune its tree even
+        # when the cwd is somewhere else.
+        target = tmp_path / "repo"
+        (target / "docs" / "archive").mkdir(parents=True)
+        (target / "README.md").write_text("# repo\n", encoding="utf-8")
+        (target / "docs" / "archive" / "old.md").write_text("# old\n", "utf-8")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        seen: list[Path] = []
+
+        def capture(files: list[Path], *_args: object, **_kwargs: object) -> int:
+            seen.extend(files)
+            return 0
+
+        for check in (doc_paths, doc_links, mermaid_parse, markdownlint):
+            monkeypatch.setattr(check, "run", capture)
+        monkeypatch.setattr(docs_touched, "run", lambda *_a, **_k: 0)
+        config = CIConfig(_raw={"quality": {"exclude_paths": ["docs/archive"]}})
+        assert lint_docs.run(target, config) == 0
+        assert set(seen) == {target / "README.md"}
+
     def test_defaults_never_fail_a_repo_with_broken_docs(self, tmp_path: Path) -> None:
         # The ratchet's whole point: adopting the dimension reports, it does
         # not turn an existing tree red.
