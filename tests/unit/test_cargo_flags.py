@@ -26,6 +26,20 @@ rustflags = ["-C", "target-cpu=x86-64-v3"]
 """
 
 
+_LOCAL_FALLBACK = """\
+# Local-only: applies on a host with no matching [target] table.
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v3"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+rustflags = ["-C", "target-cpu=generic"]
+"""
+
+
 class TestTheInertNegation:
     """`.cargo/` excludes the DIRECTORY, so a negation under it does nothing."""
 
@@ -72,6 +86,43 @@ class TestScanningARepo:
     def test_a_clean_repo_reports_nothing(self, tmp_path: Path) -> None:
         (tmp_path / ".gitignore").write_text("target/\n", encoding="utf-8")
         assert scan(tmp_path) == []
+
+    def test_build_as_local_fallback_is_not_reported(self, tmp_path: Path) -> None:
+        """Every CI triple has target rustflags, so `[build]` is local-only."""
+        cargo = tmp_path / ".cargo"
+        cargo.mkdir()
+        (cargo / "config.toml").write_text(_LOCAL_FALLBACK, encoding="utf-8")
+        assert scan(tmp_path) == []
+
+    def test_build_with_one_triple_uncovered_is_reported(self, tmp_path: Path) -> None:
+        cargo = tmp_path / ".cargo"
+        cargo.mkdir()
+        (cargo / "config.toml").write_text(
+            _BUILD_TABLE + "\n" + _TARGET_TABLE, encoding="utf-8"
+        )
+        found = scan(tmp_path)
+        assert [f.rule for f in found] == ["cargo/rustflags-under-build"]
+        assert "aarch64-unknown-linux-gnu" in found[0].message
+        assert "x86_64-unknown-linux-gnu" not in found[0].message.split("for:")[1]
+
+    def test_declared_triples_set_what_must_be_covered(self, tmp_path: Path) -> None:
+        """A repo that builds only x86_64 needs only that table."""
+        cargo = tmp_path / ".cargo"
+        cargo.mkdir()
+        (cargo / "config.toml").write_text(
+            _BUILD_TABLE + "\n" + _TARGET_TABLE, encoding="utf-8"
+        )
+        assert scan(tmp_path, ci_triples=["x86_64-unknown-linux-gnu"]) == []
+
+    def test_a_target_table_without_rustflags_does_not_cover(
+        self, tmp_path: Path
+    ) -> None:
+        cargo = tmp_path / ".cargo"
+        cargo.mkdir()
+        text = _BUILD_TABLE + "\n[target.x86_64-unknown-linux-gnu]\nlinker = 'clang'\n"
+        (cargo / "config.toml").write_text(text, encoding="utf-8")
+        found = scan(tmp_path, ci_triples=["x86_64-unknown-linux-gnu"])
+        assert [f.rule for f in found] == ["cargo/rustflags-under-build"]
 
     def test_unparseable_toml_does_not_raise(self, tmp_path: Path) -> None:
         """A broken config is someone else's error to report, not a crash here."""

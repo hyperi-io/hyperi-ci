@@ -16,13 +16,18 @@ Two causes, both of which cost the fleet AVX2 (issue #178):
   ARC pod's ``CARGO_TARGET_<TRIPLE>_RUSTFLAGS`` is a ``target`` entry, so it
   replaces ``[build]`` outright.
 
-Flags under ``[target.<triple>]`` join the pod's and are not flagged.
+Flags under ``[target.<triple>]`` join the pod's and are not flagged. Nor is a
+``[build]`` block when every triple CI builds has its own ``[target]`` rustflags,
+since ``[build]`` can then only apply on a host CI never builds for.
 """
 
 import subprocess
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
+from hyperi_ci.build_targets import declared_targets
 from hyperi_ci.common import info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
@@ -30,6 +35,9 @@ from hyperi_ci.quality import findings as fdg
 
 _TOOL = "cargo-flags"
 CARGO_CONFIG = Path(".cargo/config.toml")
+
+#: The triples CI builds when ``build.rust.targets`` lists none.
+DEFAULT_CI_TRIPLES = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
 
 
 def _negations_under_excluded_dirs(gitignore: str) -> list[tuple[int, str, str]]:
@@ -84,18 +92,26 @@ def _is_tracked(path: str, project_root: Path) -> bool:
     return result.returncode == 0
 
 
-def _build_table_flags(config_text: str) -> bool:
-    """Whether the cargo config declares rustflags under ``[build]``."""
-    try:
-        parsed = tomllib.loads(config_text)
-    except tomllib.TOMLDecodeError:
-        return False
-    build = parsed.get("build")
-    return isinstance(build, dict) and bool(build.get("rustflags"))
+def _has_rustflags(table: object) -> bool:
+    """Whether a parsed cargo config table sets ``rustflags``."""
+    return isinstance(table, dict) and bool(table.get("rustflags"))
 
 
-def scan(project_root: Path) -> list[fdg.Finding]:
-    """Return a finding for each way this repo's rustflags could go missing."""
+def _uncovered_triples(parsed: dict[str, Any], triples: Sequence[str]) -> list[str]:
+    """Return the triples with no ``[target.<triple>]`` rustflags of their own."""
+    targets = parsed.get("target")
+    tables = targets if isinstance(targets, dict) else {}
+    return [t for t in triples if not _has_rustflags(tables.get(t))]
+
+
+def scan(
+    project_root: Path, *, ci_triples: Sequence[str] = DEFAULT_CI_TRIPLES
+) -> list[fdg.Finding]:
+    """Return a finding for each way this repo's rustflags could go missing.
+
+    ``ci_triples`` are the targets CI builds. A ``[build]`` block is a local
+    fallback, not a finding, when each of them has its own target rustflags.
+    """
     out: list[fdg.Finding] = []
 
     gitignore = project_root / ".gitignore"
@@ -123,7 +139,17 @@ def scan(project_root: Path) -> list[fdg.Finding]:
     cargo_config = project_root / CARGO_CONFIG
     if cargo_config.is_file():
         text = cargo_config.read_text(encoding="utf-8", errors="replace")
-        if _build_table_flags(text):
+        try:
+            parsed = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            parsed = {}
+        uncovered = _uncovered_triples(parsed, ci_triples)
+        if _has_rustflags(parsed.get("build")) and not uncovered:
+            info(
+                f"  {_TOOL}: `[build]` rustflags are a local fallback -- every CI "
+                f"triple ({', '.join(ci_triples)}) has its own `[target]` rustflags"
+            )
+        elif _has_rustflags(parsed.get("build")):
             out.append(
                 fdg.Finding(
                     tool=_TOOL,
@@ -137,7 +163,8 @@ def scan(project_root: Path) -> list[fdg.Finding]:
                         "sets one via CARGO_TARGET_<TRIPLE>_RUSTFLAGS. Every "
                         "flag here is lost on those builds with nothing in the "
                         "log. Move them under `[target.<triple>]`, which joins "
-                        "instead of replacing."
+                        "instead of replacing. No target rustflags for: "
+                        f"{', '.join(uncovered)}."
                     ),
                 )
             )
@@ -168,7 +195,11 @@ def run(
         return 0
 
     root = project_root or Path.cwd()
-    found = scan(root)
+    try:
+        triples = declared_targets(config._raw) or DEFAULT_CI_TRIPLES
+    except ValueError:
+        triples = DEFAULT_CI_TRIPLES
+    found = scan(root, ci_triples=triples)
 
     fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 
