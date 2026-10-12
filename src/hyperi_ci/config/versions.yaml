@@ -359,7 +359,7 @@ tools:
     version: "0.0.84"
     pypi: ty
   checkov:
-    version: "3.3.22"
+    version: "3.3.23"
     pypi: checkov
   # lint-iac's ansible dimension. ansible-galaxy runs from the ansible-lint
   # environment, so the ansible-core it installs with matches the linter's.
