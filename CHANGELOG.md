@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.2...v2.14.3) (2026-10-12)
+
+### Bug Fixes
+
+* **deps:** bump checkov to 3.3.23 ([#675](https://github.com/hyperi-io/hyperi-ci/issues/675)) ([f8bf879](https://github.com/hyperi-io/hyperi-ci/commit/f8bf8794a1553cfe553b9822ac556dbf2abc5fac))
+
 ## [2.14.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.1...v2.14.2) (2026-10-12)
 
 ### Bug Fixes
