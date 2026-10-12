@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.1...v2.14.2) (2026-10-12)
+
+### Bug Fixes
+
+* **deps:** bump the pins the versions audit flagged ([#668](https://github.com/hyperi-io/hyperi-ci/issues/668)) ([bbfece0](https://github.com/hyperi-io/hyperi-ci/commit/bbfece06e5c90402d2c5bbf9d54a267c578305c9))
+
 ## [2.14.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.0...v2.14.1) (2026-10-11)
 
 ### Bug Fixes
