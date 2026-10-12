@@ -124,3 +124,31 @@ class TestTheChoiceIsSaid:
         _package({"test": "vitest run", "test:full": "vitest run"})
         ts_test.run(_CONFIG, extra_env={"TEST_TIER": "full"})
         assert "::warning" not in capsys.readouterr().out
+
+
+class TestVitePlusRunsVitest:
+    """`vp test` is Vitest, so a Vite+ project keeps the vitest coverage flag."""
+
+    @pytest.mark.parametrize(
+        "dev_deps",
+        [
+            {"vite-plus": "1.1.0", "vitest": "5.0.3"},
+            {"vite-plus": "1.1.0"},
+        ],
+    )
+    def test_vite_plus_project_gets_vitest_coverage(
+        self, calls: _Calls, dev_deps: dict[str, str]
+    ) -> None:
+        Path("package.json").write_text(
+            json.dumps(
+                {
+                    "name": "t",
+                    "devDependencies": dev_deps,
+                    "scripts": {"test": "vp test run"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert ts_test._detect_test_runner(_CONFIG) == "vitest"
+        assert ts_test.run(_CONFIG, extra_env={"TEST_TIER": "core"}) == 0
+        assert calls.commands == [["npm", "run", "test", "--", "--coverage"]]

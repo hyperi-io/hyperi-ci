@@ -275,3 +275,217 @@ class TestAuditCommand:
             "--severity",
             "high",
         ]
+
+
+def _shipped_config(**typescript: object) -> CIConfig:
+    """Config carrying the shipped quality defaults, with typescript keys overridden."""
+    shipped = shipped_default("quality")
+    shipped["typescript"].update(typescript)
+    return CIConfig(_raw={"quality": shipped})
+
+
+def _write_manifest(
+    tmp_path: Path,
+    scripts: dict[str, object] | None = None,
+    dev_deps: dict[str, str] | None = None,
+) -> None:
+    manifest = {
+        "name": "t",
+        "scripts": scripts or {},
+        "devDependencies": dev_deps or {},
+    }
+    (tmp_path / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+class _Gates:
+    """Records each gate the handler runs as (label, command, mode)."""
+
+    def __init__(self) -> None:
+        self.runs: list[tuple[str, list[str], str]] = []
+
+    def record(self, tool_name: str, cmd: list[str], mode: str, **_kw: object) -> bool:
+        self.runs.append((tool_name, cmd, mode))
+        return True
+
+    def lint_and_format(self) -> list[tuple[str, list[str], str]]:
+        """The runs other than tsc and audit."""
+        return [r for r in self.runs if r[0] not in ("tsc", "audit")]
+
+
+@pytest.fixture
+def gates(in_tmpdir: Path, stub_pm: None, monkeypatch: pytest.MonkeyPatch) -> _Gates:
+    rec = _Gates()
+    monkeypatch.setattr(quality, "run_gate_tool", rec.record)
+    monkeypatch.setattr(quality.osv_scanner, "run", lambda *_a, **_kw: True)
+    return rec
+
+
+class TestScriptTools:
+    """`_script_tools` names what a script body actually runs."""
+
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [
+            ("vp lint src/", ["oxlint"]),
+            ("vp fmt --check src/", ["oxfmt"]),
+            ("vp format --check", ["oxfmt"]),
+            ("vp check", ["oxlint", "oxfmt"]),
+            ("oxlint src/", ["oxlint"]),
+            ("oxfmt --check .", ["oxfmt"]),
+            ("oxlint && eslint .", ["oxlint", "eslint"]),
+            ("eslint . && oxlint", ["eslint", "oxlint"]),
+            ("prettier --check . || true", ["prettier"]),
+            ("pnpm exec oxlint --deny-warnings", ["oxlint"]),
+            ("node_modules/.bin/oxlint src", ["oxlint"]),
+            (
+                "eslint --config eslint.config.js --plugin eslint-plugin-oxlint .",
+                ["eslint"],
+            ),
+            ("oxlint src && oxlint test", ["oxlint"]),
+            ("turbo run lint", []),
+            ("vp run lint", []),
+            ("vp", []),
+            ("", []),
+        ],
+    )
+    def test_detects_the_invoked_tools(self, body: str, expected: list[str]) -> None:
+        assert quality._script_tools(body) == expected
+
+
+class TestScriptLabels:
+    """A lint or format script is reported under the tools it runs."""
+
+    def test_vite_plus_scripts_report_oxlint_and_oxfmt(self, gates: _Gates) -> None:
+        _write_manifest(
+            Path.cwd(),
+            {"lint": "vp lint src/", "format:check": "vp fmt --check src/"},
+            {"vite-plus": "1.1.0", "oxlint": "1.87.0", "oxfmt": "0.72.0"},
+        )
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint", ["npm", "run", "lint"], "blocking"),
+            ("oxfmt", ["npm", "run", "format:check"], "warn"),
+        ]
+
+    def test_plain_oxlint_script(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), {"lint": "oxlint src/"})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint", ["npm", "run", "lint"], "blocking")
+        ]
+
+    def test_vp_check_reports_both_tools(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), {"lint": "vp check"})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint+oxfmt", ["npm", "run", "lint"], "blocking")
+        ]
+
+    def test_oxlint_beside_eslint_reports_both(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), {"lint": "oxlint && eslint ."})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint+eslint", ["npm", "run", "lint"], "blocking")
+        ]
+
+    @pytest.mark.parametrize(
+        ("oxlint", "eslint", "expected"),
+        [
+            ("warn", "blocking", "blocking"),
+            ("blocking", "warn", "blocking"),
+            ("warn", "disabled", "warn"),
+            ("disabled", "disabled", "disabled"),
+        ],
+    )
+    def test_combined_label_takes_the_strictest_mode(
+        self, gates: _Gates, oxlint: str, eslint: str, expected: str
+    ) -> None:
+        _write_manifest(Path.cwd(), {"lint": "oxlint && eslint ."})
+        quality.run(_shipped_config(oxlint=oxlint, eslint=eslint))
+        assert gates.lint_and_format() == [
+            ("oxlint+eslint", ["npm", "run", "lint"], expected)
+        ]
+
+    def test_oxfmt_mode_is_its_own_key(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), {"format:check": "oxfmt --check ."})
+        quality.run(_shipped_config(oxfmt="blocking", prettier="disabled"))
+        assert gates.lint_and_format() == [
+            ("oxfmt", ["npm", "run", "format:check"], "blocking")
+        ]
+
+    @pytest.mark.parametrize("body", ["turbo run lint", 5])
+    def test_unrecognised_lint_script_keeps_eslint(
+        self, gates: _Gates, body: object
+    ) -> None:
+        _write_manifest(Path.cwd(), {"lint": body})
+        quality.run(_shipped_config(eslint="warn"))
+        assert gates.lint_and_format() == [("eslint", ["npm", "run", "lint"], "warn")]
+
+    def test_unrecognised_format_script_keeps_prettier(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), {"check:format": "biome format ."})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("prettier", ["npm", "run", "check:format"], "blocking")
+        ]
+
+
+class TestOxcFallbacks:
+    """No script: oxlint and Oxfmt run through npx from a config or devDependency."""
+
+    @pytest.mark.parametrize("marker", [".oxlintrc.json", "oxlint.config.ts"])
+    def test_oxlint_config_runs_npx_oxlint(self, gates: _Gates, marker: str) -> None:
+        _write_manifest(Path.cwd())
+        Path(marker).write_text("{}\n", encoding="utf-8")
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [("oxlint", ["npx", "oxlint"], "blocking")]
+
+    def test_oxlint_dev_dependency_runs_npx_oxlint(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), dev_deps={"oxlint": "1.87.0"})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [("oxlint", ["npx", "oxlint"], "blocking")]
+
+    @pytest.mark.parametrize("marker", [".oxfmtrc.json", ".oxfmtrc.jsonc"])
+    def test_oxfmt_config_runs_npx_oxfmt_at_warn(
+        self, gates: _Gates, marker: str
+    ) -> None:
+        _write_manifest(Path.cwd())
+        Path(marker).write_text("{}\n", encoding="utf-8")
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxfmt", ["npx", "oxfmt", "--check"], "warn")
+        ]
+
+    def test_oxfmt_dev_dependency_runs_npx_oxfmt(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), dev_deps={"oxfmt": "0.72.0"})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxfmt", ["npx", "oxfmt", "--check"], "warn")
+        ]
+
+    def test_vite_plus_runs_vp_lint_and_vp_fmt(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), dev_deps={"vite-plus": "1.1.0", "oxlint": "1.87.0"})
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint", ["npx", "vp", "lint"], "blocking"),
+            ("oxfmt", ["npx", "vp", "fmt", "--check"], "warn"),
+        ]
+
+    def test_oxlint_and_eslint_configs_run_both(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd(), dev_deps={"oxlint": "1.87.0"})
+        Path("eslint.config.js").write_text("export default []\n", encoding="utf-8")
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == [
+            ("oxlint", ["npx", "oxlint"], "blocking"),
+            ("eslint", ["npx", "eslint", "."], "blocking"),
+        ]
+
+    def test_nothing_configured_runs_no_lint_or_format(self, gates: _Gates) -> None:
+        _write_manifest(Path.cwd())
+        quality.run(_shipped_config())
+        assert gates.lint_and_format() == []
+
+
+def test_shipped_modes() -> None:
+    """oxlint gates like eslint; Oxfmt is pre-1.0, so it ships at warn."""
+    assert shipped_default("quality.typescript.oxlint") == "blocking"
+    assert shipped_default("quality.typescript.oxfmt") == "warn"
