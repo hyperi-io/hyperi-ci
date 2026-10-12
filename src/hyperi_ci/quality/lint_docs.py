@@ -42,7 +42,8 @@ def run(
     promoted to ``blocking`` fails.
     """
     root = Path(root)
-    files = discover_markdown_files(root, exclude_dirs=get_exclude_dirs(config._raw))
+    excludes = get_exclude_dirs(config._raw, root=root)
+    files = discover_markdown_files(root, exclude_dirs=excludes)
     if not files:
         info(f"lint-docs: no markdown under {root} - skipping")
         return 0

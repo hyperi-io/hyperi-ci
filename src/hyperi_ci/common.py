@@ -1200,7 +1200,9 @@ def _note_unmatched_excludes(entries: tuple[str, ...], root: Path) -> None:
             info(f"{prefix} '{entry}' is not a directory, so it excludes nothing")
 
 
-def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
+def get_exclude_dirs(
+    config_raw: dict[str, Any] | None = None, *, root: Path | None = None
+) -> list[str]:
     """Get directories to exclude from quality checks.
 
     Combines git submodule paths (.gitmodules), ci/ and ai/, the common
@@ -1210,24 +1212,28 @@ def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
     A bare name is kept regardless, as consumers match it against a directory
     name at any depth.
 
+    Every entry is checked against ``root``, the repo being linted, which
+    defaults to the current directory. Entries stay relative to it.
+
     A custom entry that excludes nothing is reported once per process.
     """
+    base = Path.cwd() if root is None else Path(root)
     excludes: list[str] = []
 
-    gitmodules = Path(".gitmodules")
+    gitmodules = base / ".gitmodules"
     if gitmodules.exists():
         for line in gitmodules.read_text(encoding="utf-8").splitlines():
             if "path" in line and "=" in line:
                 path = line.split("=", 1)[1].strip()
-                if path and Path(path).is_dir():
+                if path and (base / path).is_dir():
                     excludes.append(path)
 
     for submod in ("ci", "ai"):
-        if Path(submod).is_dir() and submod not in excludes:
+        if (base / submod).is_dir() and submod not in excludes:
             excludes.append(submod)
 
     for dirname in _COMMON_EXCLUDES:
-        if Path(dirname).exists() and dirname not in excludes:
+        if (base / dirname).exists() and dirname not in excludes:
             excludes.append(dirname)
 
     if config_raw:
@@ -1235,9 +1241,9 @@ def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
         if isinstance(custom, list):
             stripped = (str(entry).rstrip("/") for entry in custom if entry)
             entries = tuple(entry for entry in stripped if entry)
-            _note_unmatched_excludes(entries, Path.cwd())
+            _note_unmatched_excludes(entries, base)
             for entry in entries:
-                keep = "/" not in entry or Path(entry).is_dir()
+                keep = "/" not in entry or (base / entry).is_dir()
                 if keep and entry not in excludes:
                     excludes.append(entry)
 

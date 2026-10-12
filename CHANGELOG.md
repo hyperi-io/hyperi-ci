@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.0...v2.14.1) (2026-10-11)
+
+### Bug Fixes
+
+* **quality:** resolve lint-docs excludes against the target directory ([#670](https://github.com/hyperi-io/hyperi-ci/issues/670)) ([89e545f](https://github.com/hyperi-io/hyperi-ci/commit/89e545fb9d9abc9b482012d8b61bca5bde0c7320)), closes [#669](https://github.com/hyperi-io/hyperi-ci/issues/669)
+* **quality:** stop cargo-flags warning on a local-only [build] fallback ([#671](https://github.com/hyperi-io/hyperi-ci/issues/671)) ([17aa387](https://github.com/hyperi-io/hyperi-ci/commit/17aa38710e7636a0ace5e4ea3e558c6b70bac08f))
+
 ## [2.14.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.22...v2.14.0) (2026-10-10)
 
 ### Features

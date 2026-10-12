@@ -137,6 +137,40 @@ class TestRootEntriesUnchanged:
         assert excludes.count("node_modules") == 1
 
 
+class TestTargetRoot:
+    """issue #669: entries resolve against the linted repo, not the cwd."""
+
+    def test_entries_resolve_against_root_from_another_cwd(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory, notes: list[str]
+    ) -> None:
+        target = tmp_path_factory.mktemp("target")
+        (target / "vendor" / "lib").mkdir(parents=True)
+        (target / ".gitmodules").write_text(
+            '[submodule "lib"]\n\tpath = vendor/lib\n', encoding="utf-8"
+        )
+        (target / "ci").mkdir()
+        (target / "node_modules").mkdir()
+        (target / "pkg" / "examples").mkdir(parents=True)
+        (target / "docs" / "api").mkdir(parents=True)
+        excludes = get_exclude_dirs(_config("examples", "docs/api"), root=target)
+        assert "vendor/lib" in excludes
+        assert "ci" in excludes
+        assert "node_modules" in excludes
+        assert "docs/api" in excludes
+        assert "examples" in excludes
+        assert notes == []
+
+    def test_cwd_dirs_do_not_leak_into_another_root(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        (repo / "node_modules").mkdir()
+        (repo / "docs" / "api").mkdir(parents=True)
+        target = tmp_path_factory.mktemp("target")
+        excludes = get_exclude_dirs(_config("docs/api"), root=target)
+        assert "node_modules" not in excludes
+        assert "docs/api" not in excludes
+
+
 class TestSubstringMatchingTools:
     """vulture reads a pattern without wildcards as a substring."""
 
