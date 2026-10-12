@@ -59,11 +59,11 @@ tools:
   # honours only the first config file, contradicting its own help text
   # (0.14.0 rejects multiple `-c` and fixes the contract).
   alint:
-    version: v0.16.1
+    version: "v0.17.0"
     repo: asamarts/alint
     sha256:
-      x86_64: 81ce8785e99a65bfa6a2e5cad6451dc3cac8a5cbc404b4452ae453ea392acb05
-      aarch64: 28b551c1ffef97dff497ea4c1ad29c69b0c97b9c81f5ab311e155e28375452ac
+      x86_64: aae46539226955795bc7c51adf4832d2503bf7419f87ad0ac15185092d42708a
+      aarch64: 3f8acc1c30cb8959bce53d4a23d77906935cc679ef13c855297c3e39bd464504
   gitleaks:
     version: v8.30.1
     repo: gitleaks/gitleaks
@@ -109,7 +109,7 @@ tools:
     npm: markdownlint-cli2
     lockfile: src/hyperi_ci/config/node-tools/package-lock.json
   mermaid:
-    version: 12.0.0
+    version: "12.1.0"
     npm: mermaid
     lockfile: src/hyperi_ci/config/node-tools/package-lock.json
   # Not a tool: a floor under mermaid's tree, rendered as an npm `overrides`
@@ -127,7 +127,7 @@ tools:
   # mermaid takes katex ^0.16, which carries the prototype-pollution trust bypass
   # fixed in 0.18.2. The mermaid check parses grammar and never renders maths.
   katex:
-    version: 0.18.9
+    version: "0.19.0"
     npm: katex
     lockfile: src/hyperi_ci/config/node-tools/package-lock.json
   kube-linter:
@@ -150,12 +150,12 @@ tools:
       amd64: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
       arm64: 2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4
   golangci-lint:
-    version: v2.13.2
+    version: "v2.14.0"
     repo: golangci/golangci-lint
     pin: .github/actions/setup-go-tools/action.yml
     sha256:
-      amd64: 2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6
-      arm64: a2a4e0065aa41be71f7c5ac90f271b61751331e5d04314e62afe4027855f0893
+      amd64: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+      arm64: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
   gosec:
     version: v2.29.0
     repo: securego/gosec
@@ -249,13 +249,13 @@ tools:
   # Publishes no checksum file, so like cargo-audit these digests rest on our
   # own download.
   cargo-semver-checks:
-    version: v0.50.0
+    version: "v0.51.0"
     repo: obi1kenobi/cargo-semver-checks
     pin: .github/actions/setup-rust-tools/action.yml
     sha256:
       # gnu on both arches; musl is also published but nothing here needs it.
-      amd64: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
-      arm64: e35f435ea322659381f52e7034bb4f0470108f5b267d29f13cf08152fa4af29b
+      amd64: cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65
+      arm64: 58531fa492d237c71b97d113a6d2a36209d96105956569cd0406aa66226ac928
   # Source-built on the release runner by `cargo install --locked` and then run
   # over the binary we ship, so it is pinned like any other release tool.
   cargo-pgo:
@@ -321,19 +321,19 @@ tools:
   # runner has none. Digests cross-checked against upstream's SHA256SUMS and
   # checksums.txt at pin time.
   tofu:
-    version: v1.12.6
+    version: "v1.13.1"
     repo: opentofu/opentofu
     sha256:
-      amd64: 50a6106fa4de523d09c87af85f3db1dd47535fc005727fdca6852146476b88ec
-      arm64: 9bd0228a81bcd0c88f7045c74378f45a815779f19897191dff7d9efba9976b9e
+      amd64: 378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
+      arm64: 9c1ef375aa1852db0b2888aa921b640c71f8140d4682aa4fec99378a64fa7dc3
   # MONOREPO like rustsec: api/, kyaml/ and cmd/config/ tag from the same repo.
   kustomize:
-    version: v5.8.1
+    version: "v5.8.2"
     repo: kubernetes-sigs/kustomize
     tag_prefix: kustomize/
     sha256:
-      amd64: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
-      arm64: 0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142
+      amd64: 06af0a202c2b831207d0173f9c9cdb1b30abceca0747cb3fbb72792d26055c95
+      arm64: 0991957191951cb7dddd142403b5bb98a1fcd6378ba0079dddc1e2c309080a7f
 
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could
@@ -342,7 +342,7 @@ tools:
   # reads PyPI's own upload times and applies the same 7-day cooldown. Python
   # reads these through hyperi_ci.versions, so there is no `pin:` and no copy.
   semgrep:
-    version: "1.178.0"
+    version: "1.179.0"
     pypi: semgrep
   pip-audit:
     version: 2.10.1
@@ -356,10 +356,10 @@ tools:
     pypi: vulture
     pin: .github/workflows/ci.yml
   ty:
-    version: "0.0.83"
+    version: "0.0.84"
     pypi: ty
   checkov:
-    version: 3.3.20
+    version: "3.3.22"
     pypi: checkov
   # lint-iac's ansible dimension. ansible-galaxy runs from the ansible-lint
   # environment, so the ansible-core it installs with matches the linter's.
