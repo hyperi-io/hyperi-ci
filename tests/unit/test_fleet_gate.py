@@ -203,6 +203,63 @@ class TestACompositeChangeIsUnrehearsed:
         assert "COMPOSITE UNREHEARSED" not in capsys.readouterr().out
 
 
+class TestANestedWorkflowChangeIsUnrehearsed:
+    """The lang workflows call `_release-tail.yml` @main, so no rehearsal runs it (#626)."""
+
+    def _nested(self, paths: list[str]) -> list[str]:
+        fleet = fixture_fleet.load_fleet()
+        return gate.nested_workflow_changes(
+            paths,
+            fixture_fleet.read_workflow_texts(),
+            fixture_fleet.language_workflows(fleet),
+        )
+
+    def test_a_workflow_only_called_by_another_is_nested(self) -> None:
+        assert self._nested([".github/workflows/_release-tail.yml"]) == [
+            "_release-tail.yml"
+        ]
+
+    def test_a_language_workflow_stays_rehearsable(self) -> None:
+        assert self._nested([".github/workflows/rust-ci.yml"]) == []
+
+    def test_a_mixed_diff_names_only_the_nested_one(self) -> None:
+        paths = [
+            "./.github/workflows/rust-ci.yml",
+            ".github/workflows/_release-tail.yml",
+            "src/hyperi_ci/cli.py",
+        ]
+        assert self._nested(paths) == ["_release-tail.yml"]
+
+    def test_the_set_is_read_from_uses_lines(self) -> None:
+        texts = {
+            "a.yml": "jobs:\n  j:\n    uses: hyperi-io/hyperi-ci/.github/workflows/_x.yml@main\n",
+            "_x.yml": "jobs: {}\n",
+        }
+        paths = [".github/workflows/_x.yml", ".github/workflows/a.yml"]
+        assert gate.nested_workflow_changes(paths, texts, set()) == ["_x.yml"]
+
+    def test_a_proven_rehearsal_does_not_prove_a_nested_workflow(self) -> None:
+        outcomes = [gate.Outcome("ci-test-rust-app", gate.PROVEN, "run 1")]
+        code, lines = gate.gate_verdict(
+            ["ci-test-rust-app"], outcomes, None, ["_release-tail.yml"]
+        )
+        assert code == 1
+        assert any("_release-tail.yml" in line for line in lines)
+
+    def test_the_gate_refuses_a_proven_nested_change(self, monkeypatch, capsys) -> None:
+        argv = ["rehearse-gate.py", "--head-sha", "a" * 40, "--branch", "fix/x"]
+        argv += ["--changed-file", ".github/workflows/_release-tail.yml"]
+        monkeypatch.setattr(sys, "argv", argv)
+        monkeypatch.setattr(
+            gate, "verify", lambda name, _sha: gate.Outcome(name, gate.PROVEN, "run 1")
+        )
+        code = gate.main()
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "NESTED WORKFLOW UNREHEARSED: _release-tail.yml" in out
+        assert "REHEARSED: every required fixture" not in out
+
+
 class TestTheSweepVerdict:
     def test_a_green_fleet_passes(self) -> None:
         results = [sweep.Result("ci-test-go-app", sweep.PASS, "run 1")]
