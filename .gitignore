@@ -45,6 +45,13 @@ CLAUDE.md
 STATE.md
 TODO.md
 .ai-version
+.hyperi-ai
+.superpowers/
+.playwright-mcp/
+.kube/
+.secrets/
+.benchmarks/
+/target
 
 # Git worktrees
 .worktrees/
@@ -55,6 +62,7 @@ TODO.md
 # Local environment files (never commit -- contain secrets)
 !.env.example
 !.env.example.*
+!.env*.example
 
 # hyperi-ai per-project context + tool-specific equivalents.
 # Real files in project tree (Claude Code / Codex / Gemini / Cursor
