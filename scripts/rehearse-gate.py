@@ -32,6 +32,11 @@ still runs main's composite, and a green record would vouch for code it never
 ran (issue #366). The gate names the composite as unrehearsed and stays red, so
 a human decides whether it merges.
 
+An internal workflow that only another workflow calls (`_release-tail.yml`) is
+the same case: the language workflow reaches it by an `@main` ref, so a
+fixture running this branch's language workflow still runs main's copy
+(issue #626). The set comes from the `uses:` lines of the workflow files.
+
 Usage:
     uv run scripts/rehearse-gate.py --pr 240
     uv run scripts/rehearse-gate.py --base-ref origin/main
@@ -45,6 +50,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -193,27 +200,79 @@ def composite_changes(paths: list[str]) -> list[str]:
     return sorted(name for name in names if name is not None)
 
 
+def _called_workflows(text: str) -> set[str]:
+    """Workflow filenames a workflow file calls with a job-level `uses:`."""
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return set()
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        return set()
+    prefix = f"{fixture_fleet.ORG}/hyperi-ci/.github/workflows/"
+    called = set()
+    for job in jobs.values():
+        uses = job.get("uses") if isinstance(job, dict) else None
+        if isinstance(uses, str) and uses.startswith(prefix):
+            called.add(uses[len(prefix) :].split("@", 1)[0])
+    return called
+
+
+def nested_workflow_changes(
+    paths: list[str], texts: dict[str, str], language_files: set[str]
+) -> list[str]:
+    """Changed workflows that another workflow reaches by an `@main` ref.
+
+    Args:
+        paths: Repo-relative paths changed by the diff.
+        texts: Workflow filename -> content.
+        language_files: Workflows fixtures call directly, which a rehearsal
+            does run at the branch.
+
+    Returns:
+        Workflow filenames in name order.
+    """
+    nested = {
+        called
+        for caller, text in texts.items()
+        for called in _called_workflows(text)
+        if called != caller
+    } - language_files
+    prefix = ".github/workflows/"
+    changed = set()
+    for raw in paths:
+        path = raw.replace("\\", "/").removeprefix("./")
+        if path.startswith(prefix) and path[len(prefix) :] in nested:
+            changed.add(path[len(prefix) :])
+    return sorted(changed)
+
+
 def gate_verdict(
     required: list[str],
     outcomes: list[Outcome],
     composites: list[str] | None = None,
+    nested: list[str] | None = None,
 ) -> tuple[int, list[str]]:
     """Turn per-fixture outcomes into an exit code and a report.
 
-    A changed composite holds the code at 1 or worse whatever the fixtures
-    say, because no rehearsal ran it.
+    A changed composite or nested workflow holds the code at 1 or worse
+    whatever the fixtures say, because no rehearsal ran it.
 
     Args:
         required: Fixture names the diff has to be proven against.
         outcomes: One per fixture the gate managed to ask about.
         composites: Composite actions the diff changes.
+        nested: Workflows the diff changes that only other workflows call.
 
     Returns:
         (exit code, report lines). 0 proven, 1 unproven or failed, 2 unknown.
     """
-    if composites:
+    if composites or nested:
         code, lines = _fixture_verdict(required, outcomes)
-        lines.append(f"  UNREHEARSED composite action(s): {', '.join(composites)}")
+        if composites:
+            lines.append(f"  UNREHEARSED composite action(s): {', '.join(composites)}")
+        if nested:
+            lines.append(f"  UNREHEARSED nested workflow(s): {', '.join(nested)}")
         return max(code, 1), lines
     if not required:
         return 0, ["No consumer surface touched - rehearsal not required."]
@@ -293,13 +352,15 @@ def main() -> int:
         return 2
 
     fleet = fixture_fleet.load_fleet()
-    required_entries = fixture_fleet.select_for_paths(
-        changed, fleet, fixture_fleet.read_workflow_texts()
-    )
+    texts = fixture_fleet.read_workflow_texts()
+    required_entries = fixture_fleet.select_for_paths(changed, fleet, texts)
     required = [entry["name"] for entry in required_entries]
     composites = composite_changes(changed)
+    nested = nested_workflow_changes(
+        changed, texts, fixture_fleet.language_workflows(fleet)
+    )
 
-    if not required and not composites:
+    if not required and not composites and not nested:
         print("No consumer surface touched - rehearsal not required.")
         return 0
 
@@ -310,7 +371,7 @@ def main() -> int:
 
     print(f"Rehearsal required for {head_sha[:12]}: {', '.join(required) or 'none'}")
     outcomes = [verify(name, head_sha) for name in required]
-    code, lines = gate_verdict(required, outcomes, composites)
+    code, lines = gate_verdict(required, outcomes, composites, nested)
     for line in lines:
         print(line)
 
@@ -326,6 +387,13 @@ def main() -> int:
             f"COMPOSITE UNREHEARSED: {', '.join(composites)}. The reusable "
             "workflows call composites at @main, so a rehearsal of this branch "
             "ran main's copy and proves nothing about this change. A human "
+            "decides whether it merges."
+        )
+    if nested:
+        print(
+            f"NESTED WORKFLOW UNREHEARSED: {', '.join(nested)}. The language "
+            "workflows call these at @main, so a rehearsal of this branch ran "
+            "main's copy and proves nothing about this change. A human "
             "decides whether it merges."
         )
     print(
