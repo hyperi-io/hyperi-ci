@@ -200,7 +200,7 @@ the full pipeline, not just top-level workflows.
 | `--apply` | rewrite workflows + composites to match the SSOT |
 | `--stable` | the dry run of `--auto-update`: print the newest release >=7 days old that it would write, and write nothing |
 | `--auto-update` | bump `versions.yaml` to those, validate locally, revert on failure. It does not commit and does not trigger remote CI |
-| `--fail-on-drift` | with `--stable`, exit 1 when a pin is behind or could not be checked. `versions-audit.yml` runs `--stable --fail-on-drift` weekly |
+| `--fail-on-drift` | with `--stable`, exit 1 when a pin is behind or could not be checked. `versions-audit.yml` runs `--stable --fail-on-drift` weekly, and on drift `--auto-update` into one rolling PR from `deps/versions-audit` |
 | `--now` | waive the 7-day soak for a supervised manual run |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the
