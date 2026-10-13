@@ -115,6 +115,82 @@ class TestOnlyOneExitCodeIsAVerdict:
             assert semver_checks.run(_config(), project_root=lib_crate) == 0
 
 
+def _rustdoc_failure(noise: int) -> str:
+    """Cargo's shape: root cause first, cascade and rustdoc notes after it."""
+    return "\n".join(
+        [
+            "error: linker `cc` not found",
+            "  = note: No such file or directory (os error 2)",
+            *(f"   Checking dep{n} v0.1.0" for n in range(noise)),
+            "error: could not compile `quote` (build script) due to 1 previous error",
+            "error: could not compile `libc` (build script) due to 1 previous error",
+            "error: failed to build rustdoc for crate lib v0.2.0",
+        ]
+    )
+
+
+class TestAnUnreachedVerdictNamesItsCause:
+    """Issue #678: the root cause sat above the 20-line tail and was never shown."""
+
+    def test_the_warning_names_the_first_error(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, _rustdoc_failure(noise=40))
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
+        verdict = [line for line in said if "could not reach a verdict" in line]
+        assert len(verdict) == 1
+        assert "First error: error: linker `cc` not found" in verdict[0]
+
+    def test_a_root_cause_above_the_tail_is_still_logged(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, _rustdoc_failure(noise=40))
+        semver_checks.run(_config(), project_root=lib_crate)
+        assert any(line.strip() == "error: linker `cc` not found" for line in said)
+
+    def test_an_error_already_in_the_tail_is_not_repeated(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, _rustdoc_failure(noise=0))
+        semver_checks.run(_config(), project_root=lib_crate)
+        assert "    first errors:" not in said
+        linker = [
+            line for line in said if line.strip() == "error: linker `cc` not found"
+        ]
+        assert len(linker) == 1
+
+    def test_no_error_line_leaves_the_message_alone(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, "registry timed out")
+        semver_checks.run(_config(), project_root=lib_crate)
+        assert not any("First error" in line for line in said)
+
+    def test_a_break_verdict_does_not_carry_a_first_error(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 100, "error[E0001]: nonsense\nmajor needed")
+        semver_checks.run(_config(), project_root=lib_crate)
+        assert not any("First error" in line for line in said)
+
+
+class TestFirstErrors:
+    def test_keeps_order_drops_duplicates_and_caps(self) -> None:
+        lines = ["  error: a", "error[E1]: b", "error: a", "warning: w", "error: c"]
+        lines.append("error: d")
+        assert semver_checks._first_errors(lines) == [
+            "error: a",
+            "error[E1]: b",
+            "error: c",
+        ]
+
+    def test_empty_output_has_none(self) -> None:
+        assert semver_checks._first_errors([]) == []
+
+    def test_a_word_containing_error_is_not_one(self) -> None:
+        assert semver_checks._first_errors(["errors: 0", "no error: here"]) == []
+
+
 class TestMissingToolAnnotates:
     def test_the_annotation_text_is_unchanged(
         self,
