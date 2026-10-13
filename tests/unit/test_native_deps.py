@@ -29,6 +29,9 @@ from hyperi_ci.native_deps import (
 )
 from hyperi_ci.versions import runtime_version
 
+# second-primary-key.asc is a throwaway public key with no private half anywhere.
+DATA_DIR = Path(__file__).parent / "data"
+
 
 def _seed_apt_tree(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
     """Create a fake /etc/apt hierarchy under tmp_path.
@@ -384,12 +387,18 @@ class TestAptKeyFingerprint:
     )
     _PRIMARY = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
     _SUBKEY = "56E1477F57BAB5ECF37818045B3D8846AF9463CE"
+    # The pinned key followed by Ubuntu's 2018 archive key in one file.
+    _TWO_PRIMARIES = _COLONS + (
+        b"pub:-:4096:1:871920D1991BC93C:1537196506:::-:::scSC::::::23::0:\n"
+        b"fpr:::::::::F6ECB3762474EDA9D21B7022871920D1991BC93C:\n"
+    )
 
     def _install(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         fingerprint: str,
+        colons: bytes = _COLONS,
     ) -> tuple[int, list[list[str]]]:
         """Run _add_apt_repo against a fake gpg; return (rc, commands invoked)."""
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
@@ -404,7 +413,7 @@ class TestAptKeyFingerprint:
                 Path(cmd[cmd.index("-o") + 1]).write_bytes(b"ARMOURED-KEY")
                 return subprocess.CompletedProcess(cmd, 0, stdout="")
             if cmd[:2] == ["gpg", "--show-keys"]:
-                return subprocess.CompletedProcess(cmd, 0, stdout=self._COLONS)
+                return subprocess.CompletedProcess(cmd, 0, stdout=colons)
             if cmd[:2] == ["dpkg", "--print-architecture"]:
                 return subprocess.CompletedProcess(cmd, 0, stdout="amd64\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
@@ -425,7 +434,7 @@ class TestAptKeyFingerprint:
     ) -> None:
         rc, invoked = self._install(tmp_path, monkeypatch, self._PRIMARY)
         assert rc == 0
-        assert any("--dearmor" in cmd for cmd in invoked)
+        assert any(cmd == ["tee", str(tmp_path / "llvm.gpg")] for cmd in invoked)
 
     def test_the_key_is_fetched_to_a_file_with_a_time_limit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -467,7 +476,7 @@ class TestAptKeyFingerprint:
     ) -> None:
         rc, invoked = self._install(tmp_path, monkeypatch, "DEADBEEF" * 5)
         assert rc != 0
-        assert not any("--dearmor" in cmd for cmd in invoked)
+        assert not any(cmd[0] == "tee" for cmd in invoked)
 
     def test_subkey_fingerprint_is_not_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -475,7 +484,7 @@ class TestAptKeyFingerprint:
         """Only the primary key counts -- a subkey match would weaken the pin."""
         rc, invoked = self._install(tmp_path, monkeypatch, self._SUBKEY)
         assert rc != 0
-        assert not any("--dearmor" in cmd for cmd in invoked)
+        assert not any(cmd[0] == "tee" for cmd in invoked)
 
     def test_no_fingerprint_declared_skips_the_check(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -483,6 +492,48 @@ class TestAptKeyFingerprint:
         rc, invoked = self._install(tmp_path, monkeypatch, "")
         assert rc == 0
         assert not any(cmd[:2] == ["gpg", "--show-keys"] for cmd in invoked)
+
+    def test_a_second_primary_beside_the_pinned_one_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dearmor keeps every key in the file, so a passenger key gets trusted."""
+        rc, invoked = self._install(
+            tmp_path, monkeypatch, self._PRIMARY, colons=self._TWO_PRIMARIES
+        )
+        assert rc != 0
+        assert not any(cmd[0] == "tee" for cmd in invoked)
+
+    @pytest.mark.parametrize("label", ["MESSAGE", "SIGNATURE"])
+    @pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed")
+    def test_a_key_hidden_in_a_non_key_armour_block_never_reaches_the_keyring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str
+    ) -> None:
+        """`--show-keys` skips the block, but dearmor decodes it into the keyring."""
+        pinned = native_deps._AWS_CLI_KEY_FILE.read_bytes()
+        extra = (DATA_DIR / "second-primary-key.asc").read_bytes()
+        hidden = extra.replace(b"PUBLIC KEY BLOCK", label.encode())
+        _patch_apt_paths(monkeypatch, *_seed_apt_tree(tmp_path, {}))
+        monkeypatch.setattr(native_deps, "curl_read", lambda _url: (0, pinned + hidden))
+        monkeypatch.setattr(native_deps, "sudo_prefix", lambda: [])
+        keyring = tmp_path / "pinned.gpg"
+        repo = AptRepo(
+            key_url="https://example.invalid/key.asc",
+            keyring=str(keyring),
+            url="https://example.invalid/apt/",
+            codename="noble",
+            key_fingerprint=native_deps._AWS_CLI_KEY_FPR,
+        )
+        assert _add_apt_repo(repo) == 1
+        assert not keyring.exists()
+
+    @pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed")
+    def test_real_gpg_two_key_file_fails_and_one_key_file_passes(self) -> None:
+        """Run the check against real gpg output, not a transcription of it."""
+        pinned = native_deps._AWS_CLI_KEY_FILE.read_bytes()
+        extra = (DATA_DIR / "second-primary-key.asc").read_bytes()
+        pin = native_deps._AWS_CLI_KEY_FPR
+        assert native_deps._verify_pinned_key(pinned, pin)
+        assert not native_deps._verify_pinned_key(pinned + extra, pin)
 
 
 class TestSudoPrefix:
@@ -1113,7 +1164,7 @@ class TestEnsureAwsCli:
         than as a signature failure on a release runner.
         """
         key = native_deps._AWS_CLI_KEY_FILE.read_bytes()
-        assert native_deps._AWS_CLI_KEY_FPR in native_deps._key_fingerprints(key)
+        assert native_deps._verify_pinned_key(key, native_deps._AWS_CLI_KEY_FPR)
 
     def test_existing_aws_is_returned_without_downloading(
         self, monkeypatch: pytest.MonkeyPatch

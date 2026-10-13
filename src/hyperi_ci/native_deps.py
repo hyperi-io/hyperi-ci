@@ -362,7 +362,7 @@ def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
 
 
 def _key_fingerprints(key_bytes: bytes) -> list[str]:
-    """Return the primary-key fingerprints gpg reads out of an armoured key."""
+    """Return the primary-key fingerprints, public or secret, in a key file."""
     result = subprocess.run(
         ["gpg", "--show-keys", "--with-fingerprint", "--with-colons"],
         input=key_bytes,
@@ -374,7 +374,7 @@ def _key_fingerprints(key_bytes: bytes) -> list[str]:
     found: list[str] = []
     expect_fpr = False
     for line in result.stdout.decode("utf-8", errors="replace").splitlines():
-        if line.startswith("pub:"):
+        if line.startswith(("pub:", "sec:")):
             expect_fpr = True
         elif expect_fpr and line.startswith("fpr:"):
             found.append(line.split(":")[9].upper())
@@ -382,23 +382,29 @@ def _key_fingerprints(key_bytes: bytes) -> list[str]:
     return found
 
 
-def _verify_apt_key(key_bytes: bytes, expected: str) -> bool:
-    """Check a downloaded APT key is the one the YAML declares.
+def _verify_pinned_key(key_bytes: bytes, expected: str) -> bool:
+    """Check a key file holds exactly one primary key, and that it is the pin.
 
     HTTPS proves who served the key, not which key it is, so without this a
     swapped upstream key would sign every package apt pulls from that repo.
+    One primary only, because gpg keeps every key in the file on dearmor or
+    import: a pinned key with a second key beside it would trust both.
     """
     wanted = expected.replace(" ", "").upper()
     found = _key_fingerprints(key_bytes)
     if not found:
-        logger.error("Could not read a key fingerprint from the downloaded APT key")
+        logger.error("Could not read a key fingerprint from the key file")
         return False
-    if wanted not in found:
+    if len(found) > 1:
         logger.error(
-            f"APT key fingerprint mismatch: expected {wanted}, got {', '.join(found)}"
+            f"Key file holds {len(found)} primary keys, expected only {wanted}: "
+            f"{', '.join(found)}"
         )
         return False
-    logger.info(f"APT key fingerprint verified: {wanted}")
+    if found[0] != wanted:
+        logger.error(f"Key fingerprint mismatch: expected {wanted}, got {found[0]}")
+        return False
+    logger.info(f"Key fingerprint verified: {wanted}")
     return True
 
 
@@ -428,25 +434,28 @@ def _add_apt_repo(repo: AptRepo) -> int:
             logger.error(f"Failed to download APT key from {repo.key_url}")
             return rc
 
-        if repo.key_fingerprint and not _verify_apt_key(key, repo.key_fingerprint):
+        # Verify the dearmored bytes, not the download: dearmor decodes every
+        # armour block, including ones --show-keys skips as non-key.
+        dearmor = subprocess.run(
+            ["gpg", "--batch", "--dearmor"], input=key, capture_output=True
+        )
+        if dearmor.returncode != 0:
+            logger.error(f"Failed to dearmor APT key from {repo.key_url}")
+            return dearmor.returncode
+        keyring = dearmor.stdout
+
+        if repo.key_fingerprint and not _verify_pinned_key(
+            keyring, repo.key_fingerprint
+        ):
             logger.error(f"Refusing to install the APT key from {repo.key_url}")
             return 1
 
-        dearmor = subprocess.run(
-            [
-                *sudo_prefix(),
-                "gpg",
-                "--batch",
-                "--yes",
-                "--dearmor",
-                "-o",
-                repo.keyring,
-            ],
-            input=key,
+        write = subprocess.run(
+            [*sudo_prefix(), "tee", repo.keyring], input=keyring, capture_output=True
         )
-        if dearmor.returncode != 0:
-            logger.error(f"Failed to dearmor APT key to {repo.keyring}")
-            return dearmor.returncode
+        if write.returncode != 0:
+            logger.error(f"Failed to write APT keyring {repo.keyring}")
+            return write.returncode
 
     codename = _resolve_codename(repo)
     arch = _get_dpkg_arch()
@@ -559,12 +568,8 @@ def _verify_detached_signature(payload: bytes, signature: bytes, key: bytes) -> 
     and its fingerprint is checked first: verifying against whatever was
     imported proves only that the archive is self-consistent.
     """
-    found = _key_fingerprints(key)
-    if _AWS_CLI_KEY_FPR not in found:
-        logger.error(
-            f"Shipped AWS CLI key is not {_AWS_CLI_KEY_FPR} "
-            f"(got {', '.join(found) or 'nothing readable'})"
-        )
+    if not _verify_pinned_key(key, _AWS_CLI_KEY_FPR):
+        logger.error("Refusing the shipped AWS CLI key")
         return False
 
     with tempfile.TemporaryDirectory() as home:
