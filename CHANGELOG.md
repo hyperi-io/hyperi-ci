@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.4...v2.14.5) (2026-10-13)
+
+### Bug Fixes
+
+* **quality:** name oxlint, Oxfmt and Vite+ in the TypeScript gate ([#674](https://github.com/hyperi-io/hyperi-ci/issues/674)) ([9aecc3c](https://github.com/hyperi-io/hyperi-ci/commit/9aecc3cec6575839e970839a96ddedcfaaf2f3a7)), closes [#672](https://github.com/hyperi-io/hyperi-ci/issues/672)
+
 ## [2.14.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.3...v2.14.4) (2026-10-13)
 
 ### Bug Fixes
