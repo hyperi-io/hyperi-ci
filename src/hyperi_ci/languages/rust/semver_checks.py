@@ -30,6 +30,33 @@ _BREAKING = 100
 # Upstream's wording for an unpublished crate; a reworded message fails loudly.
 _NO_BASELINE = "not found in registry"
 
+_TAIL = 20
+
+# Cargo prints the root cause first and the cascade after it, so on a big
+# dependency tree the line that names the fault falls out of the tail.
+_FIRST_ERRORS = 3
+
+
+def _first_errors(lines: list[str]) -> list[str]:
+    """Return the earliest distinct cargo ``error`` lines, in output order.
+
+    Args:
+        lines: The tool's combined stdout and stderr, split into lines.
+
+    Returns:
+        Up to ``_FIRST_ERRORS`` stripped lines starting ``error:`` or ``error[``.
+
+    """
+    found: list[str] = []
+    for line in lines:
+        text = line.strip()
+        if not text.startswith(("error:", "error[")) or text in found:
+            continue
+        found.append(text)
+        if len(found) == _FIRST_ERRORS:
+            break
+    return found
+
 
 def run(config: CIConfig, *, project_root: Path | None = None) -> int:
     """Check the crate's public API against the last published version.
@@ -90,7 +117,16 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         info(f"  {_TOOL}: not published yet -- no baseline to compare against")
         return 0
 
-    for line in combined.strip().splitlines()[-20:]:
+    lines = combined.strip().splitlines()
+    tail = lines[-_TAIL:]
+    in_tail = {line.strip() for line in tail}
+    first = _first_errors(lines)
+    hidden = [line for line in first if line not in in_tail]
+    if hidden:
+        info("    first errors:")
+        for line in hidden:
+            info(f"      {line}")
+    for line in tail:
         info(f"    {line}")
 
     if result.returncode == _BREAKING:
@@ -107,6 +143,8 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
             f"public API was NOT compared. Fix the error above and re-run; do "
             f"not read this as a clean result."
         )
+        if first:
+            message += f" First error: {first[0]}"
     if mode == "blocking":
         error(f"  {_TOOL}: {message}")
         return 1
