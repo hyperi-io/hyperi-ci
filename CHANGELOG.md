@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.5...v2.14.6) (2026-10-13)
+
+### Bug Fixes
+
+* **ci:** flag nested internal workflows the rehearsal never runs ([#680](https://github.com/hyperi-io/hyperi-ci/issues/680)) ([642ea02](https://github.com/hyperi-io/hyperi-ci/commit/642ea0274999cc54b544b8c5adc7c29b171bcce1))
+* **deps:** trust only a single pinned primary key in apt keyrings ([#679](https://github.com/hyperi-io/hyperi-ci/issues/679)) ([6e71e29](https://github.com/hyperi-io/hyperi-ci/commit/6e71e2949893234c73125d201c1cd05f9c4dbbc1))
+* **rust:** name the compiler error when semver checks reach no verdict ([#681](https://github.com/hyperi-io/hyperi-ci/issues/681)) ([0ca15ae](https://github.com/hyperi-io/hyperi-ci/commit/0ca15aede98d5a0f3586ed36b15d3dc5f732f0a5))
+
 ## [2.14.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.4...v2.14.5) (2026-10-13)
 
 ### Bug Fixes
