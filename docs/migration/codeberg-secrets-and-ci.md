@@ -49,7 +49,7 @@ A precise inventory is part of the migration cost. Approximate shape today:
 |---|---|---|
 | Org secrets (all repos) | R2 keys, generic publish creds | "All repositories" |
 | Org secrets (private only) | Anything hyperi-ci (public) must not see | "Private repositories" |
-| Org secrets (selected) | Per-product keys (e.g. dfe-* only), the release bot App key `GH_APP_PRIVATE_KEY` | "Selected repositories" |
+| Org secrets (selected) | Per-product keys (e.g. dfe-* only) | "Selected repositories" |
 | Org vars | App client IDs (`GH_APP_CLIENT_ID`), public config values | Same three tiers |
 | Repo secrets | Project-scoped tokens (PyPI per project, etc.) | Per repo |
 | Environment secrets | Deploy keys, staging creds | Environment + branch protection |

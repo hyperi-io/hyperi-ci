@@ -54,10 +54,10 @@ IDENTITY_ENV = "HYPERCI_RELEASE_IDENTITY"
 
 _KEY_MISSING = (
     "The release App key did not reach this job, so the run pushed as "
-    "`github-actions`, which no ruleset can exempt. Add this repo to the "
-    "`GH_APP_PRIVATE_KEY` org secret's selected repositories. Where the caller "
-    "workflow passes an explicit `secrets:` list, add `GH_APP_PRIVATE_KEY` to it "
-    "too."
+    "`github-actions`, which no ruleset can exempt. The `GH_APP_PRIVATE_KEY` org "
+    "secret reaches every hyperi-io repo, so the caller workflow is dropping it: "
+    "where it passes an explicit `secrets:` list, add `GH_APP_PRIVATE_KEY` to it, "
+    "or use `secrets: inherit`."
 )
 
 _BYPASS_MISSING = (
