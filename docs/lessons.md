@@ -98,7 +98,7 @@ Code: `languages/typescript/`.
 
 - **Package manager.** The `packageManager` pin in `package.json` wins, then the lockfile (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`), then npm. A pinned project resolves its manager through Corepack, because a global binary of another version refuses to run it.
 - **Audit.** Yarn Berry dropped `yarn audit` for `yarn npm audit --severity`. Yarn Classic, npm and pnpm take `--audit-level`.
-- **Lint and types.** ESLint runs the `lint` script, else `npx eslint .` when a flat (ESLint 9+) or legacy config exists. Type checking prefers a `typecheck` or `check-types` script over `tsc --noEmit`, so monorepo tooling stays in charge.
+- **Lint and types.** The `lint` script runs if present, reported under the tools its body calls: `eslint`, `oxlint`, or both as `oxlint+eslint` at the stricter of their modes. Vite+'s `vp lint` counts as oxlint, `vp fmt` as Oxfmt and `vp check` as both, and the `format:check` script is labelled the same way. With no script, `npx eslint .` runs for a flat (ESLint 9+) or legacy config, and `npx oxlint` for an oxlint config or devDependency, or `npx vp lint` when `vite-plus` is a devDependency. Type checking prefers a `typecheck` or `check-types` script over `tsc --noEmit`, so monorepo tooling stays in charge.
 - **Test.** vitest or jest from `devDependencies` (default vitest), overridable with `test.typescript.runner`. A `test:<tier>` script runs when it exists, else `test`.
 - **Publish.** `npm pack` runs in a job with no secrets. The tarball is then published with `--ignore-scripts` from an empty directory, so neither package scripts nor the repo's `.npmrc` see the token.
 

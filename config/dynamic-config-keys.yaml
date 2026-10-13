@@ -32,7 +32,9 @@ keys:
   quality.python.pip_audit: src/hyperi_ci/languages/quality_common.py
   quality.python.vulture: src/hyperi_ci/languages/quality_common.py
   quality.typescript.eslint: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.oxlint: src/hyperi_ci/languages/quality_common.py
   quality.typescript.prettier: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.oxfmt: src/hyperi_ci/languages/quality_common.py
   quality.typescript.tsc: src/hyperi_ci/languages/quality_common.py
   quality.typescript.audit: src/hyperi_ci/languages/quality_common.py
   quality.typescript.osv_scanner: src/hyperi_ci/languages/quality_common.py

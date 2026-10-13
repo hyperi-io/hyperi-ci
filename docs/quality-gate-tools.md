@@ -37,7 +37,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | ty | Python types | Python handler |
 | pip-audit, vulture | Python | Python handler |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
-| eslint, prettier, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
+| eslint, oxlint, prettier, Oxfmt, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
 | gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
 
 semgrep and gitleaks run once at the dispatch level because their rulesets are language-agnostic. One run means one set of shared excludes, with no handler left out.

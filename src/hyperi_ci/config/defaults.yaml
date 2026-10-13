@@ -192,7 +192,9 @@ quality:
 
   typescript:
     eslint: blocking
+    oxlint: blocking           # also `vp lint` and the lint half of `vp check`
     prettier: blocking
+    oxfmt: warn                # Oxfmt is pre-1.0 (beta); also `vp fmt` and `vp check`
     tsc: blocking
     audit: blocking
     audit_level: moderate

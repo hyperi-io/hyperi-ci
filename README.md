@@ -391,7 +391,7 @@ release:
 |---|---|---|---|---|
 | Python | ruff (lint, format, S rules), ty, pip-audit | pytest | uv build | uv publish (PyPI) |
 | Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (per-arch runners) | cargo publish (crates.io) |
-| TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
+| TypeScript | eslint, oxlint, prettier, Oxfmt, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go _(beta)_ | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
 
 > **Go support is beta** — functional but not battle-tested to the same
