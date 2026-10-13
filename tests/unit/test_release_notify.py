@@ -307,10 +307,7 @@ class TestNotifyCommitBackFailed:
         assert "were NOT updated" in body
         assert f"https://github.com/{_REPO}/releases/tag/v1.2.3" in body
         assert "- Run: http://run/1" in body
-        assert (
-            "Add this repo to the `GH_APP_PRIVATE_KEY` org secret's selected "
-            "repositories." in body
-        )
+        assert "secrets: inherit" in body
 
     def test_a_bot_refusal_points_at_the_ruleset_not_the_key(
         self, monkeypatch: pytest.MonkeyPatch
@@ -331,14 +328,15 @@ class TestNotifyCommitBackFailed:
         assert "Settings > Branches" in body
         assert "bypass required pull requests" in body
 
-    def test_a_github_actions_refusal_names_both_key_fixes(
+    def test_a_github_actions_refusal_points_at_the_caller_secrets_list(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An explicit secrets list in the caller drops the key as surely as the org secret."""
+        """The org secret reaches every repo, so only the caller can drop the key."""
         monkeypatch.setenv(release_notify.IDENTITY_ENV, "github-actions")
         body = release_notify._commit_back_body(_REPO, "1.18.46", "http://run/1")
-        assert "selected repositories" in body
+        assert "selected repositories" not in body
         assert "explicit `secrets:` list" in body
+        assert "secrets: inherit" in body
         assert "bypass list" not in body
 
     def test_an_unknown_identity_gives_both_causes(
@@ -346,7 +344,7 @@ class TestNotifyCommitBackFailed:
     ) -> None:
         monkeypatch.delenv(release_notify.IDENTITY_ENV, raising=False)
         advice = release_notify.refusal_advice()
-        assert "selected repositories" in advice
+        assert "explicit `secrets:` list" in advice
         assert "bypass list" in advice
 
     def test_a_later_version_comments_with_its_own_cause(

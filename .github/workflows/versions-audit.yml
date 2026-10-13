@@ -1,6 +1,7 @@
 # Project:   HyperI CI
 # File:      .github/workflows/versions-audit.yml
-# Purpose:   Weekly check that the versions SSOT has not fallen behind upstream
+# Purpose:   Weekly check that the versions SSOT has not fallen behind upstream,
+#            and one rolling PR that bumps it when it has
 #
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -13,8 +14,14 @@
 # cooldown, and `--fail-on-drift` turns that report into a signal, scheduled like
 # the gate audit (#96).
 #
-# Report-only. It never edits a pin, because a bump is a reviewed commit that
-# also refreshes the sha256 (#66).
+# On drift, `--auto-update` writes each soaked release with its sha256 (#66) and
+# validates locally. scripts/versions-audit-pr.py commits the result to the bot
+# branch `deps/versions-audit`, force-updates only that branch, and keeps ONE PR
+# open from it. The PR is the review: nothing here merges it. With no drift, an
+# open PR from the branch is closed.
+#
+# The job fails only on drift the PR cannot carry: a hand bump, an upstream that
+# could not be read, or a bump that failed the local gates.
 #
 # The schedule keeps the cooldown. `--now` is for a supervised manual run only,
 # since the soak is the supply-chain control.
@@ -51,10 +58,62 @@ jobs:
 
       - name: Report pins that have fallen behind
         # GH_TOKEN raises the API rate limit; the release lookups are plain
-        # reads, so the job token is enough.
+        # reads, so the job token is enough. Its outcome drives the steps below,
+        # and the last of them decides whether drift fails the job.
+        id: drift
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           # Inputs travel as env, so a workflow input is never read as shell.
+          WAIVE_COOLDOWN: ${{ inputs.now }}
+        run: |
+          now_flag=""
+          if [ "$WAIVE_COOLDOWN" = "true" ]; then now_flag="--now"; fi
+          uv run --no-sources python scripts/update-versions.py \
+            --stable --fail-on-drift $now_flag
+
+      - name: Bump the drifted pins
+        # A failed local gate reverts every bump and fails here, so the PR step
+        # below finds nothing to commit.
+        if: steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WAIVE_COOLDOWN: ${{ inputs.now }}
+        run: |
+          now_flag=""
+          if [ "$WAIVE_COOLDOWN" = "true" ]; then now_flag="--now"; fi
+          uv run --no-sources python scripts/update-versions.py \
+            --auto-update $now_flag
+
+      - name: Mint a pin-bump PR token
+        # Not GITHUB_TOKEN: a branch it pushes or a PR it opens runs no CI.
+        # workflows:write because a pin can live in a workflow file (vulture in
+        # ci.yml), and GitHub refuses a push touching one without it.
+        id: pr-bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: hyperi-ci
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Keep one rolling pin-bump PR
+        env:
+          GH_TOKEN: ${{ steps.pr-bot.outputs.token }}
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        run: >-
+          uv run --no-sources python scripts/versions-audit-pr.py
+          --drift-outcome "$DRIFT_OUTCOME"
+
+      - name: Fail on drift the PR does not carry
+        # Re-resolved against the bumped tree: a pin the PR moved reads as
+        # current, so only hand bumps and unreadable upstreams are left.
+        if: steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
           WAIVE_COOLDOWN: ${{ inputs.now }}
         run: |
           now_flag=""
