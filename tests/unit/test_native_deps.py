@@ -714,7 +714,14 @@ class TestDepGroupLoading:
             native_deps.group_matches("rust", "no-such-group", tmp_path)
 
     # The groups every Rust project gets regardless of its dependencies.
-    _ALWAYS_ON = ("mold linker", "llvm-bolt")
+    _ALWAYS_ON = ("C toolchain", "mold linker", "llvm-bolt")
+
+    def test_rust_yaml_c_toolchain_installs_build_essential(self) -> None:
+        """No crate with a build script or proc macro builds without `cc` (#678)."""
+        group = next(g for g in _load_dep_groups("rust") if g.name == "C toolchain")
+        assert group.dpkg_check == "build-essential"
+        assert group.apt_packages == ["build-essential"]
+        assert group.manifest_files == ["Cargo.toml"]
 
     @pytest.mark.parametrize("group_name", _ALWAYS_ON)
     def test_rust_yaml_always_on_group_matches_a_plain_package_root(

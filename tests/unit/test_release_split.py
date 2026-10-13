@@ -115,6 +115,8 @@ ALLOWED_RUN_LINES = {
     "prepare": [
         *_PLACE,
         r'uv python install "\$PYTHON_VERSION"',
+        # Reads manifests as text and apt-installs; it runs none of the repo's code.
+        rf"{_INSTALL} install-native-deps rust",
         rf'{_INSTALL} release-prepare "\$RELEASE_VERSION" --out "\$STAMPED_DIR" '
         r"--phase stamp",
         rf'{_INSTALL} release-prepare "\$RELEASE_VERSION" --out "\$PREPARED_DIR" '
