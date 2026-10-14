@@ -642,6 +642,14 @@ class TestMainOnlyPublishGate:
             "derive must set run_checks for a validate-only dispatch"
         )
 
+    def test_a_skipped_gate_on_main_is_a_notice(self) -> None:
+        """A non-release merge skips by design; a warning there is noise."""
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        derive = next(s for s in action["runs"]["steps"] if s.get("id") == "derive")
+        [line] = [ln for ln in str(derive["run"]).splitlines() if "did NOT run" in ln]
+        assert "::notice::" in line
+
 
 class TestReleaseWorthyGate:
     """issue #124: the doctrine runs checks on PR review and RELEASE-WORTHY
@@ -703,13 +711,6 @@ class TestReleaseWorthyGate:
             / ".github/actions/predict-version/release_worthy.py"
         )
         assert path.is_file(), f"{path} is referenced by action.yml but missing"
-
-    def test_a_skipped_gate_on_main_warns_rather_than_notices(self) -> None:
-        # A ::notice:: saying nothing ran reads as a pass (issue #96).
-        run = str(self._step("derive")["run"])
-        assert "::warning::" in run, (
-            "derive must warn when run-checks is false on a push to main"
-        )
 
 
 class TestUnreleasedWorkIsSaidOutLoud:

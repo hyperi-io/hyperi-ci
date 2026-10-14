@@ -555,10 +555,11 @@ runs:
         echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
         echo "run-arm64-check=$arm64_check" >> "$GITHUB_OUTPUT"
         summary="run-checks=$run_checks run-build=$run_build run-arm64-check=$arm64_check (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy prerelease=$prerelease)"
-        # A gate that skipped reads exactly like a gate that passed, which is
-        # the whole of issue #96 -- so say so where it lands, on main.
+        # A gate that skipped reads exactly like a gate that passed (issue #96),
+        # so say so where it lands, on main. A notice: a merge with no
+        # release-worthy commit skips by design, and nobody has to act on it.
         if [[ "$run_checks" != "true" && "$event_name" == "push" && "$git_ref" == "refs/heads/main" ]]; then
-          echo "::warning::$summary -- quality and test did NOT run on this merge to main. A skipped gate is not a passing gate."
+          echo "::notice::$summary -- quality and test did NOT run on this merge to main. A skipped gate is not a passing gate."
         else
           echo "::notice::$summary"
         fi
