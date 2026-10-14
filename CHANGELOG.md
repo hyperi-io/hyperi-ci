@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.11...v2.14.12) (2026-10-14)
+
+### Bug Fixes
+
+* **classification:** read alpha and spike as internal ([#700](https://github.com/hyperi-io/hyperi-ci/issues/700)) ([85e337b](https://github.com/hyperi-io/hyperi-ci/commit/85e337b6e53471de4bbb5ee559d1ff2f0afc498a))
+* **python:** point a failed format check at the unmasked local diff ([#701](https://github.com/hyperi-io/hyperi-ci/issues/701)) ([869de50](https://github.com/hyperi-io/hyperi-ci/commit/869de5037d811cebcf7f7e21e229687fc2bed9b4))
+
 ## [2.14.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.10...v2.14.11) (2026-10-14)
 
 ### Bug Fixes
