@@ -366,14 +366,6 @@ jobs:
           PYTHON_VERSION: ${{ inputs.python-version }}
         run: uv python install "$PYTHON_VERSION"
 
-      - name: Install native dependencies
-        # cargo-semver-checks builds rustdoc with every feature, build scripts
-        # included, and the publish runner carries no C compiler or -dev headers.
-        # Without them it reaches no verdict and the release goes out unchecked
-        # (issue #678).
-        if: inputs.language == 'rust'
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
-
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
         if: inputs.language == 'typescript'
@@ -397,6 +389,15 @@ jobs:
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Install native dependencies
+        # cargo-semver-checks builds rustdoc with every feature, build scripts
+        # included, and the publish runner carries no C compiler or -dev headers.
+        # Without them it reaches no verdict and the release goes out unchecked
+        # (issue #678). After the toolchain, so the cargo-installed groups find
+        # cargo instead of skipping with a warning.
+        if: inputs.language == 'rust'
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
 
       - name: Setup Rust tools
         # cargo-semver-checks runs after the stamp, and only this job reaches that
