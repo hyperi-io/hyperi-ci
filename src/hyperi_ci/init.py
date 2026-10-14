@@ -27,6 +27,7 @@ from hyperi_ci import licenses
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.detect import detect_language
 from hyperi_ci.seed import seed_tag as _seed_tag
+from hyperi_ci.versions import runtime_version
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
@@ -568,7 +569,9 @@ def init_project(
             "if command -v hyperi-ci >/dev/null 2>&1; then\n"
             '    hyperi-ci check-commit "$1"\n'
             "elif command -v uvx >/dev/null 2>&1; then\n"
-            '    uvx hyperi-ci check-commit "$1"\n'
+            # Unpinned, uv takes the default Python and may resolve a release
+            # old enough to support it.
+            f'    uvx --python {runtime_version("python")} hyperi-ci check-commit "$1"\n'
             "else\n"
             '    echo "Warning: hyperi-ci not found -- skipping commit validation" >&2\n'
             "    exit 0\n"
