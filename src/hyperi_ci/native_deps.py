@@ -48,6 +48,7 @@ from hyperi_ci.llvm_version import (
     default_llvm_major,
     designated_llvm_version,
 )
+from hyperi_ci.versions import tool_version
 
 _LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
 _LLVM_DEFAULT_PLACEHOLDER = "${HYPERCI_LLVM_DEFAULT}"
@@ -547,11 +548,12 @@ def _apt_install(packages: list[str]) -> int:
 # ---------------------------------------------------------------------------
 #
 # AWS runs no apt repository and noble ships no awscli package, so the signed
-# zip is the only route to v2. The URL carries no version to pin a digest to, so
-# the detached signature is the integrity anchor, checked against a key shipped
-# here that expires 2027-07-01 (versions.yaml `watch:`).
+# zip is the only route to v2. The version is pinned in versions.yaml because an
+# upstream release can change `aws s3` behaviour. The detached signature is the
+# integrity anchor, checked against a key shipped here that expires 2027-07-01
+# (versions.yaml `watch:`).
 
-_AWS_CLI_ZIP_URL = "https://awscli.amazonaws.com/awscli-exe-linux-{arch}.zip"
+_AWS_CLI_ZIP_URL = "https://awscli.amazonaws.com/awscli-exe-linux-{arch}-{version}.zip"
 _AWS_CLI_KEY_FILE = _CONFIG_ROOT / "aws-cli-team.asc"
 _AWS_CLI_KEY_FPR = "FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
 _AWS_CLI_INSTALL_DIR = "/usr/local/aws-cli"
@@ -637,7 +639,7 @@ def ensure_aws_cli() -> str | None:
         logger.error(f"No AWS CLI v2 build for {platform.machine()}")
         return None
 
-    url = _AWS_CLI_ZIP_URL.format(arch=arch)
+    url = _AWS_CLI_ZIP_URL.format(arch=arch, version=tool_version("aws-cli"))
     logger.info(f"aws not found - installing AWS CLI v2 from {url}")
 
     payload = download_artefact("AWS CLI", url)
