@@ -48,6 +48,8 @@ class TestNormalise:
         ("alias", "expected"),
         [
             ("hyperi", "internal"),
+            ("alpha", "internal"),
+            ("spike", "internal"),
             ("oss", "general-oss"),
             ("general_oss", "general-oss"),
             ("generaloss", "general-oss"),
