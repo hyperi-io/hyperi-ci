@@ -163,8 +163,8 @@ concurrency:
 
 env:
   # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a
-  # rehearsal points it at `uvx --from git+...@<branch> hyperi-ci`, an incident pins
-  # `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  # rehearsal points it at `uvx --python 3.14 --from git+...@<branch> hyperi-ci`, an incident pins
+  # `uvx --python 3.14 hyperi-ci==X.Y.Z`; drop --python and uv picks the runner's Python, which may only resolve an old release. Unset = latest PyPI.
   # `--python` pins the CLI's OWN interpreter. Without it uvx takes the project's
   # interpreter and silently back-solves to an old hyperi-ci (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
