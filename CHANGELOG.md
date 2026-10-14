@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.10...v2.14.11) (2026-10-14)
+
+### Bug Fixes
+
+* **python:** report a gate with no source to scan as info, not a warning ([#699](https://github.com/hyperi-io/hyperi-ci/issues/699)) ([e64fc11](https://github.com/hyperi-io/hyperi-ci/commit/e64fc114401b61cf639ecf3b705b959ce06023e5))
+
 ## [2.14.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.9...v2.14.10) (2026-10-14)
 
 ### Bug Fixes
