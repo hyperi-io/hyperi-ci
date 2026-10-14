@@ -12,6 +12,7 @@ are published. Does NOT test actual publishing
 and is tested via integration tests against test projects.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -789,13 +790,22 @@ class TestLatestStaysOnTheNewestRelease:
         return tmp_path
 
     @staticmethod
-    def _sent(monkeypatch: pytest.MonkeyPatch, version: str) -> list[list[str]]:
+    def _sent(
+        monkeypatch: pytest.MonkeyPatch,
+        version: str,
+        latest_keys: list[str] | None = None,
+        list_rc: int = 0,
+    ) -> list[list[str]]:
+        """Record every command; ``latest_keys`` is what the R2 listing returns."""
         from hyperi_ci.release import binaries
 
         sent: list[list[str]] = []
+        listing = json.dumps({"Contents": [{"Key": k} for k in latest_keys or []]})
 
         def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
             sent.append(cmd)
+            if cmd[:3] == ["aws", "s3api", "list-objects-v2"]:
+                return subprocess.CompletedProcess(cmd, list_rc, listing, "")
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
@@ -805,27 +815,43 @@ class TestLatestStaysOnTheNewestRelease:
 
     @staticmethod
     def _r2_targets(sent: list[list[str]]) -> list[str]:
-        return [cmd[3] if cmd[2] == "rm" else cmd[4] for cmd in sent if cmd[0] == "aws"]
+        """Each R2 call as ``<verb> <target>``, in the order it ran."""
+        targets = []
+        for cmd in sent:
+            if cmd[0] != "aws":
+                continue
+            if cmd[1] == "s3api":
+                bucket = cmd[cmd.index("--bucket") + 1]
+                prefix = cmd[cmd.index("--prefix") + 1]
+                targets.append(f"list s3://{bucket}/{prefix}")
+            elif cmd[2] == "rm":
+                targets.append(f"rm {cmd[3]}")
+            else:
+                targets.append(f"cp {cmd[4]}")
+        return targets
 
     def test_every_r2_call_pins_the_classic_s3_client(self, repo, monkeypatch) -> None:
         """R2 rejects the CRT client's DeleteObject signature (AWS CLI 2.38.0+)."""
         from hyperi_ci.release import binaries
 
-        configs: list[str] = []
+        configs: dict[str, list[str]] = {}
+        stale = {"Contents": [{"Key": f"{repo.name}/latest/old-linux-amd64"}]}
 
         def fake_run_cmd(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
             env = kw.get("env") or {}
             assert isinstance(env, dict)
             config = Path(env["AWS_CONFIG_FILE"]).read_text(encoding="utf-8")
-            configs.append(config)
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            configs.setdefault(cmd[2], []).append(config)
+            stdout = json.dumps(stale) if cmd[1] == "s3api" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout, "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
         monkeypatch.setattr(binaries, "resolve_release_version", lambda: "1.0.5")
         monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
         assert binaries._publish_r2_binaries() == 0
-        assert configs
-        assert all("preferred_transfer_client = classic" in c for c in configs)
+        assert set(configs) == {"cp", "list-objects-v2", "rm"}
+        every = [c for calls in configs.values() for c in calls]
+        assert all("preferred_transfer_client = classic" in c for c in every)
 
     def test_an_older_tag_leaves_r2_latest_alone(self, repo, monkeypatch) -> None:
         from hyperi_ci.release import binaries
@@ -834,20 +860,77 @@ class TestLatestStaysOnTheNewestRelease:
         assert binaries._publish_r2_binaries() == 0
 
         assert self._r2_targets(sent) == [
-            f"s3://bin-repo/{repo.name}/v1.0.4/demo-linux-amd64",
+            f"cp s3://bin-repo/{repo.name}/v1.0.4/demo-linux-amd64",
         ]
 
-    def test_the_newest_release_moves_r2_latest(self, repo, monkeypatch) -> None:
+    def test_the_newest_release_uploads_to_latest_before_pruning(
+        self, repo, monkeypatch
+    ) -> None:
+        """latest/ was empty for minutes while a wipe-first release uploaded."""
         from hyperi_ci.release import binaries
 
-        sent = self._sent(monkeypatch, "1.0.5")
+        latest = f"{repo.name}/latest/"
+        sent = self._sent(
+            monkeypatch,
+            "1.0.5",
+            latest_keys=[
+                f"{latest}demo-linux-amd64",
+                f"{latest}old-name-linux-amd64",
+                f"{latest}manifests/old.json",
+            ],
+        )
         assert binaries._publish_r2_binaries() == 0
 
         assert self._r2_targets(sent) == [
-            f"s3://bin-repo/{repo.name}/latest/",
-            f"s3://bin-repo/{repo.name}/v1.0.5/demo-linux-amd64",
-            f"s3://bin-repo/{repo.name}/latest/demo-linux-amd64",
+            f"cp s3://bin-repo/{repo.name}/v1.0.5/demo-linux-amd64",
+            f"cp s3://bin-repo/{latest}demo-linux-amd64",
+            f"list s3://bin-repo/{latest}",
+            f"rm s3://bin-repo/{latest}manifests/old.json",
+            f"rm s3://bin-repo/{latest}old-name-linux-amd64",
         ]
+
+    def test_a_latest_holding_only_this_release_is_left_alone(
+        self, repo, monkeypatch
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(
+            monkeypatch, "1.0.5", latest_keys=[f"{repo.name}/latest/demo-linux-amd64"]
+        )
+        assert binaries._publish_r2_binaries() == 0
+        assert not [cmd for cmd in sent if cmd[:3] == ["aws", "s3", "rm"]]
+
+    def test_a_failed_listing_warns_and_still_publishes(
+        self, repo, monkeypatch
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(
+            monkeypatch,
+            "1.0.5",
+            latest_keys=[f"{repo.name}/latest/old-name-linux-amd64"],
+            list_rc=254,
+        )
+        assert binaries._publish_r2_binaries() == 0
+        assert not [cmd for cmd in sent if cmd[:3] == ["aws", "s3", "rm"]]
+
+    def test_an_empty_latest_prefix_lists_nothing_to_prune(
+        self, repo, monkeypatch
+    ) -> None:
+        """R2 answers a prefix with no objects with no Contents key at all."""
+        from hyperi_ci.release import binaries
+
+        sent: list[list[str]] = []
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            sent.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: "1.0.5")
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
+        assert binaries._publish_r2_binaries() == 0
+        assert not [cmd for cmd in sent if cmd[:3] == ["aws", "s3", "rm"]]
 
     def test_an_older_tag_is_not_marked_latest_on_github(
         self, repo, monkeypatch
