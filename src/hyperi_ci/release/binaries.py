@@ -11,6 +11,7 @@ that packages binaries into ``dist/``.
 """
 
 import filecmp
+import json
 import os
 import re
 import shutil
@@ -498,28 +499,15 @@ def _upload_r2(
     latest_prefix: str,
     move_latest: bool,
 ) -> int:
-    """Clean latest/ when it moves, then copy every artefact to its prefixes."""
+    """Copy every artefact to its prefixes, then prune stale keys from latest/.
+
+    Uploading first keeps latest/ installable throughout: same-named keys are
+    overwritten in place, and only keys this release did not write are removed.
+    """
     info(f"Publishing to R2: {public_url}")
 
     destinations = [("versioned", versioned_prefix)]
     if move_latest:
-        # A renamed binary would otherwise linger in latest/ beside its successor.
-        info(f"  Cleaning latest/: {latest_prefix}")
-        rm_result = run_cmd(
-            [
-                "aws",
-                "s3",
-                "rm",
-                latest_prefix,
-                "--recursive",
-                "--endpoint-url",
-                endpoint,
-            ],
-            check=False,
-            env=aws_env,
-        )
-        if rm_result.returncode != 0:
-            warn("  Failed to clean latest/ -- continuing with upload")
         destinations.append(("latest", latest_prefix))
 
     for label, dest_prefix in destinations:
@@ -540,8 +528,64 @@ def _upload_r2(
                 error(f"  R2 upload failed for {artifact.name} ({label})")
                 return result.returncode
 
+    if move_latest:
+        # A renamed binary would otherwise linger in latest/ beside its successor.
+        _prune_r2_latest(
+            {artifact.name for artifact in artifacts}, aws_env, endpoint, latest_prefix
+        )
+
     success(f"Published {len(artifacts)} artifact(s) to R2 -- {public_url}")
     return 0
+
+
+def _prune_r2_latest(
+    keep: set[str], aws_env: dict[str, str], endpoint: str, latest_prefix: str
+) -> None:
+    """Delete every key under ``latest_prefix`` whose name is not in ``keep``.
+
+    Nested keys (``latest/manifests/x``) are never in ``keep``, so they go too.
+    A failure warns and leaves the stale keys, as the upload already landed.
+    """
+    bucket, _, prefix = latest_prefix.removeprefix("s3://").partition("/")
+    info(f"  Pruning stale keys from latest/: {latest_prefix}")
+    # The CLI follows every page and prints one merged document.
+    listing = run_cmd(
+        [
+            "aws",
+            "s3api",
+            "list-objects-v2",
+            "--bucket",
+            bucket,
+            "--prefix",
+            prefix,
+            "--output",
+            "json",
+            "--endpoint-url",
+            endpoint,
+        ],
+        check=False,
+        capture=True,
+        env=aws_env,
+    )
+    if listing.returncode != 0:
+        warn("  Failed to list latest/ -- stale keys left in place")
+        return
+    try:
+        contents = json.loads(listing.stdout or "{}").get("Contents") or []
+        keys = [entry["Key"] for entry in contents]
+    except (ValueError, AttributeError, TypeError, KeyError):
+        warn("  Unreadable latest/ listing -- stale keys left in place")
+        return
+
+    stale = sorted(key for key in keys if key.removeprefix(prefix) not in keep)
+    for key in stale:
+        result = run_cmd(
+            ["aws", "s3", "rm", f"s3://{bucket}/{key}", "--endpoint-url", endpoint],
+            check=False,
+            env=aws_env,
+        )
+        if result.returncode != 0:
+            warn(f"  Failed to remove stale s3://{bucket}/{key} -- continuing")
 
 
 def publish_binaries(config: CIConfig) -> int:
