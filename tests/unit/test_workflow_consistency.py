@@ -138,6 +138,12 @@ class TestPrepareInstallsNativeDeps:
         # The manifest scan needs the checkout; the package phase runs semver.
         assert checkout < index < names.index("Check and package the release")
 
+    def test_it_runs_after_the_rust_toolchain(self) -> None:
+        """The cargo-installed groups skip with a warning when cargo is absent."""
+        index, _ = self._install()
+        names = [s.get("name") for s in self._steps()]
+        assert names.index("Install Rust toolchain") < index
+
 
 class TestFromHeadThreading:
     """issue #35: from-head + bump inputs must thread through every layer --
