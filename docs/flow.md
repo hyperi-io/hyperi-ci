@@ -10,7 +10,7 @@ One signal - `will-release` - gates the whole pipeline.
 flowchart TD
     A[push to main / workflow_dispatch] --> B[Plan job<br/>predict-version action]
     B --> C{Release: true trailer<br/>or dispatch?}
-    C -->|no| V[no tag, no release<br/>quality + test on a PR or a<br/>release-worthy push to main]
+    C -->|no| V[no tag, no release<br/>quality + test on a PR, or a push to main<br/>that is release-worthy or touches code]
     C -->|yes| D[semantic-release --dry-run]
     D --> E{release-worthy<br/>commits?}
     E -->|no| F[hard fail<br/>remove trailer or land fix:]
@@ -20,7 +20,7 @@ flowchart TD
 
 - `will-release` = a dispatch, or a `Release: true` trailer on HEAD. The `Publish: true` trailer still counts, and warns.
 - `next-version` comes from `semantic-release --dry-run`, with the same config the real tag step uses, so the two cannot disagree.
-- A push to main with no trailer cuts no tag. A release-worthy pushed range still runs quality + test, and a `chore:` / `docs:` push runs neither.
+- A push to main with no trailer cuts no tag. A pushed range that is release-worthy, or changes any file outside docs, still runs quality + test. One that changed only docs runs neither ([ci-job-contract.md](ci-job-contract.md#what-a-skipped-check-means-on-main)).
 - Arch breadth follows `run-build`, not `will-release`, so a validate-only dispatch and a branch-mode PR both build arm64 (issue #249).
 - A release-worthy merge to main also builds the **arm64 leg alone** (`run-arm64-check`), so an arm64 regression shows up while it is still attributable. Rust only, and `build.rust.arm64_on_main: false` opts out. The release tail is gated on `run-build`, so this leg ships nothing.
 

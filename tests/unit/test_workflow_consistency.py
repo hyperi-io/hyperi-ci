@@ -703,14 +703,84 @@ class TestReleaseWorthyGate:
             "the probe must not derive a range in shell -- commit_range owns it"
         )
 
-    def test_the_probe_ships_with_the_action(self) -> None:
+    @pytest.mark.parametrize("helper", ["release_worthy.py", "touched_files.py"])
+    def test_the_probe_ships_with_the_action(self, helper: str) -> None:
         # The composite loads it by path out of its own checkout; a rename
         # would leave the step calling a file that is not there.
-        path = (
-            Path(__file__).resolve().parents[2]
-            / ".github/actions/predict-version/release_worthy.py"
-        )
+        assert helper in str(self._step("worthy")["run"])
+        path = ACTIONS_DIR / "predict-version" / helper
         assert path.is_file(), f"{path} is referenced by action.yml but missing"
+
+
+class TestChangedFilesGate:
+    """issue #96: a merge to main skipped its checks on commit type alone.
+
+    The derive step is rendered and run, so the test is the shipped shell.
+    """
+
+    def _derive(
+        self, tmp_path: Path, *, worthy: str, changed: str, touched: str
+    ) -> tuple[dict[str, str], str]:
+        if not shutil.which("bash"):
+            pytest.skip("rendering the step needs bash")
+        step = _composite_step("derive")
+        values = {
+            "will_publish": "false",
+            "event_name": "push",
+            "branch_build": "",
+            "git_ref": "refs/heads/main",
+            "release_worthy": worthy,
+            "code_changed": changed,
+            "touched": touched,
+            "version": "",
+        }
+        env = _render_env(
+            step, {expr: values[name] for expr, name in _DERIVE_INPUTS.items()}
+        )
+        output = tmp_path / "github-output"
+        output.write_text("", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", "-c", _render(str(step["run"]), {})],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            env={
+                **os.environ,
+                **env,
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
+                "GITHUB_WORKSPACE": str(tmp_path),
+                "CONFIG_PYTHON": sys.executable,
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        written = dict(
+            line.partition("=")[::2]
+            for line in output.read_text(encoding="utf-8").splitlines()
+        )
+        return written, result.stdout
+
+    def test_a_chore_that_edits_code_runs_the_checks(self, tmp_path: Path) -> None:
+        written, _log = self._derive(
+            tmp_path, worthy="false", changed="true", touched="1 changed file(s)"
+        )
+        assert written["run-checks"] == "true"
+        # The red line holds: nothing ships, so nothing compiles.
+        assert written["run-build"] == "false"
+        assert written["run-arm64-check"] == "false"
+
+    def test_a_docs_only_merge_skips_and_says_which_files(self, tmp_path: Path) -> None:
+        touched = "only docs and repo metadata changed: README.md"
+        written, log = self._derive(
+            tmp_path, worthy="false", changed="false", touched=touched
+        )
+        assert written["run-checks"] == "false"
+        [notice] = [ln for ln in log.splitlines() if "did NOT run" in ln]
+        assert notice.startswith("::notice::")
+        assert touched in notice
 
 
 class TestUnreleasedWorkIsSaidOutLoud:
@@ -755,21 +825,23 @@ class TestUnreleasedWorkIsSaidOutLoud:
             "the unreleased-work question belongs on the no-trailer path only"
         )
 
-    def test_waiting_work_warns_rather_than_echoes(self) -> None:
-        # The defect exactly: the same plain echo for "nothing to ship" and
-        # for thirteen fixes waiting.
-        assert "::warning::$unreleased" in self._validate_only_half(), (
-            "unreleased work must be raised as ::warning::, not echoed into a "
-            "folded log group"
+    def test_the_helper_annotation_reaches_the_log_uncaptured(self) -> None:
+        # The helper prints the whole ::warning:: or ::notice:: line, or
+        # nothing (test_unreleased_action.py). Capturing it into a variable and
+        # echoing it again is where a level or a text could drift.
+        [line] = [
+            ln
+            for ln in self._validate_only_half().splitlines()
+            if "unreleased.py" in ln
+        ]
+        assert (
+            line.strip() == '$CONFIG_PYTHON "$GITHUB_ACTION_PATH/unreleased.py" || true'
         )
 
-    def test_nothing_waiting_raises_nothing(self) -> None:
-        # The third outcome stays quiet. A warning on every push is a warning
-        # nobody reads, which is how the last three doc checks died.
-        half = self._validate_only_half()
-        assert '[[ -n "$unreleased" ]]' in half, (
-            "the warning must be conditional on the helper finding work"
-        )
+    def test_the_helper_runs_on_the_config_reader(self) -> None:
+        # It reads release.unreleased_warn_days, which takes PyYAML.
+        env = _composite_step("gate")["env"]
+        assert env["CONFIG_PYTHON"] == "${{ steps.reader.outputs.python }}"
 
     def test_the_gate_does_not_restate_the_releasable_types(self) -> None:
         # release_rules.py is the bump SSoT, and it honours a repo
@@ -932,6 +1004,8 @@ _DERIVE_INPUTS = {
     "${{ inputs.branch-build }}": "branch_build",
     "${{ github.ref }}": "git_ref",
     "${{ steps.worthy.outputs.release-worthy }}": "release_worthy",
+    "${{ steps.worthy.outputs.code-changed }}": "code_changed",
+    "${{ steps.worthy.outputs.touched }}": "touched",
     "${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
 }
 
@@ -1065,6 +1139,8 @@ class TestArm64Parity:
                     "branch_build": "",
                     "git_ref": ref,
                     "release_worthy": worthy,
+                    "code_changed": "",
+                    "touched": "",
                     "version": "1.2.3",
                 }[name]
                 for expression, name in _DERIVE_INPUTS.items()
@@ -2620,6 +2696,8 @@ class TestMergeGroup:
                             "branch_build": "",
                             "git_ref": ref,
                             "release_worthy": "",
+                            "code_changed": "",
+                            "touched": "",
                             "version": "",
                         }[name]
                         for expression, name in _DERIVE_INPUTS.items()

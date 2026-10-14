@@ -116,3 +116,28 @@ class TestUnreadable:
         project = read_project_config(_write(tmp_path, "a: 1\n"))
         assert project.data is None
         assert project.problem == "yq could not parse it: Error: bad file"
+
+
+class TestSetting:
+    """A key the project may set, with the shipped default behind it."""
+
+    KEY = "release.unreleased_warn_days"
+
+    def test_the_project_wins(self, tmp_path: Path) -> None:
+        _write(tmp_path, "release:\n  unreleased_warn_days: 3\n")
+        assert project_config.setting(tmp_path, self.KEY) == (3, ".hyperi-ci.yaml")
+
+    def test_the_legacy_namespace_is_read(self, tmp_path: Path) -> None:
+        _write(tmp_path, "publish:\n  unreleased_warn_days: 2\n")
+        assert project_config.setting(tmp_path, self.KEY) == (2, ".hyperi-ci.yaml")
+
+    def test_unset_falls_back_to_the_shipped_default(self, tmp_path: Path) -> None:
+        from hyperi_ci.config import shipped_default
+
+        value, source = project_config.setting(tmp_path, self.KEY)
+        assert (value, source) == (shipped_default(self.KEY), "defaults.yaml")
+
+    def test_an_undeclared_key_says_so(self, tmp_path: Path) -> None:
+        value, source = project_config.setting(tmp_path, "release.no_such_key")
+        assert value is None
+        assert "does not declare release.no_such_key" in source

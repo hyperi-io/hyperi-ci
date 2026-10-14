@@ -8,7 +8,8 @@
 
 Shared by ``hyperi_ci.quality.commit_validation`` (validates every message in
 the range) and the ``predict-version`` composite (is the range release-worthy,
-and what sits unreleased on a validate-only run).
+did it change anything but docs, and what sits unreleased on a validate-only
+run).
 
 Stdlib-only, importing nothing from the package except
 :mod:`hyperi_ci.release_rules` and, inside :func:`unreleased_since_tag`, the
@@ -32,6 +33,52 @@ _COMMIT_FMT = f"%H%n%s%n%b%n{_COMMIT_SEPARATOR}"
 # Highest bump first, for rendering the mix in a warning.
 _BUMP_RENDER_ORDER = ("major", "minor", "patch")
 _SECONDS_PER_DAY = 86400
+
+#: Documentation, by suffix. ``quality.docs_touched`` classifies with it too.
+DOC_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".adoc"})
+#: Source code, by suffix. Never harmless, whatever the file is named.
+SOURCE_SUFFIXES = frozenset(
+    {
+        ".py",
+        ".rs",
+        ".go",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".java",
+        ".rb",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".h",
+        ".hpp",
+    }
+)
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".svg"})
+_HARMLESS_NAMES = frozenset(
+    {
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        "VERSION",
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "CHANGELOG",
+        "CHANGELOG.md",
+        "CHANGELOG.rst",
+    }
+)
+# The British spelling, in any of its suffixed forms.
+_HARMLESS_NAME_PREFIX = "LICENCE"
+
+# How many paths a gate line names before it says "and N more".
+_PATHS_NAMED = 5
+
+#: Days unreleased work may wait before the plan job warns rather than notes.
+UNRELEASED_WARN_DAYS_KEY = "release.unreleased_warn_days"
 
 
 def _parse_git_log(output: str) -> list[tuple[str, str]]:
@@ -90,6 +137,18 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
     missing ``before`` commit), and the caller MUST treat an empty result then
     as a degraded backstop, not success (issue #52).
 
+    The range itself comes from :func:`resolve_range`.
+    """
+    _git_range, commits, resolved = resolve_range()
+    return commits, resolved
+
+
+def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
+    """Return ``(git_range, commits, resolved)`` for this CI event.
+
+    ``git_range`` is the ``A..B`` spec the commits were read from, None when
+    unresolved. ``commits`` and ``resolved`` are as :func:`commits_in_range`.
+
     Resolution, in order of authority:
 
     1. ``push`` -> ``before..after`` from the event payload. After a push to a
@@ -101,7 +160,8 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
        squash commit the queue will fast-forward main to.
     4. Local / unknown contexts: ``origin/main..HEAD``, then ``HEAD~20..HEAD``.
 
-    A resolved-but-empty range returns ``([], True)`` without falling through.
+    A resolved-but-empty range returns ``(range, [], True)`` without falling
+    through.
     """
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     payload = event_payload()
@@ -111,38 +171,41 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
         after = str(payload.get("after", "")) or "HEAD"
         # A real prior tip gives the authoritative range.
         if before and not is_zero_sha(before):
-            rc, commits = git_log([f"{before}..{after}"])
+            git_range = f"{before}..{after}"
+            rc, commits = git_log([git_range])
             if rc == 0:
-                return commits, True
+                return git_range, commits, True
             # `before` is missing from a shallow clone. Falling through to
             # origin/main..HEAD would report an empty range (issue #52).
-            return [], False
+            return None, [], False
         # Branch creation (all-zeros before): fall through to the generic ranges.
     elif event == "pull_request":
         base = str((payload.get("pull_request") or {}).get("base", {}).get("sha", ""))
         if not base and os.environ.get("GITHUB_BASE_REF"):
             base = f"origin/{os.environ['GITHUB_BASE_REF']}"
         if base:
-            rc, commits = git_log([f"{base}..HEAD"])
+            git_range = f"{base}..HEAD"
+            rc, commits = git_log([git_range])
             if rc == 0:
-                return commits, True
+                return git_range, commits, True
     elif event == "merge_group":
         group = payload.get("merge_group") or {}
         base = str(group.get("base_sha", ""))
         head = str(group.get("head_sha", "")) or "HEAD"
         if base:
-            rc, commits = git_log([f"{base}..{head}"])
+            git_range = f"{base}..{head}"
+            rc, commits = git_log([git_range])
             if rc == 0:
-                return commits, True
+                return git_range, commits, True
             # As for push: a fallback range would validate the wrong set.
-            return [], False
+            return None, [], False
 
     for git_range in ("origin/main..HEAD", "HEAD~20..HEAD"):
         rc, commits = git_log([git_range])
         if rc == 0:
-            return commits, True
+            return git_range, commits, True
 
-    return [], False
+    return None, [], False
 
 
 def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
@@ -169,6 +232,88 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
             return True, f"{commit_hash[:8]} is a {bump} bump: {subject}"
 
     return False, f"no release-worthy commit in {len(commits)} pushed commit(s)"
+
+
+def is_harmless_path(path: str) -> bool:
+    """Return True for a file no quality or test job can be affected by.
+
+    Docs, images and repo metadata, by exact name. Anything else, a workflow or
+    a config file included, counts as code, and so does any source suffix,
+    under ``docs/`` or named ``LICENCE.py`` alike.
+    """
+    posix = path.strip().replace("\\", "/")
+    name = posix.rsplit("/", 1)[-1]
+    suffix = Path(name).suffix.lower()
+    if suffix in SOURCE_SUFFIXES:
+        return False
+    return (
+        posix.startswith("docs/")
+        or suffix in DOC_SUFFIXES
+        or suffix in _IMAGE_SUFFIXES
+        or name in _HARMLESS_NAMES
+        or name.startswith(_HARMLESS_NAME_PREFIX)
+    )
+
+
+def changed_paths(git_range: str, cwd: Path | None = None) -> list[str] | None:
+    """Return every path ``git_range`` changed, or None when git cannot say.
+
+    Renames are listed as a delete plus an add, so moving code into ``docs/``
+    still names the code path it left.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", git_range],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        return None
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _name_some(paths: list[str]) -> str:
+    shown = ", ".join(paths[:_PATHS_NAMED])
+    extra = len(paths) - _PATHS_NAMED
+    return f"{shown} and {extra} more" if extra > 0 else shown
+
+
+def touches_code() -> tuple[bool, str]:
+    """Return ``(touched, reason)``: did this CI event change anything but docs?
+
+    A ``chore:`` or ``test:`` merge that edits code is not release-worthy, and
+    still has to be checked (issue #96). False means every changed path passed
+    :func:`is_harmless_path`, and the reason names them.
+
+    An unresolvable range, a push that created the branch, a push that added
+    no commits (a rewind), or a diff git cannot produce, returns True: the
+    answer decides whether quality and test run, so doubt runs them.
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") == "push" and is_zero_sha(
+        str(event_payload().get("before", ""))
+    ):
+        return True, "the push created the branch, so it has no prior tip to diff"
+    git_range, commits, resolved = resolve_range()
+    if not resolved or git_range is None:
+        return True, "could not resolve the pushed range -- running the checks"
+    if not commits:
+        return True, "the pushed range adds no commits, a rewind or a re-run"
+
+    paths = changed_paths(git_range)
+    if paths is None:
+        return (
+            True,
+            f"could not list the files {git_range} changed -- running the checks",
+        )
+
+    code = [path for path in paths if not is_harmless_path(path)]
+    if code:
+        return True, f"{len(code)} changed file(s) outside docs: {_name_some(code)}"
+    if not paths:
+        return False, "the pushed range changed no files"
+    return False, f"only docs and repo metadata changed: {_name_some(paths)}"
 
 
 def last_version_tag(
@@ -270,28 +415,65 @@ def unreleased_since_tag(
     return tag, releasable
 
 
-def unreleased_warning(project_dir: Path | None = None) -> tuple[bool, str]:
-    """Return ``(warn, message)`` for releasable work HEAD has not released.
+def oldest_commit_age_days(shas: list[str], cwd: Path | None = None) -> float | None:
+    """Return how many days ago the oldest of ``shas`` was committed.
+
+    Committer time, which for a squash merge is when it landed on the branch.
+    None when ``shas`` is empty or git could not say.
+    """
+    if not shas:
+        return None
+    result = subprocess.run(
+        ["git", "show", "-s", "--format=%ct", *shas],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        oldest = min(int(line) for line in result.stdout.split())
+    except ValueError:
+        return None
+    return max(0.0, (time.time() - oldest) / _SECONDS_PER_DAY)
+
+
+def unreleased_annotation(
+    project_dir: Path | None = None, *, warn_days: float | None
+) -> tuple[str, str]:
+    """Return ``(level, message)`` for releasable work HEAD has not released.
 
     A validate-only run on main reports success either way, so this separates
-    three answers: work waiting warns, nothing waiting stays quiet, and no
-    baseline says so.
+    three answers: work waiting is reported, nothing waiting stays quiet, and
+    no baseline says so. Work waiting is a ``warning`` once its oldest commit
+    is more than ``warn_days`` old, else a ``notice`` with the same message.
 
     Args:
         project_dir: Directory whose ``.releaserc.json`` overrides the bump
             map. Defaults to the current directory.
+        warn_days: ``release.unreleased_warn_days``. None, or an age git
+            cannot read, warns.
 
     Returns:
-        ``(True, message)`` when HEAD carries releasable commits past its
-        nearest ``v*`` tag; ``(False, message)`` otherwise, where the message
-        names which of the two quiet answers it was.
+        ``("warning" | "notice", message)`` when HEAD carries releasable
+        commits past its nearest ``v*`` tag; ``("", message)`` otherwise,
+        where the message names which of the two quiet answers it was.
     """
     tag, releasable = unreleased_since_tag(project_dir)
     if tag is None:
-        return False, "no v* tag reachable from HEAD -- no released baseline to measure"
+        return "", "no v* tag reachable from HEAD -- no released baseline to measure"
     if not releasable:
-        return False, f"nothing releasable waiting since {tag}"
+        return "", f"nothing releasable waiting since {tag}"
 
+    age = oldest_commit_age_days([sha for sha, _bump in releasable], project_dir)
+    young = warn_days is not None and age is not None and age <= warn_days
+    return ("notice" if young else "warning"), _unreleased_message(tag, releasable)
+
+
+def _unreleased_message(tag: str, releasable: list[tuple[str, str]]) -> str:
+    # A consumer keys findings on this text, so it changes only on purpose.
     counts = Counter(bump for _sha, bump in releasable)
     mix = ", ".join(
         f"{counts[bump]} {bump}" for bump in _BUMP_RENDER_ORDER if counts[bump]
@@ -299,7 +481,7 @@ def unreleased_warning(project_dir: Path | None = None) -> tuple[bool, str]:
     verb = "commit sits" if len(releasable) == 1 else "commits sit"
     age = _tag_age_days(tag)
     tagged = "" if age is None else f", tagged {age} day{'' if age == 1 else 's'} ago"
-    return True, (
+    return (
         f"{len(releasable)} releasable {verb} unreleased since {tag}{tagged} "
         f"({mix}). This run validated them and published nothing. Ship them with "
         f"'hyperi-ci push --publish', or re-run this workflow with from-head=true."

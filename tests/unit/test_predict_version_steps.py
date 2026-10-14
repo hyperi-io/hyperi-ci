@@ -215,6 +215,8 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "inputs.branch-build": "",
             "github.ref": "refs/heads/main",
             "steps.worthy.outputs.release-worthy": "",
+            "steps.worthy.outputs.code-changed": "",
+            "steps.worthy.outputs.touched": "",
             "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
         },
         repo,
@@ -776,6 +778,8 @@ class TestAPython3WithoutPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
+                "steps.worthy.outputs.code-changed": "",
+                "steps.worthy.outputs.touched": "",
                 "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
@@ -897,6 +901,8 @@ class TestUvCannotSupplyPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
+                "steps.worthy.outputs.code-changed": "",
+                "steps.worthy.outputs.touched": "",
                 "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
@@ -947,3 +953,70 @@ class TestTheRustTargetsStep:
         targets, stdout = _targets(released_head)
         assert targets == ""
         assert "build.rust.targets must be a list" in stdout
+
+
+class TestAChoreMergeThatEditsCode:
+    """issue #96: the worthy probe and derive, run as shipped, on a push to main."""
+
+    @staticmethod
+    def _push(repo: Path, files: dict[str, str]) -> dict[str, str]:
+        def git(*args: str) -> str:
+            return subprocess.run(
+                ["git", *args],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            ).stdout.strip()
+
+        before = git("rev-parse", "HEAD")
+        for name, body in files.items():
+            (repo / name).write_text(body, encoding="utf-8")
+            git("add", name)
+        git("commit", "-q", "-m", "chore: tidy")
+        event = repo / ".event.json"
+        event.write_text(
+            f'{{"before": "{before}", "after": "{git("rev-parse", "HEAD")}"}}',
+            encoding="utf-8",
+        )
+        probe, _ = _run_step(
+            "worthy",
+            {"github.event_name": "push", "github.ref": _MAIN},
+            repo,
+            env={"GITHUB_EVENT_NAME": "push", "GITHUB_EVENT_PATH": str(event)},
+        )
+        return probe
+
+    def _derive(self, probe: dict[str, str], repo: Path) -> tuple[dict[str, str], str]:
+        return _run_step(
+            "derive",
+            {
+                "steps.gate.outputs.will-publish": "false",
+                "github.event_name": "push",
+                "inputs.branch-build": "",
+                "github.ref": _MAIN,
+                "steps.worthy.outputs.release-worthy": probe["release-worthy"],
+                "steps.worthy.outputs.code-changed": probe["code-changed"],
+                "steps.worthy.outputs.touched": probe["touched"],
+                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            },
+            repo,
+        )
+
+    def test_code_runs_the_checks(self, released_head: Path) -> None:
+        probe = self._push(released_head, {"app.py": "x = 1\n"})
+        assert (probe["release-worthy"], probe["code-changed"]) == ("false", "true")
+        outputs, _log = self._derive(probe, released_head)
+        assert outputs["run-checks"] == "true"
+        assert outputs["run-build"] == "false"
+
+    def test_docs_only_skips_and_names_the_files(self, released_head: Path) -> None:
+        probe = self._push(released_head, {"GUIDE.md": "x\n"})
+        outputs, log = self._derive(probe, released_head)
+        assert outputs["run-checks"] == "false"
+        assert (
+            "did NOT run on this merge to main: only docs and repo metadata "
+            "changed: GUIDE.md." in log
+        )
