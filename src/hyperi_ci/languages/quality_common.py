@@ -558,6 +558,7 @@ def run_gate_tool(
     pinned: str | None = None,
     retry_unreachable: Unreachable | None = None,
     output_is_finding: bool = False,
+    hint: str | None = None,
 ) -> bool:
     """Run one quality tool and decide the gate from its result and mode.
 
@@ -584,6 +585,7 @@ def run_gate_tool(
             that never reaches the DB is then decided by ``mode``.
         output_is_finding: Treat any stdout as a finding, for a tool such as
             ``gofmt -l`` that lists what it found and still exits 0.
+        hint: Line logged after the tool output when it reports a finding.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -644,6 +646,8 @@ def run_gate_tool(
             warn(unreachable_note)
         emit_tool_output(tool_name, result.stdout, cap=WARN_OUTPUT_CAP)
         emit_tool_output(tool_name, result.stderr, cap=WARN_OUTPUT_CAP)
+        if hint:
+            info(f"  {tool_name}: {hint}")
         return True
 
     error(f"  {tool_name}: failed")
@@ -651,6 +655,8 @@ def run_gate_tool(
         error(unreachable_note)
     emit_tool_output(tool_name, result.stdout)
     emit_tool_output(tool_name, result.stderr)
+    if hint:
+        info(f"  {tool_name}: {hint}")
     return False
 
 

@@ -544,3 +544,35 @@ class TestOutputIsAFinding:
     ) -> None:
         log.returns(0, "demo.go\n")
         assert run_gate_tool("gofmt", ["gofmt", "-l", "."], "blocking") is True
+
+
+def _fmt(mode: str) -> bool:
+    return run_gate_tool("fmt", ["fmt", "--check"], mode, hint="see the raw diff")
+
+
+class TestAHintFollowsAFinding:
+    """A hint is logged after the output of a finding, never on a pass."""
+
+    def test_a_blocking_finding_ends_with_the_hint(
+        self, log: _Log, on_path: None
+    ) -> None:
+        log.returns(1, "would reformat demo.py\n")
+        assert _fmt("blocking") is False
+        assert log.lines[-1] == ("info", "  fmt: see the raw diff")
+
+    def test_a_warn_finding_ends_with_the_hint(self, log: _Log, on_path: None) -> None:
+        log.returns(1, "would reformat demo.py\n")
+        assert _fmt("warn") is True
+        assert log.lines[-1] == ("info", "  fmt: see the raw diff")
+
+    def test_a_pass_has_no_hint(self, log: _Log, on_path: None) -> None:
+        log.returns(0)
+        assert _fmt("blocking") is True
+        assert "see the raw diff" not in log.text
+
+    def test_ruff_format_carries_the_mask_hint(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, calls: _Calls
+    ) -> None:
+        _python_calls(monkeypatch, tmp_path, calls)
+        hint = calls.options["ruff format"]["hint"]
+        assert hint == python_quality._RUFF_FORMAT_MASK_HINT
