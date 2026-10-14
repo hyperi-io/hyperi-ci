@@ -27,7 +27,7 @@ Each `<lang>-ci.yml` is a `workflow_call` reusable workflow with the same jobs, 
 
 ## `commit-check`: the landing gate
 
-`commit-check` is independent of `plan` and `run-checks`. That gate skips the quality job on a merge to main that is not release-worthy, so a bad commit message could otherwise land unvalidated. It is a git-log + regex check with no compile, so it costs seconds.
+`commit-check` is independent of `plan` and `run-checks`. That gate skips the quality job on a merge to main that changed only docs, so a bad commit message could otherwise land unvalidated. It is a git-log + regex check with no compile, so it costs seconds.
 
 It is fatal on the push that reaches main and on a `merge_group`. On a PR it is advisory for branch commits, which a squash may throw away. Feature-branch pushes skip it.
 
@@ -47,7 +47,7 @@ On a `pull_request` the line a squash merge would land is validated too, and a b
 | Output | True when | Effect |
 |---|---|---|
 | `will-release` | push to **main** with a `Release: true` trailer, OR a `workflow_dispatch` carrying `tag`, OR `from-head: true` dispatched on main | The release signal. A trailer on a non-main ref is ignored with a `::warning::`. Dispatch-ref rules: [releasing.md](releasing.md#which-ref-a-from-head-dispatch-releases-from). A `schedule` run is never a release |
-| `run-checks` | `will-release`, OR a **release-worthy push to main** (a `feat:` / `fix:` / `perf:` in the pushed range; an unresolvable range counts as worthy), OR `pull_request`, `merge_group`, `workflow_dispatch` or `schedule` | Run quality + test. A release-worthy merge is TESTED, never shipped |
+| `run-checks` | `will-release`, OR a **release-worthy push to main** (a `feat:` / `fix:` / `perf:` in the pushed range), OR a **push to main that changed any file outside docs** whatever its commit type, OR `pull_request`, `merge_group`, `workflow_dispatch` or `schedule`. An unresolvable range runs them | Run quality + test. A merge is TESTED, never shipped |
 | `test-tier` | `full` on `schedule`, when the `test-tier` input is `full`, when the project's `test.tier` is `full`, or on `will-release` with `full-required-for-release`; else `core` | The tier the Test job runs. Nothing lowers it. An unknown value fails Plan |
 | `full-required-for-release` | the project sets `test.full.required_for_release: true` | A release runs `full`, and the Gate fails a release handed any other tier. Off by default |
 | `run-build` | `will-release`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (the release tail stays `will-release`-only) |
@@ -56,9 +56,23 @@ On a `pull_request` the line a squash merge would land is validated too, and a b
 | `python-version` | always | A pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default ([languages/python.md](languages/python.md)) |
 | `build-matrix` | always | Both arches whenever `run-build` is true. `run-arm64-check` alone yields only the arm64 leg. `build.rust.targets` limits the legs to the listed targets |
 
-There are two run gates because a PR needs quality + test but no build, and a `chore:` / `docs:` push to main needs neither.
+There are two run gates because a PR needs quality + test but no build, and a push to main that changed only docs needs neither.
 
-A release-worthy push to main with NO trailer is validate-only. Plan asks `unreleased.py` what the last `v*` tag does not include, and warns with the count, the tag and its age.
+## What a skipped check means on main
+
+A `chore:`, `ci:` or `test:` merge is not release-worthy, and it can still edit code. So a push to main skips quality and test only when every file the pushed range changed is harmless (issue #96):
+
+- a doc: `.md`, `.markdown`, `.rst`, `.adoc`, or anything under `docs/`
+- an image: `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`
+- repo metadata, by exact name: `.gitignore`, `.gitattributes`, `.editorconfig`, `VERSION`, `LICENSE`, `LICENSE.md`, `LICENSE.txt`, `LICENCE*`, `COPYING`, `CHANGELOG`, `CHANGELOG.md`, `CHANGELOG.rst`
+
+Anything else runs them, workflows and config files included. A source suffix (`.py`, `.rs`, `.go`, `.ts` and the rest) is never harmless, so `docs/conf.py` and `LICENSE_check.py` run them. A rename counts its old path too, so moving code into `docs/` still runs them. The range comes from the push payload, as for release-worthiness. Doubt runs the checks: a range that cannot be resolved, a push that created the branch, and a push that added no commits (a rewind or a re-run).
+
+The skip is a `::notice::`, never a warning, and it names the files: `quality and test did NOT run on this merge to main: only docs and repo metadata changed: README.md, docs/guide.md`. Logic: `hyperi_ci.commit_range.touches_code`, loaded by path through `touched_files.py`.
+
+`run-arm64-check` stays keyed on release-worthiness. A `chore:` that edits code is checked, and still compiles nothing.
+
+A release-worthy push to main with NO trailer is validate-only. Plan asks `unreleased.py` what the last `v*` tag does not include, and reports the count, the tag and its age. It is a `::notice::` until the oldest unreleased releasable commit is more than `release.unreleased_warn_days` old (default 7), then a `::warning::` with the same text. `0` warns on any unreleased work. A fork counts and ages only its own first-parent commits.
 
 The `_release-tail.yml` input keeps the name `will-publish`, and each `<lang>-ci.yml` keeps `publish-target`. GitHub hard-errors on an undeclared reusable-workflow input before any of our code runs.
 
@@ -83,7 +97,9 @@ flowchart LR
     PR -->|true| RC["run-checks=true<br/>run-build=false"]
     PR -->|false| RW{release-worthy<br/>push to main?}
     RW -->|true| RCA["run-checks=true<br/>run-build=false<br/>run-arm64-check=true<br/>arm64 leg only"]
-    RW -->|false| SK["everything skips<br/>(plan only)"]
+    RW -->|false| CC{changed any file<br/>outside docs?}
+    CC -->|true| RC
+    CC -->|false| SK["everything skips<br/>(plan only)"]
     style RB fill:#dcfce7,color:#000
     style RC fill:#fef3c7,color:#000
     style RCA fill:#fef3c7,color:#000
@@ -94,7 +110,8 @@ flowchart LR
 
 | Push type | plan | commit-check | quality | test | build | container | tag+publish |
 |---|---|---|---|---|---|---|---|
-| `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
+| `chore:` / `docs:` to main, docs only | yes | yes | no | no | no | no | no |
+| `chore:` / `ci:` / `test:` to main, touching code | yes | yes | yes | yes | no | no | no |
 | `feat:`/`fix:` to main, no `Release:` trailer | yes | yes | yes | yes | arm64 only, Rust | no | no |
 | `feat:`/`fix:` to main + `Release: true` | yes | yes | yes | yes | yes | yes | yes |
 | Pull request | yes | yes advisory | yes | yes | no | no | no |

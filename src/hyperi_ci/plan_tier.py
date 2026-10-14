@@ -30,7 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import NamedTuple
 
-from hyperi_ci.project_config import read_project_config
+from hyperi_ci.project_config import lookup, read_project_config
 
 CORE = "core"
 FULL = "full"
@@ -63,13 +63,6 @@ class ProjectTier(NamedTuple):
     unreadable: str
 
 
-def _lookup(config: dict, dotted: str) -> object:
-    value: object = config
-    for part in dotted.split("."):
-        value = value.get(part) if isinstance(value, dict) else None
-    return value
-
-
 def read_project_tier(root: Path) -> ProjectTier:
     """Read ``test.tier`` and ``test.full.required_for_release``.
 
@@ -92,14 +85,14 @@ def read_project_tier(root: Path) -> ProjectTier:
     if config is None:
         return ProjectTier(CORE, False, project.unreadable)
 
-    raw_tier = _lookup(config, TIER_KEY)
+    raw_tier = lookup(config, TIER_KEY)
     tier = str(raw_tier).strip().lower() if raw_tier is not None else CORE
     if tier not in TIERS:
         raise ValueError(
             f"{TIER_KEY} in {name} must be one of {', '.join(TIERS)}, not {raw_tier!r}"
         )
 
-    required = _lookup(config, REQUIRED_FOR_RELEASE_KEY)
+    required = lookup(config, REQUIRED_FOR_RELEASE_KEY)
     enabled = required is True or (
         isinstance(required, str) and required.strip().lower() in _ON
     )

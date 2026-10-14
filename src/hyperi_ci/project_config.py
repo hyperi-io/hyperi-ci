@@ -9,7 +9,8 @@
 :func:`hyperi_ci.config.load_config` reads the same files in the same order,
 from :data:`CONFIG_FILES`. This module serves the predict-version composite,
 which loads it by path where hyperi-ci is not installed, so it is stdlib-only
-and imports nothing from the package.
+and imports nothing from the package but the stdlib-only
+:mod:`hyperi_ci.vocabulary`.
 
 The composite runs its config readers under ``uv run --with pyyaml`` because a
 runner's python3 may lack PyYAML (the ARC vanilla image has neither it nor
@@ -35,6 +36,9 @@ CONFIG_FILES = (
     ".hyperi-ci.yaml",
     ".hyperi-ci.yml",
 )
+
+#: The shipped defaults, read from the same checkout as this file.
+SHIPPED_DEFAULTS = Path(__file__).resolve().parent / "config" / "defaults.yaml"
 
 #: The reason given when this interpreter has no way to parse YAML at all.
 NO_PARSER = "neither PyYAML nor yq is available to parse it"
@@ -128,6 +132,49 @@ def read_config(path: Path) -> tuple[dict[str, Any] | None, str]:
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         return None, f"it is not valid YAML: {_one_line(str(exc))}"
     return _as_mapping(parsed)
+
+
+def lookup(config: object, dotted: str) -> object:
+    """Return the value at a dotted key in a parsed config, None when absent."""
+    value = config
+    for part in dotted.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return value
+
+
+def setting(root: Path, key: str) -> tuple[object, str]:
+    """Return a key's value and the layer it came from.
+
+    The project's config file wins, under any spelling
+    :func:`hyperi_ci.vocabulary.key_candidates` accepts, else the value the
+    shipped ``defaults.yaml`` carries. Environment overrides are not read.
+
+    Args:
+        root: The checkout root.
+        key: The dotted key.
+
+    Returns:
+        ``(value, source)``. ``source`` names the file the value came from;
+        the value is None, and the source says why, when neither layer
+        answers.
+
+    """
+    from hyperi_ci.vocabulary import key_candidates
+
+    project = read_project_config(root)
+    if project.data:
+        for candidate in key_candidates(key):
+            value = lookup(project.data, candidate)
+            if value is not None:
+                return value, project.name
+
+    shipped, problem = read_config(SHIPPED_DEFAULTS)
+    if shipped is None:
+        return None, f"{SHIPPED_DEFAULTS.name} could not be read: {problem}"
+    value = lookup(shipped, key)
+    if value is None:
+        return None, f"{SHIPPED_DEFAULTS.name} does not declare {key}"
+    return value, SHIPPED_DEFAULTS.name
 
 
 def read_project_config(root: Path) -> ProjectConfig:

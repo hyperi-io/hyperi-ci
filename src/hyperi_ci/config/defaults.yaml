@@ -402,6 +402,11 @@ release:
   # carries its own label, which wins over this.
   channel: release
 
+  # A push to main with no release trailer reports the releasable commits the
+  # last v* tag lacks. It is a notice until the oldest of them is more than
+  # this many days old, then a warning. 0 warns on any unreleased work.
+  unreleased_warn_days: 7
+
   # Destination mapping (OSS only). Was `destinations_oss`, which still works.
   #
   # Set any artefact to `false` in a project's .hyperi-ci.yaml to opt out

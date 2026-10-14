@@ -9,7 +9,7 @@
 The resolver half moved here with the code it tests (it was in
 test_commit_validation.py). The `is_release_worthy` half is what the
 predict-version gate asks before skipping quality + test on a merge to main
-(issue #124). The `unreleased_warning` half is the cumulative question the
+(issue #124). The `unreleased_annotation` half is the cumulative question the
 same gate asks on a validate-only run.
 """
 
@@ -23,10 +23,12 @@ import pytest
 
 from hyperi_ci.commit_range import (
     commits_in_range,
+    is_harmless_path,
     is_release_worthy,
     is_zero_sha,
+    touches_code,
+    unreleased_annotation,
     unreleased_since_tag,
-    unreleased_warning,
 )
 
 _SECONDS_PER_DAY = 86400
@@ -328,8 +330,8 @@ class TestUnreleasedWarning:
         )
         monkeypatch.chdir(repo)
 
-        warn, message = unreleased_warning()
-        assert warn is True
+        level, message = unreleased_annotation(warn_days=0)
+        assert level == "warning"
         assert "3 releasable commits sit unreleased since v1.2.3" in message
         assert "1 minor, 2 patch" in message
         assert "26 days ago" in message
@@ -345,8 +347,8 @@ class TestUnreleasedWarning:
         )
         monkeypatch.chdir(repo)
 
-        warn, message = unreleased_warning()
-        assert warn is False
+        level, message = unreleased_annotation(warn_days=0)
+        assert level == ""
         assert message == "nothing releasable waiting since v1.2.3"
 
     def test_head_on_the_tag_is_quiet(
@@ -355,8 +357,8 @@ class TestUnreleasedWarning:
         repo = self._repo_at(tmp_path, 0)
         monkeypatch.chdir(repo)
 
-        warn, _message = unreleased_warning()
-        assert warn is False
+        level, _message = unreleased_annotation(warn_days=0)
+        assert level == ""
 
     def test_no_baseline_is_its_own_answer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -368,8 +370,8 @@ class TestUnreleasedWarning:
         _commit(repo, "fix: the very first commit")
         monkeypatch.chdir(repo)
 
-        warn, message = unreleased_warning()
-        assert warn is False
+        level, message = unreleased_annotation(warn_days=0)
+        assert level == ""
         assert "no released baseline" in message
         assert "nothing releasable" not in message
 
@@ -379,7 +381,7 @@ class TestUnreleasedWarning:
         repo = self._repo_at(tmp_path, 1, "fix: a lone patch")
         monkeypatch.chdir(repo)
 
-        _warn, message = unreleased_warning()
+        _level, message = unreleased_annotation(warn_days=0)
         assert "1 releasable commit sits unreleased" in message
         assert "tagged 1 day ago" in message
 
@@ -391,7 +393,7 @@ class TestUnreleasedWarning:
         )
         monkeypatch.chdir(repo)
 
-        _warn, message = unreleased_warning()
+        _level, message = unreleased_annotation(warn_days=0)
         assert "1 major" in message
 
     def test_the_bump_map_is_the_release_rules_ssot(
@@ -420,8 +422,8 @@ class TestUnreleasedWarning:
         _commit(repo, "docs: rewrite the readme")
         monkeypatch.chdir(repo)
 
-        warn, message = unreleased_warning()
-        assert warn is True
+        level, message = unreleased_annotation(warn_days=0)
+        assert level == "warning"
         assert "1 patch" in message
 
     def test_a_non_version_tag_is_not_a_baseline(
@@ -439,6 +441,250 @@ class TestUnreleasedWarning:
         tag, releasable = unreleased_since_tag()
         assert tag == "v1.0.0"
         assert len(releasable) == 1
+
+
+class TestUnreleasedAge:
+    """Unreleased work is a notice while young, a warning once it has waited."""
+
+    # What the gate printed before the age gate existed. A consumer keys its
+    # findings on this text, so the warning must still read exactly so.
+    PINNED = (
+        "2 releasable commits sit unreleased since v1.2.3, tagged 26 days ago "
+        "(1 minor, 1 patch). This run validated them and published nothing. "
+        "Ship them with 'hyperi-ci push --publish', or re-run this workflow "
+        "with from-head=true."
+    )
+
+    def _repo(self, tmp_path: Path, *ages: int) -> Path:
+        """A repo tagged v1.2.3 26 days ago, then one fix: per age in days."""
+        repo = _repo(tmp_path)
+        _commit_at(repo, "chore: seed", 26)
+        _git(repo, "tag", "v1.2.3")
+        for index, age in enumerate(ages):
+            _commit_at(repo, f"fix: waiting {index}", age)
+        return repo
+
+    def test_old_work_warns_with_the_pinned_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        _commit_at(repo, "chore: seed", 26)
+        _git(repo, "tag", "v1.2.3")
+        _commit_at(repo, "fix: an off-by-one", 20)
+        _commit_at(repo, "feat: a new source", 20)
+        monkeypatch.chdir(repo)
+
+        assert unreleased_annotation(warn_days=7) == ("warning", self.PINNED)
+
+    def test_young_work_is_a_notice_with_the_same_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(self._repo(tmp_path, 0, 0))
+
+        level, message = unreleased_annotation(warn_days=7)
+        assert level == "notice"
+        assert message == unreleased_annotation(warn_days=0)[1]
+
+    @pytest.mark.parametrize(("warn_days", "level"), [(14, "notice"), (7, "warning")])
+    def test_the_threshold_decides(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        warn_days: int,
+        level: str,
+    ) -> None:
+        monkeypatch.chdir(self._repo(tmp_path, 10))
+
+        assert unreleased_annotation(warn_days=warn_days)[0] == level
+
+    def test_the_oldest_waiting_commit_decides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A fresh fix on top must not reset the clock on a ten-day-old one.
+        monkeypatch.chdir(self._repo(tmp_path, 10, 0))
+
+        assert unreleased_annotation(warn_days=7)[0] == "warning"
+
+    def test_no_threshold_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(self._repo(tmp_path, 0))
+
+        assert unreleased_annotation(warn_days=None)[0] == "warning"
+
+
+def _commit_files(repo: Path, msg: str, files: dict[str, str]) -> str:
+    for name, body in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8", newline="\n")
+        _git(repo, "add", name)
+    _git(repo, "commit", "-q", "-m", msg)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+class TestTouchesCode:
+    """issue #96: a merge to main skipped its checks on commit type alone.
+
+    A `chore:` or `test:` that edits code is not release-worthy, so the gate
+    let it land unchecked. The files the range changed decide as well.
+    """
+
+    def _push(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        msg: str,
+        files: dict[str, str],
+    ) -> tuple[bool, str]:
+        repo = _repo(tmp_path)
+        base = _commit_files(repo, "chore: seed", {"seed.txt": "seed\n"})
+        head = _commit_files(repo, msg, files)
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
+        return touches_code()
+
+    def test_docs_and_metadata_only_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        touched, reason = self._push(
+            tmp_path,
+            monkeypatch,
+            "docs: the guide",
+            {
+                "README.md": "x\n",
+                "docs/guide.txt": "x\n",
+                "img/logo.svg": "<svg/>\n",
+                ".gitignore": "x\n",
+                "CHANGELOG.md": "x\n",
+                "LICENSE": "x\n",
+                "VERSION": "1.0.0\n",
+            },
+        )
+        assert touched is False
+        assert reason.startswith("only docs and repo metadata changed: ")
+        assert "README.md" in reason
+        assert "and 2 more" in reason
+
+    @pytest.mark.parametrize(
+        "path",
+        ["src/app.py", "src/lib.rs", ".github/workflows/ci.yml", "pyproject.toml"],
+    )
+    def test_a_chore_that_edits_code_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+    ) -> None:
+        touched, reason = self._push(
+            tmp_path,
+            monkeypatch,
+            "chore: tidy",
+            {path: "x\n", "README.md": "x\n"},
+        )
+        assert touched is True
+        assert path in reason
+        assert "README.md" not in reason
+
+    def test_moving_code_into_docs_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Rename detection would list only the new docs/ path.
+        repo = _repo(tmp_path)
+        base = _commit_files(repo, "chore: seed", {"src/app.py": "x = 1\n"})
+        (repo / "docs").mkdir()
+        _git(repo, "mv", "src/app.py", "docs/app.md")
+        _git(repo, "commit", "-q", "-m", "docs: keep it as an example")
+        head = _git(repo, "rev-parse", "HEAD")
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
+
+        touched, reason = touches_code()
+        assert touched is True
+        assert "src/app.py" in reason
+
+    def test_an_unresolvable_range_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        head = _commit_files(repo, "docs: only", {"README.md": "x\n"})
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, "deadbeef" * 5, head))
+
+        touched, reason = touches_code()
+        assert touched is True
+        assert "could not resolve" in reason
+
+    def test_a_rewind_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A force-push back to an older tip adds no commits, and says nothing
+        # about what main now holds.
+        repo = _repo(tmp_path)
+        older = _commit_files(repo, "chore: seed", {"app.py": "x = 1\n"})
+        newer = _commit_files(repo, "docs: later", {"README.md": "x\n"})
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, newer, older))
+
+        touched, reason = touches_code()
+        assert touched is True
+        assert "adds no commits" in reason
+
+    def test_a_re_run_of_the_same_tip_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        head = _commit(repo, "fix: only")
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, head, head))
+
+        assert touches_code()[0] is True
+
+    def test_creating_the_branch_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An all-zeros `before` falls through to origin/main..HEAD, which says
+        # nothing about the push.
+        repo = _repo(tmp_path)
+        head = _commit_files(repo, "docs: only", {"README.md": "x\n"})
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, "0" * 40, head))
+
+        touched, reason = touches_code()
+        assert touched is True
+        assert "created the branch" in reason
+
+    @pytest.mark.parametrize(
+        "path", ["src/LICENSE.py", "LICENSE_check.py", "CHANGELOG_gen.py"]
+    )
+    def test_code_named_like_metadata_runs_the_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+    ) -> None:
+        touched, reason = self._push(
+            tmp_path, monkeypatch, "chore: tidy", {path: "x\n"}
+        )
+        assert touched is True
+        assert path in reason
+
+
+@pytest.mark.parametrize(
+    ("path", "harmless"),
+    [
+        ("docs/conf.txt", True),
+        ("guide.RST", True),
+        ("sub/.editorconfig", True),
+        ("LICENSE", True),
+        ("LICENSE.txt", True),
+        ("LICENCE-APACHE", True),
+        ("COPYING", True),
+        ("CHANGELOG", True),
+        ("CHANGELOG.rst", True),
+        ("shot.JPEG", True),
+        ("LICENSE-APACHE", False),
+        ("src/LICENSE.py", False),
+        ("LICENSE_check.py", False),
+        ("CHANGELOG_gen.py", False),
+        ("LICENCE.py", False),
+        ("docs/conf.py", False),
+        ("src/docs/thing.py", False),
+        ("Makefile", False),
+        ("tests/test_x.py", False),
+        ("VERSION.py", False),
+    ],
+)
+def test_is_harmless_path(path: str, harmless: bool) -> None:
+    assert is_harmless_path(path) is harmless
 
 
 def test_is_zero_sha() -> None:

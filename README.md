@@ -90,7 +90,7 @@ git commit -m "fix: resolve timeout in auth handler"
 # 4. Push (ships nothing -- no tag, no release)
 hyperi-ci push
 
-# That's it. Quality and test run if the pushed range is release-worthy.
+# That's it. Quality and test run unless the pushed range changed only docs.
 # Nothing compiles, no image is built, no tag, no registry is touched.
 ```
 
@@ -160,10 +160,11 @@ hyperi-ci release --list         # see unreleased tags
 A plain `hyperi-ci push` ships nothing and builds nothing -- `run-build` is
 release-only, so no cargo compile and no container job runs at all. Quality
 and test run when the pushed range is release-worthy (it carries a `feat:`,
-`fix:` or `perf:`), and skip entirely when it is not.
+`fix:` or `perf:`) or changed any file outside docs, and skip entirely when
+it changed only docs ([ci-job-contract.md](docs/ci-job-contract.md#what-a-skipped-check-means-on-main)).
 
-So the default state of `main` is "landed, and tested if it was
-release-worthy" -- not "built and ready to ship". You release explicitly by
+So the default state of `main` is "landed, and tested if it touched
+code" -- not "built and ready to ship". You release explicitly by
 running `hyperi-ci push --release` on the next conventional commit.
 
 ## Commit Messages
@@ -260,7 +261,7 @@ No code changes, no workflow changes.
 | `hyperi-ci check --quick` | Quality only |
 | `hyperi-ci check --full` | Quality + test + build |
 | `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate-overrides.md](docs/quality-gate-overrides.md) |
-| `hyperi-ci push` | Push -- ships nothing, quality + test if release-worthy |
+| `hyperi-ci push` | Push -- ships nothing, quality + test unless only docs changed |
 | `hyperi-ci push --release` | Stamp `Release: true` trailer, push, single-run release |
 | `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |
 | `hyperi-ci push --bump-minor` | Force +0.1.0 release even with no-bump commits |
@@ -320,12 +321,12 @@ Your Project                          hyperi-ci
 
 ```mermaid
 flowchart LR
-    P[plan] -->|release-worthy| Q[quality]
-    P -->|release-worthy| T[test]
-    P -->|not release-worthy| S[everything skips]
+    P[plan] -->|release-worthy or code changed| Q[quality]
+    P -->|release-worthy or code changed| T[test]
+    P -->|docs only| S[everything skips]
 ```
 
-No build, no container, no tag, no registry upload. A release-worthy merge is
+No build, no container, no tag, no registry upload. A merge is
 TESTED, not shipped -- `run-build` is release-only, so nothing compiles and no
 image is produced until you release.
 

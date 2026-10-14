@@ -13,28 +13,10 @@ between running and not, and the mode skips the ``--strict`` upgrade.
 import os
 from pathlib import Path
 
+from hyperi_ci.commit_range import DOC_SUFFIXES, SOURCE_SUFFIXES
 from hyperi_ci.common import info, run_cmd, success
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import findings as fdg
-
-_SOURCE_SUFFIXES = {
-    ".py",
-    ".rs",
-    ".go",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".java",
-    ".rb",
-    ".c",
-    ".cc",
-    ".cpp",
-    ".h",
-    ".hpp",
-}
-
-_DOC_SUFFIXES = {".md", ".markdown", ".rst", ".adoc"}
 
 # Test files count as neither source nor docs.
 _TEST_MARKERS = ("tests/", "test/", "_test.", "test_", ".test.", ".spec.")
@@ -49,9 +31,9 @@ def classify(paths: list[str]) -> tuple[list[str], list[str]]:
         if not path:
             continue
         suffix = Path(path).suffix.lower()
-        if suffix in _DOC_SUFFIXES:
+        if suffix in DOC_SUFFIXES:
             docs.append(path)
-        elif suffix in _SOURCE_SUFFIXES and not any(
+        elif suffix in SOURCE_SUFFIXES and not any(
             marker in path for marker in _TEST_MARKERS
         ):
             source.append(path)

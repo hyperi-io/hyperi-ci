@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.commit_range import unreleased_since_tag, unreleased_warning
+from hyperi_ci.commit_range import unreleased_annotation, unreleased_since_tag
 from hyperi_ci.common import run_cmd
 from hyperi_ci.push import _compute_next_version
 from hyperi_ci.quality.predicted_bump import predict_bump
@@ -134,12 +134,27 @@ class TestUnreleased:
         _drop_upstream_tag(repo)
         _declare(repo, "fork")
         monkeypatch.chdir(repo)
-        warn, message = unreleased_warning(repo)
-        assert warn is True
+        level, message = unreleased_annotation(repo, warn_days=0)
+        assert level == "warning"
         assert "since v0.2.8" in message
         assert "2 patch" in message
         assert "minor" not in message
         assert "major" not in message
+
+    def test_fork_work_is_aged_from_its_own_commits(
+        self,
+        tmp_path: Path,
+        make_fork_history: Callable[..., Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The fixture commits now, so the fork's own work is young.
+        repo = make_fork_history(tmp_path)
+        _drop_upstream_tag(repo)
+        _declare(repo, "fork")
+        monkeypatch.chdir(repo)
+        level, message = unreleased_annotation(repo, warn_days=7)
+        assert level == "notice"
+        assert message == unreleased_annotation(repo, warn_days=0)[1]
 
     def test_non_fork_counts_every_parent(
         self,
