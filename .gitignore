@@ -42,6 +42,8 @@ node_modules/
 hyperi-ai/
 .mcp.json
 CLAUDE.md
+CLAUDE.local.md
+docs/superpowers/
 STATE.md
 TODO.md
 .ai-version
