@@ -42,6 +42,13 @@ from hyperi_ci.versions import tool_version
 # Markdown formatting (0.16).
 _RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.15.21")
 
+# The log masks credential-shaped text, so a diff of code naming a secret is
+# unreadable here; the raw view stays local.
+_RUFF_FORMAT_MASK_HINT = (
+    "the log masks credential-shaped text; run `uv run ruff format --diff` "
+    "locally for the unmasked diff"
+)
+
 # pip-audit's summary line when it has vulnerabilities to report.
 _PIP_AUDIT_FINDING = re.compile(r"^Found \d+ known vulnerabilit", re.MULTILINE)
 
@@ -311,6 +318,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         _build_ruff_format_cmd(excludes, extend_exclude=format_extend_exclude),
         resolve_tool_mode("ruff_format", config, language="python"),
         via="uv",
+        hint=_RUFF_FORMAT_MASK_HINT,
     ):
         had_failure = True
 
