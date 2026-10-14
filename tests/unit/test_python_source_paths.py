@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from hyperi_ci import common
+from hyperi_ci import common, tools
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python import quality
@@ -238,14 +238,16 @@ class TestQualityScansTheDetectedSource:
 
 
 class TestQualityWithNoSource:
-    def test_each_source_scan_is_skipped_out_loud(
+    def test_each_source_scan_is_skipped_at_info_not_warn(
         self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _touch(repo, "tests/test_x.py", "setup.py")
         calls = _recorder_path(tmp_path, monkeypatch)
         warnings: list[str] = []
+        infos: list[str] = []
         downgrades: list[str] = []
         monkeypatch.setattr(quality, "warn", warnings.append)
+        monkeypatch.setattr(quality, "info", infos.append)
         monkeypatch.setattr(
             quality_common,
             "announce",
@@ -260,9 +262,23 @@ class TestQualityWithNoSource:
         for tool in ("ruff security", "ruff docstrings", "vulture"):
             assert any(
                 w.startswith(f"  {tool}: skipped") and "no Python source" in w
-                for w in warnings
-            ), (tool, warnings)
+                for w in infos
+            ), (tool, infos)
+        assert not [w for w in warnings if "skipped" in w], warnings
         assert downgrades == []
+
+    def test_a_missing_tool_still_warns(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _touch(repo, "src/pkg/core.py")
+        warnings: list[str] = []
+        monkeypatch.setattr(tools, "warn", warnings.append)
+        monkeypatch.setattr(tools, "is_ci", lambda: False)
+
+        assert quality._run_source_tool(
+            "nosuchtool", ["nosuchtool-xyz", "src/"], "warn", ["src/"], via="path"
+        )
+        assert warnings, "a tool that cannot start must not be silent"
 
     def test_a_disabled_tool_still_reads_as_disabled(
         self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
