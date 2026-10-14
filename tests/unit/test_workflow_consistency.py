@@ -106,6 +106,39 @@ class TestSetupRuntimeInstall:
         assert call["with"]["force-python-install"] == "true"
 
 
+class TestPrepareInstallsNativeDeps:
+    """cargo-semver-checks builds the crate in `prepare`, on a runner with no C
+    compiler, so without native deps it reaches no verdict (issue #678)."""
+
+    @staticmethod
+    def _steps() -> list[dict]:
+        return _load_workflow("_release-tail.yml")["jobs"]["prepare"]["steps"]
+
+    def _install(self) -> tuple[int, dict]:
+        found = [
+            (i, s)
+            for i, s in enumerate(self._steps())
+            if "install-native-deps" in str(s.get("run", ""))
+        ]
+        assert len(found) == 1, "prepare must run install-native-deps exactly once"
+        return found[0]
+
+    def test_rust_installs_through_the_workflow_install_command(self) -> None:
+        _, step = self._install()
+        assert step["run"] == "${{ env.HYPERCI_INSTALL }} install-native-deps rust"
+        assert step["if"] == "inputs.language == 'rust'"
+
+    def test_it_runs_after_checkout_and_before_the_semver_check(self) -> None:
+        steps = self._steps()
+        index, _ = self._install()
+        checkout = next(
+            i for i, s in enumerate(steps) if "actions/checkout@" in str(s.get("uses"))
+        )
+        names = [s.get("name") for s in steps]
+        # The manifest scan needs the checkout; the package phase runs semver.
+        assert checkout < index < names.index("Check and package the release")
+
+
 class TestFromHeadThreading:
     """issue #35: from-head + bump inputs must thread through every layer --
     consumer ci.yml -> <lang>-ci.yml workflow_call -> predict-version (plan) ->

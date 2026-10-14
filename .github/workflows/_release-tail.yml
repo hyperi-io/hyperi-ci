@@ -366,6 +366,14 @@ jobs:
           PYTHON_VERSION: ${{ inputs.python-version }}
         run: uv python install "$PYTHON_VERSION"
 
+      - name: Install native dependencies
+        # cargo-semver-checks builds rustdoc with every feature, build scripts
+        # included, and the publish runner carries no C compiler or -dev headers.
+        # Without them it reaches no verdict and the release goes out unchecked
+        # (issue #678).
+        if: inputs.language == 'rust'
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
+
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
         if: inputs.language == 'typescript'

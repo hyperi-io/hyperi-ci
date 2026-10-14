@@ -17,6 +17,18 @@
 # architecture (amd64, arm64) automatically when the package exists for that arch.
 
 # --- Build tools (always installed for Rust) ---
+# cc: rustc links build scripts and proc macros with the system `cc`, so no
+# crate builds without one. The org's publish runner image carries none.
+- name: C toolchain
+  patterns:
+    - "[package]"
+    - "[workspace]"
+  manifest_files:
+    - Cargo.toml
+  dpkg_check: build-essential
+  apt_packages:
+    - build-essential
+
 # mold: fast linker (5-10x faster linking). Selected either by a repo's own
 # .cargo/config.toml, or by hyperi-ci itself when a large aarch64 PGO
 # instrument link overflows the R_AARCH64_CALL26 branch and needs thunks.
