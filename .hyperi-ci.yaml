@@ -5,6 +5,10 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+# Internal tooling. Public on PyPI only because every consumer and runner image
+# installs it from there.
+classification: internal
+
 # Coverage is informational here -- CI (.github/workflows/ci.yml) runs
 # pytest without --cov-fail-under, and the codebase is heavy on
 # subprocess-driven CI orchestration that's painful to unit-cover.
