@@ -13,6 +13,9 @@ against itself and passes vacuously.
 
 A binary-only crate and a crate not yet on crates.io are skipped, each with
 its own log line, so a skip never reads as "ran and found nothing".
+
+A run that reaches no verdict fails in CI whatever the mode, because nothing
+was compared. Locally it warns, and only ``disabled`` skips it everywhere.
 """
 
 import shutil
@@ -68,7 +71,9 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         project_root: Crate root; defaults to the working directory.
 
     Returns:
-        0 when the API is compatible, skipped, or the mode is not blocking.
+        0 when the API is compatible or skipped, or on a break in warn mode.
+        1 on a break in blocking mode, and on no verdict in blocking mode or
+        in CI.
 
     """
     mode = resolve_tool_mode("semver_checks", config, language="rust")
@@ -135,17 +140,26 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
             "Either restore compatibility, or release it as a major -- which "
             "is a human decision, not a CI one."
         )
-    else:
-        # Blocking fails here too: an unreached verdict compared nothing.
-        message = (
-            f"the check could not reach a verdict (exit {result.returncode}). "
-            f"A failed rustdoc build or a registry error lands here, and the "
-            f"public API was NOT compared. Fix the error above and re-run; do "
-            f"not read this as a clean result."
+        if mode == "blocking":
+            error(f"  {_TOOL}: {message}")
+            return 1
+        warn(f"  {_TOOL}: {message}")
+        return 0
+
+    message = (
+        f"the check could not reach a verdict (exit {result.returncode}). "
+        f"A failed rustdoc build or a registry error lands here, and the "
+        f"public API was NOT compared. Fix the error above and re-run."
+    )
+    if first:
+        message += f" First error: {first[0]}"
+    # In CI this fails even in warn mode: a green release here would ship an
+    # API nobody compared (issue #678).
+    if mode == "blocking" or is_ci():
+        message += (
+            " To release without the check, set quality.rust.semver_checks "
+            "to {mode: disabled, reason: ...} in .hyperi-ci.yaml."
         )
-        if first:
-            message += f" First error: {first[0]}"
-    if mode == "blocking":
         error(f"  {_TOOL}: {message}")
         return 1
     warn(f"  {_TOOL}: {message}")

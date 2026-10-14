@@ -219,6 +219,8 @@ quality:
     clippy: blocking
     # Public-API break detector for library crates, on the release path only
     # (issue #186). `warn` first per the ratchet; promote at zero violations.
+    # `warn` covers a break only: a run that reaches no verdict fails in CI
+    # whatever the mode (issue #678).
     semver_checks: warn
     # CVE gates, blocking to match Python and TypeScript. The ratchet does not
     # apply: it introduces a new LINT at warn against an existing backlog,
