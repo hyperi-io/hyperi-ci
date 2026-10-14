@@ -32,9 +32,12 @@ CANONICAL: tuple[str, ...] = ("internal", "product", "fork", "general-oss")
 
 # Input spellings that normalise to a canonical value. The numbers come from the
 # repo-classification standard's matrix, and `hyperi` and `oss` are the
-# pre-rename spellings.
+# pre-rename spellings. `alpha` (formerly `spike`) is a maturity stage, carried
+# by `release.channel`; a repo tagged with it is internal.
 ALIASES: dict[str, str] = {
     "hyperi": "internal",
+    "alpha": "internal",
+    "spike": "internal",
     "oss": "general-oss",
     "general_oss": "general-oss",
     "generaloss": "general-oss",
