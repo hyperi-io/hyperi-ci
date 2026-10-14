@@ -63,6 +63,8 @@ everywhere.
 
 A tool may also fail the stage with **zero findings** when it cannot do its job, because a `blocking` scanner that is not scanning is not a pass. That covers gitleaks with a rule-less or canary-blinded config (below). The mode still governs severity, so `warn` downgrades it to a warning.
 
+`quality.rust.semver_checks` is the exception. When cargo-semver-checks reaches no verdict (exit 101, typically a failed rustdoc build), the release fails in CI even at `warn`, because the public API was never compared. Locally it warns. A `100` break still follows the mode. To release without the check, set `semver_checks: {mode: disabled, reason: "..."}`. It is not a security gate, so the reason is not enforced, but it prints on every run.
+
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
 `src/hyperi_ci/config/defaults.yaml`.

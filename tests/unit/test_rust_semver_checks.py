@@ -60,15 +60,19 @@ def lib_crate(tmp_path: Path) -> Path:
 
 
 def _fake_tool(
-    monkeypatch: pytest.MonkeyPatch, code: int, output: str = ""
+    monkeypatch: pytest.MonkeyPatch, code: int, output: str = "", *, ci: bool = False
 ) -> list[str]:
     """Put the tool on PATH with a fixed exit code; return what it says.
 
     The module logs through loguru, which writes to the stderr it captured at
     import, so capsys never sees it. Collecting the helpers tests the same
     thing more directly: what this module chose to report.
+
+    ``ci`` is pinned rather than read from the environment, because the suite
+    itself runs under CI and no verdict fails there.
     """
     said: list[str] = []
+    monkeypatch.setattr(semver_checks, "is_ci", lambda: ci)
     monkeypatch.setattr(semver_checks.shutil, "which", lambda _: "/usr/bin/x")
     monkeypatch.setattr(
         semver_checks,
@@ -107,12 +111,60 @@ class TestOnlyOneExitCodeIsAVerdict:
         assert any("could not reach a verdict" in line for line in said)
         assert not any("major bump" in line for line in said)
 
-    def test_warn_mode_never_fails_whatever_the_code(
+    def test_warn_mode_never_fails_locally_whatever_the_code(
         self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         for code in (100, 101):
             _fake_tool(monkeypatch, code, "x")
             assert semver_checks.run(_config(), project_root=lib_crate) == 0
+
+
+class TestNoVerdictFailsInCI:
+    """Issue #678: two releases shipped green with the API never compared."""
+
+    def test_warn_mode_fails_in_ci(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, _rustdoc_failure(noise=0), ci=True)
+        assert semver_checks.run(_config(), project_root=lib_crate) == 1
+        verdict = [line for line in said if "could not reach a verdict" in line]
+        assert len(verdict) == 1
+        assert "NOT compared" in verdict[0]
+        assert "First error: error: linker `cc` not found" in verdict[0]
+        assert "disabled, reason" in verdict[0]
+
+    def test_warn_mode_only_warns_locally(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, "error: failed to build rustdoc")
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
+        assert any("could not reach a verdict" in line for line in said)
+
+    def test_disabled_skips_in_ci(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 101, "error: x", ci=True)
+        assert semver_checks.run(_config("disabled"), project_root=lib_crate) == 0
+        assert not any("could not reach a verdict" in line for line in said)
+
+    def test_a_break_still_only_warns_in_ci(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = _fake_tool(monkeypatch, 100, "major needed", ci=True)
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
+        assert any("major bump" in line for line in said)
+
+    def test_compatible_passes_in_ci(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _fake_tool(monkeypatch, 0, ci=True)
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
+
+    def test_no_baseline_still_passes_in_ci(
+        self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _fake_tool(monkeypatch, 101, "lib not found in registry (crates.io)", ci=True)
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
 
 
 def _rustdoc_failure(noise: int) -> str:
