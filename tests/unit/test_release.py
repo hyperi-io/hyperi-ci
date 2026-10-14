@@ -807,6 +807,26 @@ class TestLatestStaysOnTheNewestRelease:
     def _r2_targets(sent: list[list[str]]) -> list[str]:
         return [cmd[3] if cmd[2] == "rm" else cmd[4] for cmd in sent if cmd[0] == "aws"]
 
+    def test_every_r2_call_pins_the_classic_s3_client(self, repo, monkeypatch) -> None:
+        """R2 rejects the CRT client's DeleteObject signature (AWS CLI 2.38.0+)."""
+        from hyperi_ci.release import binaries
+
+        configs: list[str] = []
+
+        def fake_run_cmd(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
+            env = kw.get("env") or {}
+            assert isinstance(env, dict)
+            config = Path(env["AWS_CONFIG_FILE"]).read_text(encoding="utf-8")
+            configs.append(config)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: "1.0.5")
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
+        assert binaries._publish_r2_binaries() == 0
+        assert configs
+        assert all("preferred_transfer_client = classic" in c for c in configs)
+
     def test_an_older_tag_leaves_r2_latest_alone(self, repo, monkeypatch) -> None:
         from hyperi_ci.release import binaries
 

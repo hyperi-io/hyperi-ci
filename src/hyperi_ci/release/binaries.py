@@ -417,6 +417,20 @@ def _upload_binaries_github(
     return 0
 
 
+# AWS CLI 2.38.0 made the CRT client the `aws s3` default; R2 rejects its
+# DeleteObject signature, so every latest/ clean failed while uploads passed.
+_AWS_CONFIG_CLASSIC = "[default]\ns3 =\n    preferred_transfer_client = classic\n"
+
+
+@contextmanager
+def _classic_s3_config() -> Iterator[str]:
+    """Yield an AWS config file path that pins `aws s3` to the classic client."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "config"
+        path.write_text(_AWS_CONFIG_CLASSIC, encoding="utf-8", newline="\n")
+        yield str(path)
+
+
 def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False) -> int:
     """Publish dist/ to the R2 versioned prefix and, usually, ``latest/``.
 
@@ -457,12 +471,34 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
-    aws_env = {
-        "AWS_ACCESS_KEY_ID": access_key,
-        "AWS_SECRET_ACCESS_KEY": secret_key,
-        "AWS_DEFAULT_REGION": "auto",
-    }
+    with _classic_s3_config() as aws_config:
+        aws_env = {
+            "AWS_ACCESS_KEY_ID": access_key,
+            "AWS_SECRET_ACCESS_KEY": secret_key,
+            "AWS_DEFAULT_REGION": "auto",
+            "AWS_CONFIG_FILE": aws_config,
+        }
+        return _upload_r2(
+            artifacts,
+            aws_env,
+            endpoint,
+            public_url,
+            versioned_prefix,
+            latest_prefix,
+            move_latest,
+        )
 
+
+def _upload_r2(
+    artifacts: list[Path],
+    aws_env: dict[str, str],
+    endpoint: str,
+    public_url: str,
+    versioned_prefix: str,
+    latest_prefix: str,
+    move_latest: bool,
+) -> int:
+    """Clean latest/ when it moves, then copy every artefact to its prefixes."""
     info(f"Publishing to R2: {public_url}")
 
     destinations = [("versioned", versioned_prefix)]
