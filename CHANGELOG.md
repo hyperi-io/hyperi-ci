@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.8...v2.14.9) (2026-10-14)
+
+### Bug Fixes
+
+* **init:** pin Python in the scaffolded commit-msg hook's uvx call ([#692](https://github.com/hyperi-io/hyperi-ci/issues/692)) ([f0229cd](https://github.com/hyperi-io/hyperi-ci/commit/f0229cd193912295fee96603be810d17069fe520))
+* **release:** use the classic S3 client for R2 so latest/ cleans again ([#693](https://github.com/hyperi-io/hyperi-ci/issues/693)) ([e495542](https://github.com/hyperi-io/hyperi-ci/commit/e4955423e3170fabcef07c9be147f3ca34028061))
+
 ## [2.14.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.7...v2.14.8) (2026-10-14)
 
 ### Bug Fixes
