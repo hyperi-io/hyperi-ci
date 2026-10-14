@@ -26,6 +26,7 @@ import yaml
 from hyperi_ci import licenses
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.detect import detect_language
+from hyperi_ci.seed import existing_version_tags
 from hyperi_ci.seed import seed_tag as _seed_tag
 from hyperi_ci.versions import runtime_version
 
@@ -132,8 +133,14 @@ def _render_hyperi_ci_yaml(
     project_name: str,
     license_id: str = _DEFAULT_LICENSE,
     submodules: str = "",
+    channel: str = "alpha",
 ) -> str:
-    """Render .hyperi-ci.yaml with language-specific defaults."""
+    """Render .hyperi-ci.yaml with language-specific defaults.
+
+    ``channel`` is the maturity stage written to ``release.channel``. A new
+    project starts at alpha, and one that already has release history starts
+    at release.
+    """
     config: dict[str, Any] = {
         "language": language,
         # Drives generated file headers and is the source `detect_license` trusts.
@@ -145,7 +152,7 @@ def _render_hyperi_ci_yaml(
         "test": {"enabled": True},
         "build": {"enabled": True, "strategies": ["native"]},
         # No `target`: it is inert and removed in December 2026 (#151).
-        "release": {"enabled": True},
+        "release": {"enabled": True, "channel": channel},
     }
 
     # Typed Any because ty narrows config["build"] to dict[str, bool | list[str]]
@@ -501,11 +508,14 @@ def init_project(
 
     files_written = 0
 
+    # A repo with a v* tag already has release history and keeps shipping GA.
+    channel = "release" if existing_version_tags(project_dir) else "alpha"
     config_content = _render_hyperi_ci_yaml(
         detected,
         project_name,
         license_id=license_id,
         submodules=submodules,
+        channel=channel,
     )
     config_path = project_dir / ".hyperi-ci.yaml"
     if _write_file(config_path, config_content, force=force):

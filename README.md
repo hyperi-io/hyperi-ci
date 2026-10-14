@@ -252,6 +252,10 @@ alpha -> beta -> release
 Each step is a one-line change to `release.channel` in `.hyperi-ci.yaml`.
 No code changes, no workflow changes.
 
+`hyperi-ci init` scaffolds `channel: alpha` for a new project. A repo that
+already has a `v*` tag gets `channel: release`. A config that omits the key
+resolves to `release`.
+
 ## Commands
 
 | Command | What it does |
