@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.6...v2.14.7) (2026-10-14)
+
+### Bug Fixes
+
+* **release:** install native deps before the Rust semver check ([#682](https://github.com/hyperi-io/hyperi-ci/issues/682)) ([4378c03](https://github.com/hyperi-io/hyperi-ci/commit/4378c033ad704a92021c8bedc9987f4d757f72f0))
+* **rust:** fail the release when semver checks reach no verdict ([#684](https://github.com/hyperi-io/hyperi-ci/issues/684)) ([304651f](https://github.com/hyperi-io/hyperi-ci/commit/304651f4b2d8685242735f2ce04f0ef31d40892a))
+
 ## [2.14.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.5...v2.14.6) (2026-10-13)
 
 ### Bug Fixes
