@@ -86,6 +86,22 @@ def _fake_tool(
     return said
 
 
+def test_it_runs_on_stable_not_the_project_pin(
+    lib_crate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An MSRV rust-toolchain.toml is older than the rustc the tool needs."""
+    _fake_tool(monkeypatch, 0)
+    calls: list[list[str]] = []
+
+    def record(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(semver_checks, "run_cmd", record)
+    semver_checks.run(_config("warn"), project_root=lib_crate)
+    assert calls[0][:3] == ["cargo", "+stable", "semver-checks"]
+
+
 class TestOnlyOneExitCodeIsAVerdict:
     """Measured against 0.50.0: 0 compatible, 100 violation, 101 cargo error."""
 
