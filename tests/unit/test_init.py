@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -380,6 +381,34 @@ class TestInitProject:
             ln for ln in content.splitlines() if "uvx" in ln and "hyperi-ci" in ln
         ]
         assert f"--python {runtime_version('python')}" in uvx_line
+
+    def test_new_project_starts_on_alpha_channel(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        init_project(tmp_path, seed_tag=False)
+        parsed = yaml.safe_load((tmp_path / ".hyperi-ci.yaml").read_text())
+        assert parsed["release"]["channel"] == "alpha"
+
+    def test_repo_with_version_tag_starts_on_release_channel(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        identity = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
+        for args in (
+            ["init", "-q"],
+            [*identity, "commit", "-q", "--allow-empty", "-m", "chore: start"],
+            ["tag", "v1.2.3"],
+        ):
+            subprocess.run(
+                ["git", *args],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        init_project(tmp_path, seed_tag=False)
+        parsed = yaml.safe_load((tmp_path / ".hyperi-ci.yaml").read_text())
+        assert parsed["release"]["channel"] == "release"
 
     def test_no_language_fails(self, tmp_path: Path) -> None:
         rc = init_project(tmp_path)
