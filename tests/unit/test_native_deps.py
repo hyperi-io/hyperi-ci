@@ -27,7 +27,7 @@ from hyperi_ci.native_deps import (
     _load_dep_groups,
     _repo_already_configured,
 )
-from hyperi_ci.versions import runtime_version
+from hyperi_ci.versions import runtime_version, tool_version
 
 # second-primary-key.asc is a throwaway public key with no private half anywhere.
 DATA_DIR = Path(__file__).parent / "data"
@@ -1217,6 +1217,28 @@ class TestEnsureAwsCli:
 
         monkeypatch.setattr(native_deps, "_extract_zip", explode)
         assert native_deps.ensure_aws_cli() is None
+
+    @pytest.mark.parametrize(
+        ("machine", "arch"), [("x86_64", "x86_64"), ("aarch64", "aarch64")]
+    )
+    def test_downloads_the_release_pinned_in_versions_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, machine: str, arch: str
+    ) -> None:
+        """An unpinned URL let an upstream release change `aws s3` unannounced."""
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.platform, "machine", lambda: machine)
+        urls: list[str] = []
+
+        def record(_name: str, url: str) -> None:
+            urls.append(url)
+
+        monkeypatch.setattr(native_deps, "download_artefact", record)
+        assert native_deps.ensure_aws_cli() is None
+
+        version = tool_version("aws-cli")
+        zip_url = f"https://awscli.amazonaws.com/awscli-exe-linux-{arch}-{version}.zip"
+        assert urls == [zip_url, f"{zip_url}.sig"]
 
     def test_a_failed_download_installs_nothing(
         self, monkeypatch: pytest.MonkeyPatch

@@ -317,6 +317,14 @@ tools:
     sha256:
       amd64: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
       arm64: 31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
+  # native_deps.ensure_aws_cli installs the versioned zip for the R2 upload. The
+  # detached signature (not a digest here) is the integrity anchor. Tags are
+  # bare semver on the v2 branch and the repo cuts no GitHub Releases, so
+  # `--stable` reads the tags.
+  aws-cli:
+    version: 2.37.10
+    repo: aws/aws-cli
+    release_source: tags
   # lint-iac fetches these two through native_tools.py on Linux CI when the
   # runner has none. Digests cross-checked against upstream's SHA256SUMS and
   # checksums.txt at pin time.
