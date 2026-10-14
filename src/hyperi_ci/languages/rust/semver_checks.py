@@ -106,8 +106,10 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         warn(f"  {_TOOL}: not installed (skipping locally)")
         return 0
 
+    # On stable, not the project's rust-toolchain.toml: the tool needs a newer
+    # rustc than an MSRV pin may give, and the API it compares does not change.
     result = run_cmd(
-        ["cargo", "semver-checks", "check-release", "--color", "never"],
+        ["cargo", "+stable", "semver-checks", "check-release", "--color", "never"],
         cwd=root,
         capture=True,
         check=False,
