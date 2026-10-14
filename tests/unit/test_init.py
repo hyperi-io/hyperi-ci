@@ -19,6 +19,7 @@ from hyperi_ci.init import (
     detect_license,
     init_project,
 )
+from hyperi_ci.versions import runtime_version
 
 
 class TestLicenseConfig:
@@ -369,6 +370,16 @@ class TestInitProject:
         assert hook.stat().st_mode & 0o111  # executable
         content = hook.read_text()
         assert "check-commit" in content
+
+    def test_commit_hook_pins_python_for_uvx(self, tmp_path: Path) -> None:
+        """An unpinned uvx resolves whatever release the default Python allows."""
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        init_project(tmp_path)
+        content = (tmp_path / ".githooks" / "commit-msg").read_text()
+        [uvx_line] = [
+            ln for ln in content.splitlines() if "uvx" in ln and "hyperi-ci" in ln
+        ]
+        assert f"--python {runtime_version('python')}" in uvx_line
 
     def test_no_language_fails(self, tmp_path: Path) -> None:
         rc = init_project(tmp_path)
