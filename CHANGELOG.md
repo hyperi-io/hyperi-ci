@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.9...v2.14.10) (2026-10-14)
+
+### Bug Fixes
+
+* **ci:** gate main on the files a merge changes, and warn on unreleased work by age ([#696](https://github.com/hyperi-io/hyperi-ci/issues/696)) ([e5171ed](https://github.com/hyperi-io/hyperi-ci/commit/e5171edf6b6397233b047488e93c008636304c9c))
+* **deps:** pin the AWS CLI release the R2 publish installs ([#694](https://github.com/hyperi-io/hyperi-ci/issues/694)) ([1c7870c](https://github.com/hyperi-io/hyperi-ci/commit/1c7870c918437b025d42d6aecdfb1a4166504d22))
+* **init:** start new projects on the alpha channel ([#697](https://github.com/hyperi-io/hyperi-ci/issues/697)) ([791f883](https://github.com/hyperi-io/hyperi-ci/commit/791f8833bed55fb7fa3e13dbfb66f97d2f93735f))
+* **release:** upload to R2 latest/ before pruning stale keys ([#695](https://github.com/hyperi-io/hyperi-ci/issues/695)) ([b126094](https://github.com/hyperi-io/hyperi-ci/commit/b126094fcb23f8bb61972ea9ea42a3772ed59aef))
+
 ## [2.14.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.8...v2.14.9) (2026-10-14)
 
 ### Bug Fixes
