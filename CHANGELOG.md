@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.7...v2.14.8) (2026-10-14)
+
+### Bug Fixes
+
+* **ci:** report a skipped gate on main as a notice ([#687](https://github.com/hyperi-io/hyperi-ci/issues/687)) ([502c8c8](https://github.com/hyperi-io/hyperi-ci/commit/502c8c8e9edfcc50e4a4ca7f6a8db1711b015a61))
+* **release:** install Rust native deps after the toolchain ([#685](https://github.com/hyperi-io/hyperi-ci/issues/685)) ([76da2de](https://github.com/hyperi-io/hyperi-ci/commit/76da2de991e6d3ae8681296447a62cd6d99d0f0d))
+* **rust:** run semver checks on stable, not the project's toolchain pin ([#689](https://github.com/hyperi-io/hyperi-ci/issues/689)) ([160007a](https://github.com/hyperi-io/hyperi-ci/commit/160007abbde04e0a9a225792378ca3b7debd4822))
+
 ## [2.14.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.6...v2.14.7) (2026-10-14)
 
 ### Bug Fixes
