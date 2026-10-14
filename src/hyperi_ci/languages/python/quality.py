@@ -195,7 +195,7 @@ def _run_source_tool(
 
     """
     if mode != "disabled" and not sources:
-        warn(f"  {tool_name}: skipped, no Python source directory found")
+        info(f"  {tool_name}: skipped, no Python source directory found")
         return True
     return run_gate_tool(tool_name, cmd, mode, via=via, spec=spec, python=python)
 

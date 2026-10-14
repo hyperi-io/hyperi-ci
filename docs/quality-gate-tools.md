@@ -57,7 +57,7 @@ semgrep and gitleaks run once at the dispatch level because their rulesets are l
 - `docs`, `build`, `dist`, `env` and `*.egg-info`
 - modules at the repo root (`setup.py`, `conftest.py`), which are not source
 
-With nothing found, each of those tools logs `skipped, no Python source directory found`, and the test stage runs without coverage. A project passing its own `--cov` (in `test.python.args` or pytest `addopts`) keeps its own source.
+With nothing found, each of those tools logs `skipped, no Python source directory found` at info, and the test stage runs without coverage. A project passing its own `--cov` (in `test.python.args` or pytest `addopts`) keeps its own source.
 
 - A test path nested below the top level (`tests/unit/`) does not exclude its parent, so `.py` files beside it make `tests/` count as source. Set `quality.test_paths: [tests/]` or add it to `quality.exclude_paths`.
 - A top-level symlink to a directory is followed and scanned like any other directory.
