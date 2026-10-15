@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.13...v2.14.14) (2026-10-15)
+
+### Bug Fixes
+
+* **quality:** file-level excludes, compose overlays, and quieter notice-only gates ([#703](https://github.com/hyperi-io/hyperi-ci/issues/703)) ([06642d4](https://github.com/hyperi-io/hyperi-ci/commit/06642d4f463f3bc56a8ffb7091a52fd2ca3929f1))
+
 ## [2.14.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.12...v2.14.13) (2026-10-15)
 
 ### Bug Fixes
