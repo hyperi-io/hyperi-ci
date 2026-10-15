@@ -98,6 +98,9 @@ _LANGUAGE_ALIASES = {
     "javascript": "typescript",
 }
 
+# Release handlers that run repo code (semver checks, npm pack); the rest only upload.
+_RELEASE_RUNS_REPO_CODE = frozenset({"rust", "typescript"})
+
 # `publish` stays accepted because hyperi-io/vector-vrl invokes
 # `hyperi-ci run publish` directly from a hand-rolled workflow.
 _STAGE_ALIASES = {
@@ -431,7 +434,10 @@ def check_prepared(language: str) -> int:
     if not ok:
         return 1
     if prepared is None:
-        if is_ci():
+        runs_repo_code = (
+            _LANGUAGE_ALIASES.get(language, language) in _RELEASE_RUNS_REPO_CODE
+        )
+        if is_ci() and runs_repo_code:
             announce(
                 f"{release_prepare.PREPARED_ENV} is not set, so this release runs "
                 "the repo's own code (semver checks, npm pack) in the process "
