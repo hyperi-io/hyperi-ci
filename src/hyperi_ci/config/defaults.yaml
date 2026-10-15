@@ -519,6 +519,15 @@ notify:
   slack:
     webhook_env: ""
 
+# Issue labelling (`hyperi-ci labels`). The org label set ships in
+# config/labels.yaml. A repo adds only its areas, each an `area/<name>` label
+# covering the listed paths. Name: lower-case slug. Paths: a non-empty list.
+#   areas:
+#     auth: [src/app/auth/, src/app/orgs/]
+#     docs: [docs/]
+issues:
+  areas: {}
+
 # IaC linting (`hyperi-ci lint-iac`). Every dimension detects its own targets;
 # these only tune it. Modes live under `quality:` (kubeconform, tofu, ...).
 iac:

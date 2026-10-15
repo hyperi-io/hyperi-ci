@@ -20,6 +20,7 @@ Usage:
     hyperi-ci update                    Update to the channel's release
     hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
+    hyperi-ci labels [--check|--json]   Expected issue labels, drift, or the manifest
     hyperi-ci --version                 Show version
 
 Conventions (all commands):
@@ -754,6 +755,111 @@ def describe(
     else:
         success("GitHub repo description matches")
     raise typer.Exit(0)
+
+
+@app.command()
+def labels(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check", help="Report label drift and untriaged issues on GitHub"
+        ),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            help="Check owner/name, reading its config from the default branch",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the manifest and this repo's areas as JSON"),
+    ] = False,
+) -> None:
+    """Print the labels the org issue standard expects on this repo.
+
+    The manifest is `src/hyperi_ci/config/labels.yaml`, and areas come from
+    `.hyperi-ci.yaml` `issues.areas`, one `area/<name>` label each.
+
+    `--check` reads the repo's labels and open issues through `gh api` and
+    reports missing, drifted and extra labels, and open issues with no gate
+    label, more than one, no issue type, or no area label where areas are
+    declared. It never writes. Exit 0 when clean, 1 on any finding, 2 when the
+    check could not run.
+
+    `--json` prints the whole manifest plus the repo's areas, for consumers
+    that cannot import `hyperi_ci.labels`. Its shape is versioned by `schema`.
+    """
+    from hyperi_ci.common import error
+    from hyperi_ci.description_source import repo_slug
+    from hyperi_ci.gh import require_gh
+    from hyperi_ci.labels import (
+        AreasError,
+        ManifestError,
+        expected_labels,
+        manifest_json,
+        parse_areas,
+    )
+    from hyperi_ci.labels_check import (
+        Report,
+        check_issues,
+        check_labels,
+        fetch,
+        print_report,
+        remote_areas,
+    )
+
+    if check and as_json:
+        error("--check and --json are separate modes -- pass one")
+        raise typer.Exit(2)
+
+    dir_path = Path(project_dir) if project_dir else None
+    try:
+        if repo:
+            if not require_gh():
+                raise typer.Exit(2)
+            areas = remote_areas(repo)
+        else:
+            cfg = load_config(
+                reload=True, project_dir=dir_path, report_removed=not as_json
+            )
+            areas = parse_areas(cfg.setting("issues.areas"))
+        wanted = expected_labels(areas)
+    except (AreasError, ManifestError) as exc:
+        error(str(exc))
+        raise typer.Exit(2) from exc
+
+    if as_json:
+        typer.echo(json.dumps(manifest_json(areas), indent=2))
+        raise typer.Exit(0)
+
+    if not check:
+        for label in wanted:
+            typer.echo(f"{label.name}\t{label.color}\t{label.description}")
+        raise typer.Exit(0)
+
+    if not require_gh():
+        raise typer.Exit(2)
+    target = repo or repo_slug(dir_path)
+    if not target:
+        error("Cannot tell which GitHub repo this is -- pass --repo owner/name")
+        raise typer.Exit(2)
+
+    present, issues, why = fetch(target)
+    if why:
+        error(f"Cannot read {target} (is gh authenticated? `gh auth status`): {why}")
+        raise typer.Exit(2)
+
+    report = Report()
+    check_labels(present, areas, report)
+    check_issues(issues, areas, report)
+    print_report(target, report)
+    raise typer.Exit(0 if report.clean else 1)
 
 
 @app.command("audit-callers")

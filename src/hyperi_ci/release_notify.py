@@ -13,11 +13,12 @@ normal:
 * **success** -- one comment per issue or PR referenced by the commits in the
   release, naming the version, and the version's own failure issue closed when
   a retry shipped it.
-* **failure** -- one open issue per broken version.
+* **failure** -- one open issue per broken version, with no gate label so it
+  holds the next cut until someone triages it.
 * **commit-back-failed** -- the release shipped but ``release-commit`` could not
   push ``VERSION`` and ``CHANGELOG.md`` back to main. The job stays green. One
-  open issue per repo carries it, with a comment per later version, because the
-  cause is repo configuration, not the version.
+  open issue per repo carries it, gated ``next-patch``, with a comment per
+  later version, because the cause is repo configuration, not the version.
 
 Slack is off unless ``notify.slack.webhook_env`` names an environment variable
 holding a webhook URL.
@@ -27,6 +28,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from hyperi_ci.commit_range import last_version_tag
 from hyperi_ci.common import error, info, run_cmd, success, warn
@@ -34,6 +36,7 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.curl_config import config_line
 from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_api
+from hyperi_ci.labels import expected_labels
 
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
 _ISSUE_REF = re.compile(r"(?:^|[\s(\[,])#(\d+)\b")
@@ -48,6 +51,10 @@ _FAILURE_TITLE = "Release v{version} failed"
 
 COMMIT_BACK_TITLE = "Release commit-back to main is failing"
 COMMIT_BACK_LABEL = "release-commit-back"
+
+# The release shipped, so the fix is wanted soon but holds no cut. A failed
+# release carries no gate label, which leaves it untriaged and gating.
+COMMIT_BACK_GATE = "next-patch"
 
 # Set by the release workflow to the identity its pushes used: `app` or `github-actions`.
 IDENTITY_ENV = "HYPERCI_RELEASE_IDENTITY"
@@ -111,6 +118,28 @@ def _call(
     """
     outcome = gh_api(args, body=body)
     return outcome.data, outcome.reason
+
+
+def _ensure_label(repo: str, name: str) -> None:
+    """Create manifest label ``name`` on ``repo`` when it is missing.
+
+    Filing an issue with an unknown label gets GitHub's default colour and no
+    description, which ``labels --check`` would then report as drift.
+    """
+    label = next(entry for entry in expected_labels() if entry.name == name)
+    existing, _ = _call([f"repos/{repo}/labels/{quote(name, safe='')}"])
+    if isinstance(existing, dict):
+        return
+    created, why = _call(
+        ["-X", "POST", f"repos/{repo}/labels"],
+        body={
+            "name": label.name,
+            "color": label.color,
+            "description": label.description,
+        },
+    )
+    if created is None:
+        warn(f"release-notify: could not create the {name} label ({why})")
 
 
 def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
@@ -430,12 +459,13 @@ def notify_commit_back_failed(
         return 0
     existing = commit_back_issue(issues)
     if existing is None:
+        _ensure_label(repo, COMMIT_BACK_GATE)
         created = _api(
             ["-X", "POST", f"repos/{repo}/issues"],
             body={
                 "title": COMMIT_BACK_TITLE,
                 "body": _commit_back_body(repo, version, run_url),
-                "labels": [COMMIT_BACK_LABEL],
+                "labels": [COMMIT_BACK_LABEL, COMMIT_BACK_GATE],
             },
         )
         if isinstance(created, dict) and "number" in created:
