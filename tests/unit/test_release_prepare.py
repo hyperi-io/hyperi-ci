@@ -285,6 +285,31 @@ class TestTheUploadChecksWhatItWasHanded:
             capsys.readouterr().out
         )
 
+    @pytest.mark.parametrize("language", ["javascript", "typescript"])
+    def test_an_npm_release_without_one_warns(
+        self,
+        language: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("CI", "true")
+        assert dispatch.check_prepared(language) == 0
+        assert "without a prepare job" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("language", ["python", "golang"])
+    def test_an_upload_only_release_without_one_is_silent(
+        self,
+        language: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Its release runs no repo code, so there is nothing to split off."""
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("CI", "true")
+        assert dispatch.check_prepared(language) == 0
+        assert "without a prepare job" not in capsys.readouterr().out
+
 
 class TestCommands:
     def test_release_verify_fails_a_mismatch_before_any_tag(
