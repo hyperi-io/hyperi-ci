@@ -44,7 +44,7 @@ semgrep and gitleaks run once at the dispatch level because their rulesets are l
 
 ## Source discovery and exclusions
 
-**`quality.exclude_paths` takes names and paths.** A bare name (`data`, or `data/`) excludes every directory of that name at any depth. An entry with any other `/` (`docs/generated`) is a path from the repo root, dropped unless it is a directory. An entry naming a file by its repo-root path (`docs/UPSTREAM.md`, or `AGENTS.md` at the root) excludes that file only, and a bare name never matches a file below the root. An entry that excludes nothing gets one info line per run, not a warning, since it may guard a path only some checkouts have.
+**`quality.exclude_paths` takes names and paths.** A bare name (`data`, or `data/`) excludes every directory of that name at any depth. An entry with any other `/` (`docs/generated`) is a path from the repo root, dropped unless it exists. An entry naming a file by its repo-root path (`docs/UPSTREAM.md` <!-- doc-paths: ignore -->, or `AGENTS.md` at the root) excludes that file only, and a bare name never matches a file below the root. An entry that excludes nothing gets one info line per run, not a warning, since it may guard a path only some checkouts have.
 
 **A Rust root-package workspace is checked whole.** Where the root Cargo.toml is both a `[package]` and a `[workspace]` with no `default-members`, cargo otherwise checks the root package alone. So clippy, cargo deny, the feature matrix and the rustdoc hint take `--workspace`, and cargo fmt and cargo audit already cover every member.
 
