@@ -44,7 +44,7 @@ semgrep and gitleaks run once at the dispatch level because their rulesets are l
 
 ## Source discovery and exclusions
 
-**`quality.exclude_paths` takes names and paths.** A bare name (`data`, or `data/`) excludes every directory of that name at any depth. An entry with any other `/` (`docs/generated`) is a path from the repo root, dropped unless it is a directory. An entry that excludes nothing gets one info line per run, not a warning, since it may guard a directory only some checkouts have.
+**`quality.exclude_paths` takes names and paths.** A bare name (`data`, or `data/`) excludes every directory of that name at any depth. An entry with any other `/` (`docs/generated`) is a path from the repo root, dropped unless it is a directory. An entry naming a file by its repo-root path (`docs/UPSTREAM.md`, or `AGENTS.md` at the root) excludes that file only, and a bare name never matches a file below the root. An entry that excludes nothing gets one info line per run, not a warning, since it may guard a path only some checkouts have.
 
 **A Rust root-package workspace is checked whole.** Where the root Cargo.toml is both a `[package]` and a `[workspace]` with no `default-members`, cargo otherwise checks the root package alone. So clippy, cargo deny, the feature matrix and the rustdoc hint take `--workspace`, and cargo fmt and cargo audit already cover every member.
 
@@ -221,6 +221,8 @@ hadolint and droast auto-detect Dockerfiles inside `hyperi-ci run quality`, like
 | tofu | `.tf` / `.tofu` | `fmt -check`; `init -backend=false` and `validate` per root | `tofu` (blocking) |
 | ansible | `ansible.cfg`, or `playbooks/` + `roles/` | `ansible-galaxy install -r`, ansible-lint, yamllint if `.yamllint*` exists | `ansible_lint` (warn) |
 | generated | `iac.generated` entries | run the command, fail if its paths change | `iac_generated` (blocking) |
+
+compose-config resolves every file alone first. A file named `docker-compose.<x>.yml` or `compose.<x>.yml` (`.yaml` too) that fails alone is retried together with the base `docker-compose.yml` or `compose.yml` beside it, and the retry's result is reported. When `<x>` has dots (`dfe.dev`) the file named by its last segment (`docker-compose.dev.yml`) is stacked between them. The reported error is the last line that is not a `level=warning` variable notice.
 
 `lint-manifests` and `lint-compose` are deprecated aliases. They print one notice and run lint-iac's helm, kustomize, manifests, kube-linter and checkov dimensions, or its compose dimension.
 

@@ -4,14 +4,16 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Compose resolution gate: ``docker compose config`` over each standalone file.
+"""Compose resolution gate: ``docker compose config`` over each compose file.
 
 It needs no daemon and no registry. Each ``${VAR:?message}`` key the
 environment leaves unset gets a placeholder, so the check runs on CI and a
 local run with real values checks those. Pins are
-:mod:`hyperi_ci.quality.compose_pins`' job. A file whose services
-carry neither ``image`` nor ``build`` is an overlay fragment that compose
-rejects standalone, so it is named in the log and skipped.
+:mod:`hyperi_ci.quality.compose_pins`' job. A file that fails alone and is
+named like an overlay (``docker-compose.<x>.yml``) is retried on top of its
+base, see :func:`overlay_stack`. A file whose services carry neither ``image``
+nor ``build`` is a fragment that compose rejects standalone, so it is named in
+the log and skipped.
 """
 
 import os
@@ -23,11 +25,17 @@ from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality.targets import compose_document
+from hyperi_ci.quality.targets import compose_document, first_file
 from hyperi_ci.tools import missing_tool
 
 # `${NAME:?message}` / `${NAME?message}` - the keys the file declares mandatory.
 _MANDATORY = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*):?\?[^}]*\}")
+
+# docker compose prints variable notices as `time=... level=warning msg=...`.
+_NOTICE_LINE = re.compile(r"\blevel=(warning|info|debug)\b")
+
+_COMPOSE_STEMS = ("docker-compose", "compose")
+_COMPOSE_SUFFIXES = (".yml", ".yaml")
 
 # Enough to satisfy interpolation and still parse as an image reference.
 _PLACEHOLDER = "0.0.0-hyperi-ci-compose-check"
@@ -46,18 +54,73 @@ def mandatory_keys(path: Path) -> list[str]:
     return sorted({m.group("name") for m in _MANDATORY.finditer(text)})
 
 
-def placeholder_env(path: Path) -> dict[str, str]:
+def placeholder_env(path: Path, *layers: Path) -> dict[str, str]:
     """Return placeholders for the mandatory keys the environment leaves empty.
 
-    ``run_cmd`` lays these over ``os.environ``, so a key set there is left out
-    rather than overwritten.
+    Keys come from ``path`` and any further ``layers``. ``run_cmd`` lays these
+    over ``os.environ``, so a key set there is left out rather than overwritten.
     """
     root = str(path.parent.resolve())
+    names = {name for p in (path, *layers) for name in mandatory_keys(p)}
     return {
         name: root if name.endswith(_PATH_KEY_SUFFIXES) else _PLACEHOLDER
-        for name in mandatory_keys(path)
+        for name in sorted(names)
         if not os.environ.get(name)
     }
+
+
+def _stem_and_suffix(name: str) -> tuple[str, str] | None:
+    """Split ``docker-compose.dfe.dev.yml`` into (``docker-compose.dfe.dev``, ``.yml``)."""
+    for suffix in _COMPOSE_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)], suffix
+    return None
+
+
+def overlay_stack(path: Path) -> list[Path]:
+    """Return the files ``path`` resolves with, or ``[]`` when it stands alone.
+
+    ``docker-compose.<x>.yml`` and ``compose.<x>.yml`` (``.yaml`` too) overlay the
+    ``docker-compose.yml`` or ``compose.yml`` in the same directory. The stack is
+    that base, then the file named by the overlay's last dot-segment when it
+    exists (``docker-compose.dev.yml`` for ``docker-compose.dfe.dev.yml``), then
+    ``path``. An overlay with no base beside it stands alone.
+    """
+    split = _stem_and_suffix(path.name)
+    if split is None:
+        return []
+    stem, _suffix = split
+    for base_stem in _COMPOSE_STEMS:
+        if not stem.startswith(f"{base_stem}."):
+            continue
+        base = first_file(
+            path.parent, [f"{base_stem}{suffix}" for suffix in _COMPOSE_SUFFIXES]
+        )
+        if base is None:
+            return []
+        parts = stem[len(base_stem) + 1 :].split(".")
+        layers = [base]
+        if len(parts) > 1:
+            middle = first_file(
+                path.parent, [f"{base_stem}.{parts[-1]}{s}" for s in _COMPOSE_SUFFIXES]
+            )
+            if middle is not None:
+                layers.append(middle)
+        return [*layers, path]
+    return []
+
+
+def error_detail(output: str, returncode: int) -> str:
+    """Return the line that says why compose failed, not a variable notice.
+
+    Notice lines (``level=warning``) are dropped and the last remaining line
+    wins, since compose prints the error after its notices.
+    """
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    errors = [line for line in lines if not _NOTICE_LINE.search(line)]
+    if errors:
+        return errors[-1]
+    return lines[-1] if lines else f"docker compose exited {returncode}"
 
 
 def is_fragment(path: Path) -> bool:
@@ -88,9 +151,24 @@ def compose_available() -> bool:
 
 
 def _validate(path: Path, timeout: float | None = None) -> fdg.Finding | None:
-    """Run ``docker compose config -q`` over one file; return a finding on failure."""
+    """Resolve ``path`` alone; if it fails and is an overlay, retry it with its stack.
+
+    A file that resolves alone is never merged with its base. The stacked result
+    replaces the standalone one, see :func:`overlay_stack`.
+    """
+    alone = _resolve([path], timeout)
+    if alone is None:
+        return None
+    stack = overlay_stack(path)
+    return _resolve(stack, timeout) if stack else alone
+
+
+def _resolve(layers: list[Path], timeout: float | None) -> fdg.Finding | None:
+    """Run ``docker compose config -q`` over ``layers``; return a finding on failure."""
+    path = layers[-1]
+    files = [arg for layer in layers for arg in ("-f", layer.name)]
     result = fdg.run_tool(
-        ["docker", "compose", "-f", path.name, "config", "-q"],
+        ["docker", "compose", *files, "config", "-q"],
         lambda kind, why: fdg.Finding(
             "compose-config",
             str(path),
@@ -101,20 +179,19 @@ def _validate(path: Path, timeout: float | None = None) -> fdg.Finding | None:
         ),
         timeout=timeout,
         cwd=path.parent,
-        env=placeholder_env(path),
+        env=placeholder_env(*layers),
     )
     if isinstance(result, fdg.Finding):
         return result
     if result.returncode == 0:
         return None
-    detail = (result.stderr or result.stdout).strip().splitlines()
     return fdg.Finding(
         tool="compose-config",
         path=str(path),
         line=None,
         level="error",
         rule="compose/unresolvable",
-        message=detail[0] if detail else f"docker compose exited {result.returncode}",
+        message=error_detail(result.stderr or result.stdout, result.returncode),
     )
 
 

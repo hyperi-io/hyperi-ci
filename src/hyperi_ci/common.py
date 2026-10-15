@@ -1192,12 +1192,14 @@ def _note_unmatched_excludes(entries: tuple[str, ...], root: Path) -> None:
     some checkouts only. Cached so it appears once per process.
     """
     prefix = "quality.exclude_paths:"
-    names = {e for e in entries if "/" not in e and not (root / e).is_dir()}
+    names = {e for e in entries if "/" not in e and not (root / e).exists()}
     for name in sorted(_unmatched_names(root, names)):
         info(f"{prefix} no directory named '{name}', so it excludes nothing")
     for entry in entries:
-        if "/" in entry and not (root / entry).is_dir():
-            info(f"{prefix} '{entry}' is not a directory, so it excludes nothing")
+        if "/" in entry and not (root / entry).exists():
+            info(
+                f"{prefix} '{entry}' is not a file or directory, so it excludes nothing"
+            )
 
 
 def get_exclude_dirs(
@@ -1208,9 +1210,9 @@ def get_exclude_dirs(
     Combines git submodule paths (.gitmodules), ci/ and ai/, the common
     directories (.venv, node_modules, target, etc.) and the
     ``quality.exclude_paths`` entries with any trailing ``/`` stripped. An entry
-    with a ``/`` is a path from the repo root, kept only if it is a directory.
-    A bare name is kept regardless, as consumers match it against a directory
-    name at any depth.
+    with a ``/`` is a path from the repo root, kept only if it exists as a file
+    or directory. A bare name is kept regardless, as consumers match it against a
+    directory name at any depth.
 
     Every entry is checked against ``root``, the repo being linted, which
     defaults to the current directory. Entries stay relative to it.
@@ -1243,7 +1245,7 @@ def get_exclude_dirs(
             entries = tuple(entry for entry in stripped if entry)
             _note_unmatched_excludes(entries, base)
             for entry in entries:
-                keep = "/" not in entry or (base / entry).is_dir()
+                keep = "/" not in entry or (base / entry).exists()
                 if keep and entry not in excludes:
                     excludes.append(entry)
 

@@ -90,10 +90,19 @@ def is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
     return relative in prune
 
 
+def _file_excluded(path: Path, root: Path, prune: set[str]) -> bool:
+    """Return whether the file at ``path`` equals a ``prune`` entry by relative path."""
+    return path.relative_to(root).as_posix() in prune
+
+
 def walk(
     root: Path | str, prune: set[str], *, skip_hidden: bool = False
 ) -> Iterator[tuple[Path, list[str]]]:
-    """Yield ``(directory, filenames)`` under ``root``, never entering a pruned dir."""
+    """Yield ``(directory, filenames)`` under ``root``, never entering a pruned dir.
+
+    A file is dropped only when its repo-relative path equals a ``prune`` entry,
+    so a bare ``Dockerfile`` entry leaves every nested Dockerfile alone.
+    """
     root = Path(root)
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
@@ -103,7 +112,10 @@ def walk(
             if not (skip_hidden and d.startswith("."))
             and not is_pruned(here / d, root, prune)
         ]
-        yield here, filenames
+        yield (
+            here,
+            [fn for fn in filenames if not _file_excluded(here / fn, root, prune)],
+        )
 
 
 def first_file(directory: Path, names: Iterable[str]) -> Path | None:

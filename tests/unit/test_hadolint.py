@@ -268,3 +268,34 @@ class TestRun:
         monkeypatch.setattr(fdg, "run_cmd", _boom)
         _set_ci(monkeypatch, lambda: False)
         assert hadolint.run(_cfg()) == 0  # handled, not a traceback
+
+
+class TestSummaryLevel:
+    def _run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, levels: list[str]
+    ) -> dict[str, list[str]]:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
+        payload = [
+            {"file": "Dockerfile", "line": 1, "level": lv, "code": "DL3066"}
+            for lv in levels
+        ]
+        _stub_run(monkeypatch, json.dumps(payload))
+        out: dict[str, list[str]] = {"info": [], "warn": []}
+        monkeypatch.setattr(hadolint, "info", out["info"].append)
+        monkeypatch.setattr(hadolint, "warn", out["warn"].append)
+        assert hadolint.run(_cfg()) == 0
+        return out
+
+    def test_notice_only_findings_summarise_at_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        out = self._run(tmp_path, monkeypatch, ["info", "style"])
+        assert out["warn"] == []
+        assert any("2 finding(s)" in m for m in out["info"])
+
+    def test_a_warning_keeps_the_warning_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        out = self._run(tmp_path, monkeypatch, ["info", "warning"])
+        assert any("2 finding(s)" in m for m in out["warn"])
