@@ -12,6 +12,7 @@ gate has to fail in CI when it cannot run, and warn-skip locally.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,6 +90,144 @@ class TestFragmentSplit:
         assert not compose_config.is_fragment(
             _write(tmp_path / "docker-compose.yml", _STACK)
         )
+
+
+def _names(stack: list[Path]) -> list[str]:
+    return [p.name for p in stack]
+
+
+class TestOverlayStack:
+    def test_a_base_stands_alone(self, tmp_path: Path) -> None:
+        base = _write(tmp_path / "docker-compose.yml", _STACK)
+        assert compose_config.overlay_stack(base) == []
+
+    def test_an_overlay_resolves_on_its_base(self, tmp_path: Path) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        overlay = _write(tmp_path / "docker-compose.dfe.yml", _FRAGMENT)
+        assert _names(compose_config.overlay_stack(overlay)) == [
+            "docker-compose.yml",
+            "docker-compose.dfe.yml",
+        ]
+
+    def test_a_dotted_overlay_stacks_the_file_named_by_its_last_segment(
+        self, tmp_path: Path
+    ) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        _write(tmp_path / "docker-compose.dev.yml", _STACK)
+        _write(tmp_path / "docker-compose.dfe.yml", _FRAGMENT)
+        overlay = _write(tmp_path / "docker-compose.dfe.dev.yml", _FRAGMENT)
+        assert _names(compose_config.overlay_stack(overlay)) == [
+            "docker-compose.yml",
+            "docker-compose.dev.yml",
+            "docker-compose.dfe.dev.yml",
+        ]
+
+    def test_a_dotted_overlay_without_a_middle_file_uses_the_base_only(
+        self, tmp_path: Path
+    ) -> None:
+        _write(tmp_path / "compose.yaml", _STACK)
+        overlay = _write(tmp_path / "compose.a.b.yml", _FRAGMENT)
+        assert _names(compose_config.overlay_stack(overlay)) == [
+            "compose.yaml",
+            "compose.a.b.yml",
+        ]
+
+    def test_an_overlay_with_no_base_stands_alone(self, tmp_path: Path) -> None:
+        overlay = _write(tmp_path / "docker-compose.dfe.yml", _FRAGMENT)
+        assert compose_config.overlay_stack(overlay) == []
+
+    def test_a_base_in_another_directory_does_not_count(self, tmp_path: Path) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        overlay = _write(tmp_path / "sub" / "docker-compose.dfe.yml", _FRAGMENT)
+        assert compose_config.overlay_stack(overlay) == []
+
+    def test_compose_and_docker_compose_names_do_not_mix(self, tmp_path: Path) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        other = _write(tmp_path / "compose.dfe.yml", _FRAGMENT)
+        assert compose_config.overlay_stack(other) == []
+
+    def test_placeholders_cover_every_layer(self, tmp_path: Path) -> None:
+        base = _write(tmp_path / "docker-compose.yml", _STACK)
+        overlay = _write(
+            tmp_path / "docker-compose.x.yml",
+            "services:\n  app:\n    environment:\n      A: ${EXTRA_KEY:?set it}\n",
+        )
+        env = compose_config.placeholder_env(base, overlay)
+        assert "EXTRA_KEY" in env
+
+
+class TestStandaloneFirst:
+    @pytest.fixture
+    def calls(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        seen: list[list[str]] = []
+
+        def _fake(cmd: list[str], _fail: object, **_k: object) -> SimpleNamespace:
+            seen.append(cmd)
+            stacked = cmd.count("-f") > 1
+            return SimpleNamespace(
+                returncode=0 if stacked or "bad" not in " ".join(cmd) else 1,
+                stderr='service "app" has neither an image nor a build context',
+                stdout="",
+            )
+
+        monkeypatch.setattr(compose_config.fdg, "run_tool", _fake)
+        return seen
+
+    def test_a_complete_overlay_named_file_is_never_merged_with_the_base(
+        self, tmp_path: Path, calls: list[list[str]]
+    ) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        full = _write(tmp_path / "docker-compose.dev.yml", _STACK)
+        assert compose_config._validate(full) is None
+        assert len(calls) == 1
+        assert calls[0].count("-f") == 1
+
+    def test_a_failing_overlay_is_retried_with_its_stack(
+        self, tmp_path: Path, calls: list[list[str]]
+    ) -> None:
+        _write(tmp_path / "docker-compose.yml", _STACK)
+        overlay = _write(tmp_path / "docker-compose.bad.yml", _FRAGMENT)
+        assert compose_config._validate(overlay) is None
+        assert len(calls) == 2
+        assert calls[1][2:6] == [
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.bad.yml",
+        ]
+
+    def test_a_failing_file_with_no_base_reports_the_standalone_error(
+        self, tmp_path: Path, calls: list[list[str]]
+    ) -> None:
+        overlay = _write(tmp_path / "docker-compose.bad.yml", _FRAGMENT)
+        found = compose_config._validate(overlay)
+        assert found is not None
+        assert found.message.startswith('service "app" has neither')
+        assert len(calls) == 1
+
+
+class TestErrorDetail:
+    _NOTICE = (
+        'time="2026-10-16T00:16:21+11:00" level=warning '
+        'msg="The \\"POSTGRES_USER\\" variable is not set."'
+    )
+
+    def test_variable_notices_are_skipped(self) -> None:
+        out = (
+            f"{self._NOTICE}\n{self._NOTICE}\n"
+            'service "app" has neither an image nor a build context specified: '
+            "invalid compose project\n"
+        )
+        assert compose_config.error_detail(out, 1).startswith('service "app" has')
+
+    def test_the_last_error_line_wins(self) -> None:
+        assert compose_config.error_detail("first\nsecond\n", 1) == "second"
+
+    def test_only_notices_falls_back_to_the_last_line(self) -> None:
+        assert compose_config.error_detail(self._NOTICE, 1) == self._NOTICE
+
+    def test_empty_output_names_the_exit_code(self) -> None:
+        assert compose_config.error_detail("", 3) == "docker compose exited 3"
 
 
 class TestPlaceholderEnv:

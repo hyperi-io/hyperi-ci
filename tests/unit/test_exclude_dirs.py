@@ -196,3 +196,24 @@ class TestSubstringMatchingTools:
         result = run_cmd(cmd, check=False, capture=True, timeout=60)
         assert "in_meta" in result.stdout
         assert "in_data" not in result.stdout
+
+
+class TestFileEntries:
+    def test_a_file_path_is_kept(self, repo: Path, notes: list[str]) -> None:
+        (repo / "docs").mkdir()
+        (repo / "docs" / "UPSTREAM.md").write_text("x\n", encoding="utf-8")
+        assert "docs/UPSTREAM.md" in get_exclude_dirs(_config("docs/UPSTREAM.md"))
+        assert notes == []
+
+    def test_a_root_file_name_is_kept_without_a_note(
+        self, repo: Path, notes: list[str]
+    ) -> None:
+        (repo / "AGENTS.md").write_text("x\n", encoding="utf-8")
+        assert "AGENTS.md" in get_exclude_dirs(_config("AGENTS.md"))
+        assert notes == []
+
+    def test_a_missing_path_is_dropped_with_a_note(
+        self, repo: Path, notes: list[str]
+    ) -> None:
+        assert "docs/GONE.md" not in get_exclude_dirs(_config("docs/GONE.md"))
+        assert any("docs/GONE.md" in n for n in notes)

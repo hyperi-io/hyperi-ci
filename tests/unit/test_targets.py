@@ -214,3 +214,36 @@ class TestANestedExcludeActuallyPrunes:
         self._tree(tmp_path)
         found = discover_markdown_files(tmp_path, exclude_dirs=["docs/super"])
         assert {p.name for p in found} == {"real.md", "old-plan.md"}
+
+
+class TestFileLevelExcludes:
+    def test_a_full_path_drops_that_file_only(self, tmp_path: Path) -> None:
+        _touch(tmp_path / "Dockerfile")
+        _touch(tmp_path / "docker" / "Dockerfile")
+        _touch(tmp_path / "docker" / "Dockerfile.dev")
+        found = discover_dockerfiles(tmp_path, exclude_dirs=["docker/Dockerfile"])
+        assert [p.relative_to(tmp_path).as_posix() for p in found] == [
+            "Dockerfile",
+            "docker/Dockerfile.dev",
+        ]
+
+    def test_a_bare_name_never_drops_a_nested_file(self, tmp_path: Path) -> None:
+        _touch(tmp_path / "svc" / "Dockerfile")
+        _touch(tmp_path / "other" / "Dockerfile")
+        found = discover_dockerfiles(tmp_path, exclude_dirs=["Dockerfile"])
+        assert len(found) == 2
+
+    def test_a_root_file_matches_by_its_relative_path(self, tmp_path: Path) -> None:
+        for rel in ("AGENTS.md", "docs/AGENTS.md", "README.md"):
+            _touch(tmp_path / rel)
+        found = discover_markdown_files(tmp_path, exclude_dirs=["AGENTS.md"])
+        assert [p.relative_to(tmp_path).as_posix() for p in found] == [
+            "README.md",
+            "docs/AGENTS.md",
+        ]
+
+    def test_a_directory_entry_still_prunes_the_directory(self, tmp_path: Path) -> None:
+        _touch(tmp_path / "docs" / "a.md")
+        _touch(tmp_path / "b.md")
+        found = discover_markdown_files(tmp_path, exclude_dirs=["docs"])
+        assert [p.name for p in found] == ["b.md"]

@@ -115,5 +115,9 @@ def run(
     if mode == "blocking" and errors:
         error(f"  hadolint: {len(errors)} error-severity finding(s) must be fixed")
         return 1
-    warn(f"  hadolint: {len(found)} finding(s) (non-blocking)")
+    summary = f"  hadolint: {len(found)} finding(s) (non-blocking)"
+    if all(f.level == "notice" for f in found):
+        info(summary)
+    else:
+        warn(summary)
     return 0
