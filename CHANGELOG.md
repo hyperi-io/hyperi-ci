@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.12...v2.14.13) (2026-10-15)
+
+### Bug Fixes
+
+* **release:** warn about a missing prepare job only where repo code runs ([#702](https://github.com/hyperi-io/hyperi-ci/issues/702)) ([178fd60](https://github.com/hyperi-io/hyperi-ci/commit/178fd60270dc884580a28e9102fb1307db854974))
+
 ## [2.14.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.11...v2.14.12) (2026-10-14)
 
 ### Bug Fixes
