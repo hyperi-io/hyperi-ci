@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.14...v2.14.15) (2026-10-15)
+
+### Bug Fixes
+
+* add issue label manifest and labels --check ([#705](https://github.com/hyperi-io/hyperi-ci/issues/705)) ([3e23e46](https://github.com/hyperi-io/hyperi-ci/commit/3e23e461c257b9ce008d92a91ecee02571af2eb6))
+* **cli:** say hyperi-ci never uploads --sarif output ([#706](https://github.com/hyperi-io/hyperi-ci/issues/706)) ([c54f36b](https://github.com/hyperi-io/hyperi-ci/commit/c54f36bc7871e58dc6198f84c5dd33baa3780fc2))
+
 ## [2.14.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.13...v2.14.14) (2026-10-15)
 
 ### Bug Fixes
