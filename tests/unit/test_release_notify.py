@@ -26,6 +26,7 @@ from hyperi_ci import release_notify
 from hyperi_ci.cli import app
 from hyperi_ci.common import run_cmd
 from hyperi_ci.config import CIConfig
+from hyperi_ci.labels import gate_of
 from hyperi_ci.release_notify import (
     COMMIT_BACK_LABEL,
     COMMIT_BACK_TITLE,
@@ -216,6 +217,15 @@ class TestNotifyFailure:
         created = api.call_args_list[-1]
         assert created.kwargs["body"]["title"] == "Release v1.2.3 failed"
 
+    def test_a_failed_release_carries_no_gate_label(self) -> None:
+        """Untriaged gates, so a broken release holds the next cut."""
+        with patch(
+            "hyperi_ci.release_notify._api", side_effect=[[], {"number": 42}]
+        ) as api:
+            notify_failure(version="1.2.3")
+        assert api.call_args_list[-1].kwargs["body"]["labels"] == ["release-failure"]
+        assert gate_of(["release-failure"]) is None
+
     def test_reuses_an_open_issue_for_the_same_version(self) -> None:
         """A retried release must not open a second issue."""
         existing = [{"number": 42, "title": "Release v1.2.3 failed"}]
@@ -276,6 +286,9 @@ def _answers(*values: object) -> list[tuple[object, str]]:
 
 _CALL = "hyperi_ci.release_notify._call"
 
+# The `GET /labels/next-patch` answer when the gate label already exists.
+_GATE = {"name": "next-patch"}
+
 
 class TestNotifyCommitBackFailed:
     def _open(self, api: MagicMock) -> dict:
@@ -284,7 +297,7 @@ class TestNotifyCommitBackFailed:
         return created.kwargs["body"]
 
     def test_opens_a_labelled_issue(self) -> None:
-        with patch(_CALL, side_effect=_answers([], {"number": 42})) as api:
+        with patch(_CALL, side_effect=_answers([], _GATE, {"number": 42})) as api:
             assert (
                 notify_commit_back_failed(
                     version="v1.2.3", repo=_REPO, run_url="http://run/1"
@@ -293,11 +306,31 @@ class TestNotifyCommitBackFailed:
             )
         issue = self._open(api)
         assert issue["title"] == "Release commit-back to main is failing"
-        assert issue["labels"] == [COMMIT_BACK_LABEL]
+        assert issue["labels"] == [COMMIT_BACK_LABEL, "next-patch"]
         assert COMMIT_BACK_LABEL != "release-failure"
 
+    def test_a_missing_gate_label_is_created_from_the_manifest(self) -> None:
+        """An unknown label on a new issue gets GitHub's grey and no description."""
+        answers = _answers([], None, {"name": "next-patch"}, {"number": 42})
+        with patch(_CALL, side_effect=answers) as api:
+            notify_commit_back_failed(version="1.2.3", repo=_REPO)
+        made = api.call_args_list[2]
+        assert made.args[0] == ["-X", "POST", f"repos/{_REPO}/labels"]
+        assert made.kwargs["body"] == {
+            "name": "next-patch",
+            "color": "1d76db",
+            "description": "Wanted in an upcoming patch release. Does not hold a cut",
+        }
+        assert self._open(api)["labels"] == [COMMIT_BACK_LABEL, "next-patch"]
+
+    def test_a_label_that_cannot_be_created_still_files_the_issue(self) -> None:
+        answers = _answers([], None, None, {"number": 42})
+        with patch(_CALL, side_effect=answers) as api:
+            assert notify_commit_back_failed(version="1.2.3", repo=_REPO) == 0
+        assert self._open(api)["title"] == COMMIT_BACK_TITLE
+
     def test_the_body_says_it_shipped_and_names_the_fix(self) -> None:
-        with patch(_CALL, side_effect=_answers([], {"number": 42})) as api:
+        with patch(_CALL, side_effect=_answers([], _GATE, {"number": 42})) as api:
             notify_commit_back_failed(
                 version="1.2.3", repo=_REPO, run_url="http://run/1"
             )

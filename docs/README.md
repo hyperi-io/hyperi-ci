@@ -101,6 +101,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   sequence untouched; tier and version identity as separate knobs
 - [description.md](description.md) - the one-line description every registry
   duplicates, resolved from the manifest; `[workspace.package]` for a workspace
+- [labels.md](labels.md) - the org issue label manifest, `issues.areas`, and `hyperi-ci labels --check`
 - [migration/ONBOARDING.md](migration/onboarding.md) - put a repo on hyperi-ci
 - [self-update.md](self-update.md) - how the CLI keeps itself current: the
   `live` / `stable` channels, freeze, and the gates that hold an update back
