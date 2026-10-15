@@ -255,8 +255,8 @@ def check(
 
 
 _SARIF_HELP = (
-    "Write combined SARIF here (opt-in). The workflow uploads it to "
-    "code scanning only where GitHub Code Security is enabled."
+    "Write combined SARIF here (opt-in). hyperi-ci never uploads it; a "
+    "caller that wants it in code scanning uploads it itself."
 )
 
 
