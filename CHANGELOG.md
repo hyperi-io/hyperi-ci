@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.15...v2.14.16) (2026-10-16)
+
+### Bug Fixes
+
+* **commits:** validate and gate a fork on its first-parent commits ([#708](https://github.com/hyperi-io/hyperi-ci/issues/708)) ([2822b3a](https://github.com/hyperi-io/hyperi-ci/commit/2822b3a9cc66689273eeafcf86ec959c3ead7efa))
+* **labels:** fail a remote area read instead of reporting no areas ([#707](https://github.com/hyperi-io/hyperi-ci/issues/707)) ([f2b14a9](https://github.com/hyperi-io/hyperi-ci/commit/f2b14a9058a1eaba77afcb0408df44d858707dfc))
+
 ## [2.14.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.14...v2.14.15) (2026-10-15)
 
 ### Bug Fixes
