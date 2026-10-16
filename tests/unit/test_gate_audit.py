@@ -325,7 +325,9 @@ class TestChannelParsing:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
-            return SimpleNamespace(returncode=1, stdout="")
+            return SimpleNamespace(
+                returncode=1, stdout="", stderr="gh: Not Found (HTTP 404)"
+            )
 
         monkeypatch.setattr(gh, "gh_run", fake_run)
         assert gate_audit.repo_channel("o/r") is None
@@ -611,7 +613,9 @@ class TestFullTierExpected:
             path = args[1].split("/contents/", 1)[1]
             if path in files:
                 return SimpleNamespace(returncode=0, stdout=files[path])
-            return SimpleNamespace(returncode=1, stdout="")
+            return SimpleNamespace(
+                returncode=1, stdout="", stderr="gh: Not Found (HTTP 404)"
+            )
 
         monkeypatch.setattr(gh, "gh_run", fake_run)
         return gate_audit.expects_full_tier("o/r")
@@ -821,7 +825,9 @@ class TestAuditGatesCommand:
             if path.endswith("/contents/.github/workflows/ci.yml"):
                 return SimpleNamespace(returncode=0, stdout=caller)
             if "/contents/" in path:
-                return SimpleNamespace(returncode=1, stdout="")
+                return SimpleNamespace(
+                    returncode=1, stdout="", stderr="gh: Not Found (HTTP 404)"
+                )
             if "/jobs" in path:
                 body: object = {"jobs": gates if "/runs/2/" in path else full}
             elif "event=schedule" in path:

@@ -8,6 +8,7 @@
 """Three other repos import the manifest, so its shape and the gate rule are contract."""
 
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -17,9 +18,9 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from hyperi_ci import labels_check
+from hyperi_ci import gh, labels_check
 from hyperi_ci.cli import app
-from hyperi_ci.gh import ApiResult
+from hyperi_ci.gh import ApiResult, RepoFileError
 from hyperi_ci.labels import (
     MANIFEST_FILE,
     AreasError,
@@ -327,7 +328,7 @@ class TestCommand:
         with (
             patch("hyperi_ci.gh.shutil.which", return_value="/usr/bin/gh"),
             patch.object(labels_check, "gh_api", side_effect=answers) as api,
-            patch.object(labels_check, "repo_file", return_value=None),
+            patch.object(labels_check, "read_repo_file", return_value=None),
         ):
             result = CliRunner().invoke(
                 app, ["labels", "--check", "--repo", "hyperi-io/x", *args]
@@ -355,7 +356,7 @@ class TestCommand:
         with (
             patch("hyperi_ci.gh.shutil.which", return_value="/usr/bin/gh"),
             patch.object(labels_check, "gh_api", return_value=failed),
-            patch.object(labels_check, "repo_file", return_value=None),
+            patch.object(labels_check, "read_repo_file", return_value=None),
         ):
             result = CliRunner().invoke(
                 app, ["labels", "--check", "--repo", "hyperi-io/x"]
@@ -371,8 +372,51 @@ class TestCommand:
 
     def test_a_remote_repo_declares_its_own_areas(self) -> None:
         config = "issues:\n  areas:\n    docs: [docs/]\n"
-        with patch.object(labels_check, "repo_file", return_value=config):
+        with patch.object(labels_check, "read_repo_file", return_value=config):
             assert labels_check.remote_areas("hyperi-io/x") == {"docs": ("docs/",)}
+
+    def test_an_unreadable_config_is_an_error_not_no_areas(self) -> None:
+        failure = RepoFileError("could not read hyperi-io/x:.hyperi-ci.yaml: HTTP 502")
+        with (
+            patch.object(labels_check, "read_repo_file", side_effect=failure),
+            pytest.raises(AreasError, match="HTTP 502"),
+        ):
+            labels_check.remote_areas("hyperi-io/x")
+
+    def test_an_unreadable_config_exits_2_from_json(self) -> None:
+        failure = RepoFileError("could not read hyperi-io/x:.hyperi-ci.yaml: HTTP 502")
+        with (
+            patch("hyperi_ci.gh.require_gh", return_value=True),
+            patch.object(labels_check, "read_repo_file", side_effect=failure),
+        ):
+            result = CliRunner().invoke(
+                app, ["labels", "--json", "--repo", "hyperi-io/x"]
+            )
+        assert result.exit_code == 2
+
+
+class TestReadRepoFile:
+    @staticmethod
+    def _gh(rc: int, stdout: str = "", stderr: str = ""):
+        return subprocess.CompletedProcess([], rc, stdout, stderr)
+
+    def test_404_is_absence(self) -> None:
+        done = self._gh(1, stderr="gh: Not Found (HTTP 404)")
+        with patch.object(gh, "gh_run", return_value=done):
+            assert gh.read_repo_file("o/r", "f") is None
+
+    def test_any_other_failure_raises(self) -> None:
+        done = self._gh(1, stderr="gh: Bad Gateway (HTTP 502)")
+        with (
+            patch.object(gh, "gh_run", return_value=done),
+            pytest.raises(RepoFileError, match="HTTP 502"),
+        ):
+            gh.read_repo_file("o/r", "f")
+
+    def test_repo_file_keeps_none_for_both(self) -> None:
+        done = self._gh(1, stderr="gh: Bad Gateway (HTTP 502)")
+        with patch.object(gh, "gh_run", return_value=done):
+            assert gh.repo_file("o/r", "f") is None
 
 
 class TestAllowed:
