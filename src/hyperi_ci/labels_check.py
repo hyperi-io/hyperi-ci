@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 
 from hyperi_ci.common import info, success, warn
-from hyperi_ci.gh import gh_api, repo_file
+from hyperi_ci.gh import RepoFileError, gh_api, read_repo_file
 from hyperi_ci.labels import (
     AreasError,
     area_label,
@@ -279,11 +279,15 @@ def remote_areas(repo: str) -> dict[str, tuple[str, ...]]:
         The validated areas, empty when the repo has no config or no areas.
 
     Raises:
-        AreasError: The config is not YAML, or its areas block is malformed.
+        AreasError: The config could not be read, is not YAML, or its areas
+            block is malformed.
 
     """
     for name in CONFIG_FILES:
-        text = repo_file(repo, name)
+        try:
+            text = read_repo_file(repo, name)
+        except RepoFileError as exc:
+            raise AreasError(str(exc)) from exc
         if text is None:
             continue
         try:

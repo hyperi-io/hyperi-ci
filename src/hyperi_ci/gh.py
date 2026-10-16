@@ -193,11 +193,22 @@ def gh_api(args: list[str], *, body: dict | None = None) -> ApiResult:
         return ApiResult(None, f"gh api {endpoint} returned no JSON: {exc}", None)
 
 
-def repo_file(full_name: str, path: str) -> str | None:
+class RepoFileError(RuntimeError):
+    """A repo file could not be read for a reason other than its absence."""
+
+
+def read_repo_file(full_name: str, path: str) -> str | None:
     """Fetch one file's raw text from a repo's DEFAULT branch.
 
-    None when the file is missing or unreadable. A local clone parked on a fix
-    branch would report a fix that main lacks, so audits read it this way.
+    A local clone parked on a fix branch would report a fix that main lacks, so
+    audits read it this way.
+
+    Returns:
+        The file's text, or None when GitHub answers 404.
+
+    Raises:
+        RepoFileError: Any other failure, so an outage never reads as absence.
+
     """
     result = gh_run(
         [
@@ -208,7 +219,21 @@ def repo_file(full_name: str, path: str) -> str | None:
         ],
         check=False,
     )
-    return result.stdout if result.returncode == 0 else None
+    if result.returncode == 0:
+        return result.stdout
+    stderr = (result.stderr or "").strip()
+    if "HTTP 404" in stderr:
+        return None
+    detail = stderr or f"exit {result.returncode}"
+    raise RepoFileError(f"could not read {full_name}:{path}: {detail}")
+
+
+def repo_file(full_name: str, path: str) -> str | None:
+    """Fetch one file's raw text, None when it is missing OR unreadable."""
+    try:
+        return read_repo_file(full_name, path)
+    except RepoFileError:
+        return None
 
 
 def org_repos(org: str) -> list[str]:
