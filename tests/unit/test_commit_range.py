@@ -140,6 +140,54 @@ class TestCommitsInRange:
         assert resolved is False
 
 
+def _upstream_sync(tmp_path: Path) -> tuple[Path, str, str]:
+    """A main that merges an upstream branch of non-conventional commits."""
+    repo = _repo(tmp_path)
+    base = _commit(repo, "chore: seed")
+    main = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "upstream")
+    _commit(repo, "Add a dashboard")
+    _commit(repo, "Bump deps (#123)")
+    _git(repo, "checkout", "-q", main)
+    _commit(repo, "fix: our own change")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "Merge upstream into main", "upstream")
+    return repo, base, _git(repo, "rev-parse", "HEAD")
+
+
+class TestFirstParent:
+    """A fork validates and gates on its own commits, never on upstream's."""
+
+    def test_the_full_range_includes_upstream(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo, base, head = _upstream_sync(tmp_path)
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
+        subjects = {m.splitlines()[0] for _, m in commits_in_range()[0]}
+        assert "Add a dashboard" in subjects
+
+    def test_first_parent_leaves_upstream_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo, base, head = _upstream_sync(tmp_path)
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
+        commits, resolved = commits_in_range(first_parent=True)
+        assert resolved is True
+        subjects = [m.splitlines()[0] for _, m in commits]
+        assert subjects == ["Merge upstream into main", "fix: our own change"]
+
+    def test_a_declared_fork_gates_on_its_own_commits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo, base, head = _upstream_sync(tmp_path)
+        (repo / ".hyperi-ci.yaml").write_text(
+            "classification: fork\n", encoding="utf-8"
+        )
+        _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
+        worthy, reason = is_release_worthy()
+        assert worthy is True
+        assert "fix: our own change" in reason
+
+
 def _on_merge_group(
     monkeypatch: pytest.MonkeyPatch, repo: Path, tmp_path: Path, group: dict
 ) -> None:
