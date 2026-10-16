@@ -17,6 +17,7 @@ from pathlib import Path
 from hyperi_ci.commit_range import commits_in_range, event_payload, git_log
 from hyperi_ci.common import env_true, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_run
 from hyperi_ci.release_rules import load_type_bump
 from hyperi_ci.vocabulary import trailer_values
@@ -328,7 +329,8 @@ def _validate_range() -> tuple[int, list[str]]:
     Returns:
         The exit code, and the messages that were validated.
     """
-    commits, resolved = commits_in_range()
+    # A fork's upstream-sync merge brings history it does not own.
+    commits, resolved = commits_in_range(first_parent=check_fork(Path.cwd()).fork)
 
     if not resolved:
         # An unresolvable range validates HEAD and warns, never passes (issue #52).

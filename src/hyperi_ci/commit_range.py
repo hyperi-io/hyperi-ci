@@ -129,7 +129,9 @@ def event_payload() -> dict:
         return {}
 
 
-def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
+def commits_in_range(
+    *, first_parent: bool = False
+) -> tuple[list[tuple[str, str]], bool]:
     """Return ``(commits, resolved)`` for the commits this CI event introduced.
 
     ``resolved`` is True when the range was determined authoritatively, even if
@@ -139,15 +141,19 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
 
     The range itself comes from :func:`resolve_range`.
     """
-    _git_range, commits, resolved = resolve_range()
+    _git_range, commits, resolved = resolve_range(first_parent=first_parent)
     return commits, resolved
 
 
-def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
+def resolve_range(
+    *, first_parent: bool = False
+) -> tuple[str | None, list[tuple[str, str]], bool]:
     """Return ``(git_range, commits, resolved)`` for this CI event.
 
     ``git_range`` is the ``A..B`` spec the commits were read from, None when
     unresolved. ``commits`` and ``resolved`` are as :func:`commits_in_range`.
+    ``first_parent`` reads only the first-parent chain, so a fork's
+    upstream-sync merge contributes itself and not the upstream history behind it.
 
     Resolution, in order of authority:
 
@@ -165,6 +171,7 @@ def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
     """
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     payload = event_payload()
+    walk = ["--first-parent"] if first_parent else []
 
     if event == "push":
         before = str(payload.get("before", ""))
@@ -172,7 +179,7 @@ def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
         # A real prior tip gives the authoritative range.
         if before and not is_zero_sha(before):
             git_range = f"{before}..{after}"
-            rc, commits = git_log([git_range])
+            rc, commits = git_log([*walk, git_range])
             if rc == 0:
                 return git_range, commits, True
             # `before` is missing from a shallow clone. Falling through to
@@ -185,7 +192,7 @@ def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
             base = f"origin/{os.environ['GITHUB_BASE_REF']}"
         if base:
             git_range = f"{base}..HEAD"
-            rc, commits = git_log([git_range])
+            rc, commits = git_log([*walk, git_range])
             if rc == 0:
                 return git_range, commits, True
     elif event == "merge_group":
@@ -194,14 +201,14 @@ def resolve_range() -> tuple[str | None, list[tuple[str, str]], bool]:
         head = str(group.get("head_sha", "")) or "HEAD"
         if base:
             git_range = f"{base}..{head}"
-            rc, commits = git_log([git_range])
+            rc, commits = git_log([*walk, git_range])
             if rc == 0:
                 return git_range, commits, True
             # As for push: a fallback range would validate the wrong set.
             return None, [], False
 
     for git_range in ("origin/main..HEAD", "HEAD~20..HEAD"):
-        rc, commits = git_log([git_range])
+        rc, commits = git_log([*walk, git_range])
         if rc == 0:
             return git_range, commits, True
 
@@ -218,13 +225,17 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
     the quality and test gate (no silent skips). A resolved-but-empty range
     returns False.
     """
-    commits, resolved = commits_in_range()
+    # Imported here because fork_version imports this module.
+    from hyperi_ci.fork_version import check_fork
+
+    root = project_dir if project_dir is not None else Path.cwd()
+    commits, resolved = commits_in_range(first_parent=check_fork(root).fork)
     if not resolved:
         return True, "could not resolve the pushed range -- running the checks"
     if not commits:
         return False, "no commits in the pushed range"
 
-    type_bump = load_type_bump(project_dir if project_dir is not None else Path.cwd())
+    type_bump = load_type_bump(root)
     for commit_hash, message in commits:
         bump = classify_commit(message, type_bump)
         if bump != "none":
