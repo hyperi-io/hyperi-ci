@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.17](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.16...v2.14.17) (2026-10-18)
+
+### Bug Fixes
+
+* **python:** keep the repo's ruff ignores in the docstring and security passes ([#710](https://github.com/hyperi-io/hyperi-ci/issues/710)) ([442b7a3](https://github.com/hyperi-io/hyperi-ci/commit/442b7a3b402db680c5691bc5a1c7b1dbb0dbb76b))
+
 ## [2.14.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.15...v2.14.16) (2026-10-16)
 
 ### Bug Fixes
