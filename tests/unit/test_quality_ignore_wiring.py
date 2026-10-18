@@ -12,6 +12,7 @@ format gate carries.
 """
 
 import copy
+import importlib.util
 import inspect
 import json
 import subprocess
@@ -24,8 +25,10 @@ from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.python.quality import (
     _build_pip_audit_cmd,
+    _build_ruff_docstring_cmd,
     _build_ruff_format_cmd,
     _build_ruff_security_cmd,
+    _repo_ruff_ignores,
 )
 from hyperi_ci.languages.quality_common import run_gate_tool
 from hyperi_ci.quality.ignores import IgnoreEntry
@@ -159,11 +162,16 @@ def _passes(
     python: dict[str, object],
     *,
     strict: bool = False,
+    repo_ignores: list[str] | None = None,
 ) -> dict[str, tuple[list[str], str, str]]:
     """Run the Python quality stage over the shipped defaults plus ``python``.
 
+    ``repo_ignores`` stands in for the repo's own ruff ignore list, so the
+    argv does not depend on the checkout the tests run in.
+
     Returns each pass's argv, mode and ``via``, by pass name.
     """
+    monkeypatch.setattr(quality, "_repo_ruff_ignores", lambda _root: repo_ignores or [])
     monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
     if strict:
         monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
@@ -225,7 +233,7 @@ class TestRuffSecurityMode:
 
 
 class TestRuffDocstringsIgnores:
-    """`--select D` drops the repo's ruff ignore list, so quality.ignore is the way in."""
+    """`quality.ignore` entries for ruff reach the D pass alongside the repo's own."""
 
     def test_quality_ignore_entries_reach_the_d_pass(
         self, monkeypatch: pytest.MonkeyPatch
@@ -233,6 +241,113 @@ class TestRuffDocstringsIgnores:
         cmd, _mode, _via = _passes(monkeypatch, {})["ruff docstrings"]
         assert cmd[:4] == ["ruff", "check", "--select", "D"]
         assert "--extend-ignore=S603" in cmd
+
+
+class TestRepoIgnoresReachSelectPasses:
+    """`--select` drops the config's ignore list, so the S and D passes pass it back."""
+
+    @pytest.mark.parametrize(
+        ("build", "rule"),
+        [(_build_ruff_security_cmd, "S"), (_build_ruff_docstring_cmd, "D")],
+    )
+    def test_repo_and_quality_ignores_merge_into_one_flag(self, build, rule) -> None:
+        cmd = build(
+            ["src/"],
+            ["vendor"],
+            [IgnoreEntry("ruff", f"{rule}603", "argv is a list")],
+            [f"{rule}105", f"{rule}603"],
+        )
+        assert cmd == [
+            "ruff", "check", "--select", rule, "--output-format=concise", "src/",
+            "--extend-exclude=vendor", f"--extend-ignore={rule}105,{rule}603",
+        ]  # fmt: skip
+
+    @pytest.mark.parametrize(
+        "build", [_build_ruff_security_cmd, _build_ruff_docstring_cmd]
+    )
+    def test_no_ignores_adds_no_flag(self, build) -> None:
+        assert not [a for a in build(["src/"], [], [], []) if "ignore" in a]
+
+
+class TestRepoRuffIgnoresAreRead:
+    def test_pyproject_lint_table(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.ruff.lint]\nignore = ["D105"]\nextend-ignore = ["D107"]\n', "utf-8"
+        )
+        assert _repo_ruff_ignores(tmp_path) == ["D105", "D107"]
+
+    def test_ruff_toml(self, tmp_path: Path) -> None:
+        (tmp_path / "ruff.toml").write_text('[lint]\nignore = ["S101"]\n', "utf-8")
+        assert _repo_ruff_ignores(tmp_path) == ["S101"]
+
+    def test_legacy_top_level_key(self, tmp_path: Path) -> None:
+        (tmp_path / "ruff.toml").write_text('ignore = ["D203"]\n', "utf-8")
+        assert _repo_ruff_ignores(tmp_path) == ["D203"]
+
+    def test_extend_chain_is_followed(self, tmp_path: Path) -> None:
+        (tmp_path / "base.toml").write_text('[lint]\nignore = ["D100"]\n', "utf-8")
+        (tmp_path / "ruff.toml").write_text(
+            'extend = "base.toml"\n[lint]\nignore = ["D105"]\n', "utf-8"
+        )
+        assert _repo_ruff_ignores(tmp_path) == ["D100", "D105"]
+
+    def test_pyproject_without_a_ruff_section(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", "utf-8")
+        assert _repo_ruff_ignores(tmp_path) == []
+
+    def test_no_config_or_broken_config(self, tmp_path: Path) -> None:
+        assert _repo_ruff_ignores(tmp_path) == []
+        (tmp_path / "ruff.toml").write_text("[lint\n", "utf-8")
+        assert _repo_ruff_ignores(tmp_path) == []
+
+    def test_the_stage_hands_them_to_both_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        passes = _passes(monkeypatch, {}, repo_ignores=["D105"])
+        for name in ("ruff security", "ruff docstrings"):
+            flag = [a for a in passes[name][0] if a.startswith("--extend-ignore=")]
+            assert flag == ["--extend-ignore=D105,S603"]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("ruff") is None, reason="ruff not importable"
+)
+class TestRealRuffHonoursTheRepoIgnore:
+    """Runs ruff itself, since the defect was ruff's own `--select` behaviour."""
+
+    @staticmethod
+    def _findings(project: Path, cmd: list[str]) -> str:
+        done = subprocess.run(
+            [sys.executable, "-m", *cmd, "--no-cache"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        return done.stdout
+
+    @pytest.mark.parametrize(
+        ("name", "body"),
+        [
+            ("pyproject.toml", '[tool.ruff.lint]\nignore = ["D105"]\n'),
+            ("ruff.toml", '[lint]\nignore = ["D105"]\n'),
+        ],
+    )
+    def test_d105_is_dropped(self, tmp_path: Path, name: str, body: str) -> None:
+        (tmp_path / name).write_text(body, "utf-8")
+        (tmp_path / "m.py").write_text(
+            '"""Doc."""\n\n\nclass A:\n    """Doc."""\n\n    def __repr__(self):\n'
+            '        return "a"\n',
+            "utf-8",
+        )
+        bare = self._findings(
+            tmp_path, ["ruff", "check", "--select", "D", "--output-format=concise", "."]
+        )
+        assert "D105" in bare, "ruff stopped dropping the config ignore on --select"
+        cmd = _build_ruff_docstring_cmd(["."], [], [], _repo_ruff_ignores(tmp_path))
+        assert "D105" not in self._findings(tmp_path, cmd)
 
 
 class TestEachPassResolvesAsIntended:

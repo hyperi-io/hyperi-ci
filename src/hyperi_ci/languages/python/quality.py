@@ -20,6 +20,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
@@ -86,27 +88,82 @@ def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     return []
 
 
-def _ruff_ignore_flag(ignores: list[IgnoreEntry]) -> list[str]:
-    """Translate ``quality.ignore`` entries for ruff into one ``--extend-ignore``."""
-    if not ignores:
+_RUFF_CONFIG_NAMES = (".ruff.toml", "ruff.toml", "pyproject.toml")
+_RUFF_EXTEND_DEPTH = 5
+
+
+def _ruff_config_table(path: Path) -> dict | None:
+    """Return the ruff settings table of a config file, or None when unreadable."""
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    if path.name == "pyproject.toml":
+        table = data.get("tool", {}).get("ruff")
+        return table if isinstance(table, dict) else None
+    return data
+
+
+def _ruff_ignores_in(path: Path, depth: int = 0) -> list[str]:
+    """Collect ``ignore`` and ``extend-ignore`` from a ruff config and its ``extend`` chain."""
+    table = _ruff_config_table(path)
+    if table is None:
         return []
-    return [f"--extend-ignore={','.join(e.id for e in ignores)}"]
+    found: list[str] = []
+    parent = table.get("extend")
+    if isinstance(parent, str) and depth < _RUFF_EXTEND_DEPTH:
+        found += _ruff_ignores_in((path.parent / parent).resolve(), depth + 1)
+    # Top-level keys are the pre-`[lint]` spelling, which ruff still reads.
+    for section in (table, table.get("lint", {})):
+        for key in ("ignore", "extend-ignore"):
+            values = section.get(key, [])
+            found += [v for v in values if isinstance(v, str)]
+    return found
+
+
+def _repo_ruff_ignores(root: Path) -> list[str]:
+    """Read the repo's own ruff ignore list, the way ruff finds its config.
+
+    ``--select`` on the command line drops the config's ``ignore`` and
+    ``extend-ignore``, so the S and D passes pass them back in explicitly.
+    ``per-file-ignores`` and excludes survive ``--select`` and need no help.
+    """
+    for name in _RUFF_CONFIG_NAMES:
+        path = root / name
+        if path.is_file() and _ruff_config_table(path) is not None:
+            return _ruff_ignores_in(path)
+    return []
+
+
+def _ruff_ignore_flag(
+    ignores: list[IgnoreEntry], repo_ignores: list[str] | None = None
+) -> list[str]:
+    """Merge ``quality.ignore`` entries for ruff and the repo's own into one ``--extend-ignore``."""
+    ids = list(dict.fromkeys([*(repo_ignores or []), *(e.id for e in ignores)]))
+    if not ids:
+        return []
+    return [f"--extend-ignore={','.join(ids)}"]
 
 
 def _build_ruff_security_cmd(
-    sources: list[str], excludes: list[str], ignores: list[IgnoreEntry]
+    sources: list[str],
+    excludes: list[str],
+    ignores: list[IgnoreEntry],
+    repo_ignores: list[str] | None = None,
 ) -> list[str]:
     """Build the ruff S (flake8-bandit) pass over production code.
 
-    ``--select S`` replaces the repo's rule selection AND its ruff ``ignore``
-    list. ``per-file-ignores``, ``# noqa`` and ``quality.ignore`` entries for
-    ruff still apply. Concise output keeps one finding per line, so the warn
-    tier's line cap shows findings rather than one code frame.
+    ``--select S`` replaces the repo's rule selection and drops its ruff
+    ``ignore`` list, so ``repo_ignores`` hands that list back. ``per-file-ignores``,
+    ``# noqa`` and ``quality.ignore`` entries for ruff apply as well. Concise
+    output keeps one finding per line, so the warn tier's line cap shows
+    findings rather than one code frame.
 
     Args:
         sources: Source directories to scan, from ``get_python_source_paths``.
         excludes: Handler excludes, added to the repo's own ruff excludes.
         ignores: ``quality.ignore`` entries for the ``ruff`` slug.
+        repo_ignores: The repo's own ruff ``ignore`` ids, from ``_repo_ruff_ignores``.
 
     Returns:
         The command, before resolution.
@@ -115,7 +172,21 @@ def _build_ruff_security_cmd(
     return (
         ["ruff", "check", "--select", "S", "--output-format=concise", *sources]
         + _build_exclude_args("ruff", excludes)
-        + _ruff_ignore_flag(ignores)
+        + _ruff_ignore_flag(ignores, repo_ignores)
+    )
+
+
+def _build_ruff_docstring_cmd(
+    sources: list[str],
+    excludes: list[str],
+    ignores: list[IgnoreEntry],
+    repo_ignores: list[str] | None = None,
+) -> list[str]:
+    """Build the ruff D (docstring) pass, with the same ignore handling as the S pass."""
+    return (
+        ["ruff", "check", "--select", "D", "--output-format=concise", *sources]
+        + _build_exclude_args("ruff", excludes)
+        + _ruff_ignore_flag(ignores, repo_ignores)
     )
 
 
@@ -334,11 +405,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     sources = get_python_source_paths(config)
+    repo_ruff_ignores = _repo_ruff_ignores(Path.cwd())
 
     # Own key, so it can go blocking without touching the lint gate.
     if not _run_source_tool(
         "ruff security",
-        _build_ruff_security_cmd(sources, excludes, ruff_user_ignores),
+        _build_ruff_security_cmd(
+            sources, excludes, ruff_user_ignores, repo_ruff_ignores
+        ),
         resolve_tool_mode("ruff_security", config, language="python"),
         sources,
         via="uv",
@@ -358,11 +432,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Concise output is one finding per line, so the warn tier's cap counts findings.
     mode = resolve_tool_mode("ruff_docstrings", config, language="python")
-    ruff_doc_cmd = [
-        "ruff", "check", "--select", "D", "--output-format=concise", *sources
-    ]  # fmt: skip
-    ruff_doc_cmd += _build_exclude_args("ruff", excludes)
-    ruff_doc_cmd += _ruff_ignore_flag(ruff_user_ignores)
+    ruff_doc_cmd = _build_ruff_docstring_cmd(
+        sources, excludes, ruff_user_ignores, repo_ruff_ignores
+    )
     if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources, via="uv"):
         had_failure = True
 
