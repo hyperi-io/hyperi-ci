@@ -59,11 +59,11 @@ tools:
   # honours only the first config file, contradicting its own help text
   # (0.14.0 rejects multiple `-c` and fixes the contract).
   alint:
-    version: "v0.17.0"
+    version: "v0.18.0"
     repo: asamarts/alint
     sha256:
-      x86_64: aae46539226955795bc7c51adf4832d2503bf7419f87ad0ac15185092d42708a
-      aarch64: 3f8acc1c30cb8959bce53d4a23d77906935cc679ef13c855297c3e39bd464504
+      x86_64: 02d702c6f406d5fe632fd5c73904d198489de8812c96bc47f258d123f58c84dd
+      aarch64: 8d2e36938a7aed06c7f6e327393a4254bd9f76712d2540472176645bd56d698a
   gitleaks:
     version: v8.30.1
     repo: gitleaks/gitleaks
@@ -172,7 +172,7 @@ tools:
   # this pin current across four minors. The tags carry the truth; each one's
   # date comes from the commit it points at.
   govulncheck:
-    version: v1.8.0
+    version: "v1.9.0"
     repo: golang/vuln
     release_source: tags
     pin: .github/actions/setup-go-tools/action.yml
@@ -215,16 +215,16 @@ tools:
   # Upstream publishes a `.sha256` per asset - these were cross-checked against
   # it at pin time.
   cargo-nextest:
-    version: 0.9.146
+    version: "0.9.148"
     repo: nextest-rs/nextest
     tag_prefix: cargo-nextest-
     pin: .github/actions/setup-nextest/action.yml
     sha256:
       # Linux is musl (static) on both arches; macOS ships one universal build,
       # so `macos` is a platform key here rather than an arch.
-      amd64: b64617e8640624e8f9ba99819e37d7971154e97836d7ae4774fed4715501a6aa
-      arm64: 62ae8b4ad034704f67417f8ed8b897566d82359ab44952729b925fb37eeb7622
-      macos: 39785160b3c2f6ed9a765049cf4fa79f3b39aa02eb7598a5a0e2a1a0b9ffb9a8
+      amd64: bf92cb81450872d960ffa13857a83084d557ec0cdc141663d263bb23ef756f97
+      arm64: 94676506ceaed01746d78cfe9ed124ee841b2932fd18d9d10f438a347bd9ba5e
+      macos: 6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b
   # Coverage for the TEST job, not quality -- `test.coverage` was honoured up
   # to the point a tool would run and then found none, so coverage had never
   # run on any repo (issue #140). Chosen over cargo-tarpaulin because
@@ -322,7 +322,7 @@ tools:
   # bare semver on the v2 branch and the repo cuts no GitHub Releases, so
   # `--stable` reads the tags.
   aws-cli:
-    version: 2.37.10
+    version: "2.37.12"
     repo: aws/aws-cli
     release_source: tags
   # lint-iac fetches these two through native_tools.py on Linux CI when the
@@ -336,12 +336,12 @@ tools:
       arm64: 9c1ef375aa1852db0b2888aa921b640c71f8140d4682aa4fec99378a64fa7dc3
   # MONOREPO like rustsec: api/, kyaml/ and cmd/config/ tag from the same repo.
   kustomize:
-    version: "v5.8.2"
+    version: "v5.8.3"
     repo: kubernetes-sigs/kustomize
     tag_prefix: kustomize/
     sha256:
-      amd64: 06af0a202c2b831207d0173f9c9cdb1b30abceca0747cb3fbb72792d26055c95
-      arm64: 0991957191951cb7dddd142403b5bb98a1fcd6378ba0079dddc1e2c309080a7f
+      amd64: cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
+      arm64: 9867b76482cfc6d25b546abc1d2b5a32bd137505aba640649b4b378f64f6d68f
 
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could
@@ -350,7 +350,7 @@ tools:
   # reads PyPI's own upload times and applies the same 7-day cooldown. Python
   # reads these through hyperi_ci.versions, so there is no `pin:` and no copy.
   semgrep:
-    version: "1.179.0"
+    version: "1.180.0"
     pypi: semgrep
   pip-audit:
     version: 2.10.1
@@ -364,10 +364,10 @@ tools:
     pypi: vulture
     pin: .github/workflows/ci.yml
   ty:
-    version: "0.0.84"
+    version: "0.0.86"
     pypi: ty
   checkov:
-    version: "3.3.23"
+    version: "3.3.27"
     pypi: checkov
   # lint-iac's ansible dimension. ansible-galaxy runs from the ansible-lint
   # environment, so the ansible-core it installs with matches the linter's.
