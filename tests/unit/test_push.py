@@ -118,7 +118,6 @@ class TestPushTargetIsCheckedBeforeTheGates:
         from hyperi_ci.push import _publish_push
 
         with (
-            patch("hyperi_ci.push._is_prerelease_branch", return_value=True),
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._check_push_target", return_value=1),
@@ -321,22 +320,25 @@ class TestPublishPush:
             rc = _publish_push(dry_run=True, force=True, bump=None, cwd=str(tmp_path))
             assert rc == 0
 
-    def test_a_repo_that_declares_no_prerelease_branch_still_refuses(
+    def test_a_repo_config_cannot_declare_its_own_prerelease_branch(
         self, tmp_path: Path
     ) -> None:
+        # CI never loads it, so the push is refused at the branch check.
         (tmp_path / ".releaserc.json").write_text(
-            '{"branches": ["main"], "plugins": ["@semantic-release/exec"]}',
+            '{"branches": ["main", {"name": "next", "prerelease": true}]}',
             encoding="utf-8",
             newline="\n",
         )
         with (
             patch("hyperi_ci.push.require_gh", return_value=True),
-            patch("hyperi_ci.push.get_current_branch", return_value="beta"),
+            patch("hyperi_ci.push.get_current_branch", return_value="next"),
+            patch("hyperi_ci.push._check_dirty_tree") as dirty,
         ):
             from hyperi_ci.push import _publish_push
 
             rc = _publish_push(dry_run=False, force=False, bump=None, cwd=str(tmp_path))
             assert rc == 1
+            dirty.assert_not_called()
 
     def test_no_gh_cli_aborts(self) -> None:
         with patch("hyperi_ci.push.require_gh", return_value=False):

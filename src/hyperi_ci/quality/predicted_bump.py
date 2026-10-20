@@ -23,7 +23,7 @@ from pathlib import Path
 
 from hyperi_ci.commit_range import last_version_tag
 from hyperi_ci.fork_version import ForkVersionError, check_fork, fork_commit_bumps
-from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, load_type_bump
+from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, default_type_bump
 
 # classify_commit is re-exported for existing importers.
 __all__ = ["BumpPrediction", "classify_commit", "predict_bump"]
@@ -92,7 +92,7 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     if result.returncode != 0:
         return prediction
 
-    type_bump = load_type_bump(project_dir or Path.cwd())
+    type_bump = default_type_bump()
     best = "none"
     for record in result.stdout.split("\x1e"):
         record = record.strip("\n")

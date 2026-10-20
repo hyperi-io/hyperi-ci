@@ -1688,7 +1688,8 @@ class TestFirstReleaseAndOrphanGuards:
         idx_tag_head = run.index('tag-head --bump "$RELEASE_VERSION"')
         assert sr["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         idx_else = run.index("else")
-        idx_sr = run.index("npx semantic-release")
+        assert "npx" not in run, "npx loads a checkout's node_modules/.bin and .npmrc"
+        idx_sr = run.index("semantic-release", idx_else)
         assert idx_if < idx_tag_head < idx_else < idx_sr, (
             "tag-less branch must be tag-head; the else branch must be "
             "the real semantic-release run"

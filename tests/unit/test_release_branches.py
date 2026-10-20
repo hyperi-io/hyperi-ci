@@ -18,13 +18,12 @@ import pytest
 from hyperi_ci.release_branches import (
     FLEET_PRERELEASE_BRANCHES,
     branch_from_ref,
+    central_prerelease_branches,
     effective_release_channel,
     is_prerelease_ref,
     is_prerelease_version,
     prerelease_branch_names,
     prerelease_label,
-    repo_prerelease_branches,
-    resolve_prerelease_branches,
 )
 
 CENTRAL_CONFIG = (
@@ -82,120 +81,27 @@ class TestPrereleaseBranchNames:
         assert prerelease_branch_names(doc) == ()
 
 
-class TestResolvePrereleaseBranches:
-    def test_no_repo_config_uses_the_central_default(self, tmp_path: Path) -> None:
-        workspace = tmp_path / "repo"
-        workspace.mkdir()
+class TestCentralPrereleaseBranches:
+    def test_reads_the_central_config(self, tmp_path: Path) -> None:
         central = _write_central(
             tmp_path, ["main", {"name": "beta", "prerelease": True}]
         )
-        assert resolve_prerelease_branches(workspace, central) == ("beta",)
+        assert central_prerelease_branches(central) == ("beta",)
 
-    def test_a_repo_config_without_the_37_plugins_is_honoured(
-        self, tmp_path: Path
-    ) -> None:
-        # The multi-crate-workspace exception: its own config decides.
-        workspace = tmp_path / "repo"
-        workspace.mkdir()
-        (workspace / ".releaserc.json").write_text(
-            json.dumps(
-                {
-                    "branches": ["main", {"name": "next", "prerelease": True}],
-                    "plugins": ["@semantic-release/exec"],
-                }
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        central = _write_central(
-            tmp_path, ["main", {"name": "beta", "prerelease": True}]
-        )
-        assert resolve_prerelease_branches(workspace, central) == ("next",)
-
-    def test_a_repo_config_naming_the_37_plugins_is_discarded(
-        self, tmp_path: Path
-    ) -> None:
-        # setup-semantic-release deletes it and uses the central config, so the
-        # gate must read the central branches too or the two disagree.
-        workspace = tmp_path / "repo"
-        workspace.mkdir()
-        (workspace / ".releaserc.json").write_text(
-            json.dumps(
-                {
-                    "branches": ["main", {"name": "next", "prerelease": True}],
-                    "plugins": ["@semantic-release/git"],
-                }
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        central = _write_central(
-            tmp_path, ["main", {"name": "beta", "prerelease": True}]
-        )
-        assert resolve_prerelease_branches(workspace, central) == ("beta",)
-
-    def test_an_unparseable_repo_config_declares_nothing(self, tmp_path: Path) -> None:
-        # Closed direction: a config we cannot read must not open the release
-        # gate on a branch semantic-release may reject.
-        workspace = tmp_path / "repo"
-        workspace.mkdir()
-        (workspace / ".releaserc.js").write_text(
-            "module.exports = { branches: ['main'] };", encoding="utf-8", newline="\n"
-        )
-        central = _write_central(
-            tmp_path, ["main", {"name": "beta", "prerelease": True}]
-        )
-        assert resolve_prerelease_branches(workspace, central) == ()
+    def test_the_shipped_config_matches_the_fleet_default(self) -> None:
+        assert central_prerelease_branches(CENTRAL_CONFIG) == FLEET_PRERELEASE_BRANCHES
 
     def test_a_missing_central_config_declares_nothing(self, tmp_path: Path) -> None:
-        workspace = tmp_path / "repo"
-        workspace.mkdir()
-        assert resolve_prerelease_branches(workspace, tmp_path / "absent.json") == ()
+        assert central_prerelease_branches(tmp_path / "absent.json") == ()
 
-
-class TestRepoPrereleaseBranches:
-    """The CLI's view: no hyperi-ci checkout to read the central config from."""
-
-    def test_a_bare_repo_inherits_the_fleet_default(self, tmp_path: Path) -> None:
-        assert repo_prerelease_branches(tmp_path) == FLEET_PRERELEASE_BRANCHES
-
-    def test_a_repo_config_decides_for_itself(self, tmp_path: Path) -> None:
-        (tmp_path / ".releaserc.json").write_text(
-            json.dumps(
-                {
-                    "branches": ["main", {"name": "next", "prerelease": True}],
-                    "plugins": ["@semantic-release/exec"],
-                }
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert repo_prerelease_branches(tmp_path) == ("next",)
-
-    def test_a_config_naming_the_37_plugins_inherits_the_fleet_default(
+    def test_an_unparseable_central_config_declares_nothing(
         self, tmp_path: Path
     ) -> None:
-        (tmp_path / ".releaserc.json").write_text(
-            json.dumps(
-                {
-                    "branches": ["main", {"name": "next", "prerelease": True}],
-                    "plugins": ["@semantic-release/github"],
-                }
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert repo_prerelease_branches(tmp_path) == FLEET_PRERELEASE_BRANCHES
-
-    def test_a_repo_declaring_no_prerelease_branch_gets_none(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / ".releaserc.json").write_text(
-            json.dumps({"branches": ["main"], "plugins": ["@semantic-release/exec"]}),
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert repo_prerelease_branches(tmp_path) == ()
+        # Closed direction: a config we cannot read must not open the release
+        # gate on a branch semantic-release may reject.
+        central = tmp_path / "default.releaserc.json"
+        central.write_text("{not json", encoding="utf-8", newline="\n")
+        assert central_prerelease_branches(central) == ()
 
 
 class TestIsPrereleaseRef:

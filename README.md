@@ -109,11 +109,11 @@ This amends your head commit with the `Release: true` git trailer, then
 pushes. The single CI run:
 
 1. Reads the trailer in setup → declares this a release run
-2. Runs `npx semantic-release --dry-run` to predict the next version (e.g. v1.5.4)
+2. Runs `semantic-release --dry-run` to predict the next version (e.g. v1.5.4)
 3. Stamps that version into Cargo.toml + VERSION before build
 4. Builds (binary now embeds CARGO_PKG_VERSION = 1.5.4)
 5. Builds + pushes container image to GHCR (multi-arch)
-6. Runs `npx semantic-release` for real → creates tag, CHANGELOG commit
+6. Runs `semantic-release` for real → creates tag, CHANGELOG commit
 7. Uploads binaries to GitHub Release + R2; publishes to crates.io / PyPI / npm
 
 One workflow run, one tag, one release.

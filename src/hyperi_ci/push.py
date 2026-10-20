@@ -34,7 +34,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.fork_version import check_fork, forced_version
 from hyperi_ci.gh import get_current_branch, require_gh
-from hyperi_ci.release_branches import repo_prerelease_branches
+from hyperi_ci.release_branches import FLEET_PRERELEASE_BRANCHES
 from hyperi_ci.version_source import seed_version
 from hyperi_ci.vocabulary import (
     TRAILER_KEY,
@@ -168,10 +168,10 @@ def _publish_push(
         return 1
 
     branch = get_current_branch(cwd=cwd)
-    if branch != "main" and not _is_prerelease_branch(branch, cwd=cwd):
+    if branch != "main" and branch not in FLEET_PRERELEASE_BRANCHES:
         error(
-            "--publish only works from main, or from a branch declared "
-            "'prerelease' in the release config"
+            "--publish only works from main or a prerelease branch: "
+            f"{', '.join(FLEET_PRERELEASE_BRANCHES)}"
         )
         return 1
 
@@ -559,25 +559,6 @@ def _skip_ci_push(*, dry_run: bool, cwd: str | None) -> int:
 
 
 # --- helpers ---
-
-
-def _is_prerelease_branch(branch: str | None, *, cwd: str | None) -> bool:
-    """Report whether ``branch`` is declared a prerelease branch for this repo.
-
-    The CI gate reads the same declaration.
-
-    Args:
-        branch: Current branch name, or None when it cannot be resolved.
-        cwd: Repository root, or None for the process working directory.
-
-    Returns:
-        True when the branch releases on its own version sequence.
-
-    """
-    if not branch:
-        return False
-    workspace = Path(cwd) if cwd else Path.cwd()
-    return branch in repo_prerelease_branches(workspace)
 
 
 def _check_dirty_tree(*, cwd: str | None) -> int:

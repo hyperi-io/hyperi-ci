@@ -131,7 +131,7 @@ class TestASyncMerge:
         with pytest.raises(ForkVersionError, match="No release-worthy first-parent"):
             predict_version(repo)
 
-    def test_a_releaserc_override_is_honoured(
+    def test_a_repo_releaserc_is_ignored(
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path, own=("feat: own feature",))
@@ -146,7 +146,7 @@ class TestASyncMerge:
             ),
             encoding="utf-8",
         )
-        assert predict_version(repo)[0] == "0.2.9"
+        assert predict_version(repo)[0] == "0.3.0"
 
     def test_a_prerelease_tag_is_not_the_base(
         self, tmp_path: Path, make_fork_history: Callable[..., Path]

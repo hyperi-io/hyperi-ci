@@ -25,7 +25,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from hyperi_ci.release_rules import classify_commit, load_type_bump
+from hyperi_ci.release_rules import classify_commit, default_type_bump
 
 _COMMIT_SEPARATOR = "----END----"
 _COMMIT_FMT = f"%H%n%s%n%b%n{_COMMIT_SEPARATOR}"
@@ -235,7 +235,7 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
     if not commits:
         return False, "no commits in the pushed range"
 
-    type_bump = load_type_bump(root)
+    type_bump = default_type_bump()
     for commit_hash, message in commits:
         bump = classify_commit(message, type_bump)
         if bump != "none":
@@ -387,8 +387,7 @@ def unreleased_since_tag(
     fork counts only its own first-parent commits past its own last tag.
 
     Args:
-        project_dir: Directory whose ``.releaserc.json`` overrides the bump
-            map. Defaults to the current directory.
+        project_dir: Repository to read. Defaults to the current directory.
 
     Returns:
         ``(tag, commits)`` where ``commits`` is ``(sha, bump)`` for each
@@ -417,7 +416,7 @@ def unreleased_since_tag(
     if rc != 0:
         return None, []
 
-    type_bump = load_type_bump(project_dir if project_dir is not None else Path.cwd())
+    type_bump = default_type_bump()
     releasable = []
     for commit_hash, message in commits:
         bump = classify_commit(message, type_bump)
@@ -462,8 +461,7 @@ def unreleased_annotation(
     is more than ``warn_days`` old, else a ``notice`` with the same message.
 
     Args:
-        project_dir: Directory whose ``.releaserc.json`` overrides the bump
-            map. Defaults to the current directory.
+        project_dir: Repository to read. Defaults to the current directory.
         warn_days: ``release.unreleased_warn_days``. None, or an age git
             cannot read, warns.
 

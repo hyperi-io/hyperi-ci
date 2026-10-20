@@ -33,7 +33,10 @@ from hyperi_ci import release_prepare
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
 from hyperi_ci.gh import gh_api
-from hyperi_ci.release_branches import is_prerelease_version, repo_prerelease_branches
+from hyperi_ci.release_branches import (
+    FLEET_PRERELEASE_BRANCHES,
+    is_prerelease_version,
+)
 from hyperi_ci.release_notify import refusal_advice
 from hyperi_ci.stamp import (
     CHANGELOG_FILE,
@@ -303,7 +306,7 @@ def commit_release_artefacts(
         error("release-commit: empty version")
         return 1
 
-    if is_prerelease_version(version) and branch not in repo_prerelease_branches(root):
+    if is_prerelease_version(version) and branch not in FLEET_PRERELEASE_BRANCHES:
         error(
             f"release-commit: v{version} is a prerelease and {branch} is not a "
             "prerelease branch in the release config -- committing nothing. "

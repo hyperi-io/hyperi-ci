@@ -316,11 +316,11 @@ class TestIsReleaseWorthy:
         assert worthy is True
         assert "could not resolve" in reason
 
-    def test_a_releaserc_override_decides(
+    def test_a_repo_releaserc_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The bump map is the release_rules SSoT, not a second opinion: a repo
-        # that promotes docs: gets its quality gate on a docs-only merge.
+        # CI tags with the central config, so a repo promoting docs: must not
+        # make the gate expect a release the tag step will not cut.
         repo = _repo(tmp_path)
         (repo / ".releaserc.json").write_text(
             json.dumps(
@@ -342,7 +342,7 @@ class TestIsReleaseWorthy:
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
 
         worthy, _reason = is_release_worthy()
-        assert worthy is True
+        assert worthy is False
 
 
 class TestUnreleasedWarning:
@@ -444,11 +444,11 @@ class TestUnreleasedWarning:
         _level, message = unreleased_annotation(warn_days=0)
         assert "1 major" in message
 
-    def test_the_bump_map_is_the_release_rules_ssot(
+    def test_a_repo_releaserc_does_not_count_a_docs_commit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # No second copy of the releasable types: a repo that promotes docs:
-        # in its own .releaserc.json is counted as waiting on a docs commit.
+        # The central config decides what is releasable, so a docs: commit is
+        # not waiting on a release whatever the repo's own config says.
         repo = _repo(tmp_path)
         (repo / ".releaserc.json").write_text(
             json.dumps(
@@ -471,8 +471,8 @@ class TestUnreleasedWarning:
         monkeypatch.chdir(repo)
 
         level, message = unreleased_annotation(warn_days=0)
-        assert level == "warning"
-        assert "1 patch" in message
+        assert level == ""
+        assert message == "nothing releasable waiting since v0.1.0"
 
     def test_a_non_version_tag_is_not_a_baseline(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
