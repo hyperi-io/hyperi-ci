@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.18...v2.14.19) (2026-10-20)
+
+### Bug Fixes
+
+* **security:** audit the project lock, not pip-audit's own environment ([#715](https://github.com/hyperi-io/hyperi-ci/issues/715)) ([d244a53](https://github.com/hyperi-io/hyperi-ci/commit/d244a53941b2a575fa53daef077d3fd646c01fe6))
+
 ## [2.14.18](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.17...v2.14.18) (2026-10-20)
 
 ### Bug Fixes
