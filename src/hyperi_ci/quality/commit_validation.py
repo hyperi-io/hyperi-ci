@@ -19,7 +19,7 @@ from hyperi_ci.common import env_true, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_run
-from hyperi_ci.release_rules import load_type_bump
+from hyperi_ci.release_rules import default_type_bump
 from hyperi_ci.vocabulary import trailer_values
 
 # Accepted message types only: which ones release is hyperi_ci.release_rules' call,
@@ -243,7 +243,7 @@ def format_type_list() -> str:
 
     The ``[release]`` marker comes from :mod:`hyperi_ci.release_rules`.
     """
-    type_bump = load_type_bump(Path.cwd())
+    type_bump = default_type_bump()
     lines: list[str] = []
     for name, desc in sorted(_ALLOWED_TYPES.items()):
         release_marker = " [release]" if type_bump.get(name, "none") != "none" else ""

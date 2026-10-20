@@ -28,11 +28,6 @@ import json
 import re
 from pathlib import Path
 
-# Plugins that rewrote every tag on dfe-receiver (issue #37). A repo config
-# naming either is discarded for the central default, matching the
-# setup-semantic-release composite so both read the same branches.
-_DESTRUCTIVE_PLUGINS = re.compile(r"@semantic-release/(git|github)")
-
 # Semver core plus a prerelease component: 1.2.0-beta.1 -> label "beta".
 # Build metadata (+sha) is not part of the label.
 _PRERELEASE_PATTERN = re.compile(
@@ -73,72 +68,25 @@ def prerelease_branch_names(doc: object) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _repo_declared_branches(workspace: Path) -> tuple[str, ...] | None:
-    """Return what the repo's own release config declares, or None if none applies.
+def central_prerelease_branches(central: Path) -> tuple[str, ...]:
+    """Return the prerelease branches the central release config declares.
 
-    A repo ``.releaserc*`` naming the issue #37 tag-rewrite plugins is
-    discarded, so None means "the central default answers". An unreadable repo
-    config returns ``()``: claiming a branch releases when the running config
-    does not declare it costs a failed release run.
-    """
-    configs = sorted(p for p in workspace.glob(".releaserc*") if p.is_file())
-    if not configs:
-        return None
-    texts: list[str] = []
-    for path in configs:
-        try:
-            texts.append(path.read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            return ()
-    if any(_DESTRUCTIVE_PLUGINS.search(text) for text in texts):
-        return None
-    for text in texts:
-        try:
-            return prerelease_branch_names(json.loads(text))
-        except json.JSONDecodeError:
-            continue
-    return ()
-
-
-def resolve_prerelease_branches(workspace: Path, central: Path) -> tuple[str, ...]:
-    """Return the prerelease branches that will apply to a run in ``workspace``.
-
-    For the CI gate, which can read the central config file itself.
+    For the CI gate, which can read the central config file itself. A repo's
+    own release config is never loaded, so it never declares a branch.
 
     Args:
-        workspace: Repository checkout root.
         central: Path to the central ``default.releaserc.json``.
 
     Returns:
-        Declared prerelease branch names, empty when none apply.
+        Declared prerelease branch names, empty when the file is unreadable.
 
     """
-    declared = _repo_declared_branches(workspace)
-    if declared is not None:
-        return declared
     try:
         return prerelease_branch_names(
             json.loads(central.read_text(encoding="utf-8", errors="replace"))
         )
     except (OSError, json.JSONDecodeError):
         return ()
-
-
-def repo_prerelease_branches(workspace: Path) -> tuple[str, ...]:
-    """Return the prerelease branches, falling back to the fleet default.
-
-    For the CLI, which has no central config file to read in a consumer
-    checkout, so the fallback is the mirrored constant.
-
-    Args:
-        workspace: Repository checkout root.
-
-    Returns:
-        Declared prerelease branch names, empty when none apply.
-
-    """
-    declared = _repo_declared_branches(workspace)
-    return FLEET_PRERELEASE_BRANCHES if declared is None else declared
 
 
 def branch_from_ref(ref: str) -> str:
@@ -152,7 +100,7 @@ def is_prerelease_ref(ref: str, prerelease_branches: tuple[str, ...]) -> bool:
 
     Args:
         ref: A GitHub ``GITHUB_REF`` value.
-        prerelease_branches: Names from :func:`resolve_prerelease_branches`.
+        prerelease_branches: Names from :func:`central_prerelease_branches`.
 
     Returns:
         True when the ref is a branch declared as a prerelease.

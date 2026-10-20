@@ -551,10 +551,7 @@ def init_project(
     # No .releaserc is scaffolded (issue #37): the setup-semantic-release
     # composite supplies a central tagger-only config at CI time.
     if _has_releaserc(project_dir):
-        info(
-            "  Left existing .releaserc in place (honoured if it has no "
-            "@semantic-release/git|github plugin; else ignored at CI time)"
-        )
+        info("  Existing semantic-release config is ignored at CI time: delete it")
 
     contributing_path = project_dir / "CONTRIBUTING.md"
     if not contributing_path.exists() or force:

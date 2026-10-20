@@ -9,9 +9,8 @@
 
 The gate decides whether a push releases, and it runs before
 setup-semantic-release has put a config in the workspace. So the declaration
-is read here from the same two places that composite chooses between: the
-repo's own ``.releaserc*``, else the central ``default.releaserc.json`` in
-the sibling action directory.
+is read here from the file that composite installs: the central
+``default.releaserc.json`` in the sibling action directory.
 
 The composite runs in the caller's job, where hyperi-ci is not installed, so
 the implementation is loaded out of the action's own checkout -- the same
@@ -47,12 +46,11 @@ def main() -> int:
     sys.modules["hyperi_ci"] = package
 
     from hyperi_ci.release_branches import (
+        central_prerelease_branches,
         is_prerelease_ref,
-        resolve_prerelease_branches,
     )
 
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
-    branches = resolve_prerelease_branches(workspace, _CENTRAL_CONFIG)
+    branches = central_prerelease_branches(_CENTRAL_CONFIG)
     ref = os.environ.get("GITHUB_REF", "")
     declared = ", ".join(branches) if branches else "(none)"
     print(f"prerelease branches declared: {declared}", file=sys.stderr)

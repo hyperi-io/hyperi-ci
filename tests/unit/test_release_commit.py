@@ -543,14 +543,16 @@ class TestAPrereleaseStaysOnItsBranch:
         updated = [e for e in api.endpoints() if "/git/refs/heads/" in e]
         assert updated == ["repos/hyperi-io/hyperi-ci/git/refs/heads/beta"]
 
-    def test_a_branch_the_repo_does_not_declare_refuses_it(
+    def test_a_repo_config_cannot_declare_its_own_branch(
         self, api: _Api, beta: Path
     ) -> None:
+        # CI never loads it, so `next` is not a prerelease branch.
         (beta / ".releaserc.json").write_text(
-            '{"branches": ["main"]}\n', encoding="utf-8"
+            '{"branches": ["main", {"name": "next", "prerelease": true}]}\n',
+            encoding="utf-8",
         )
         rc = commit_release_artefacts(
-            version="1.4.0-beta.1", branch="beta", project_dir=beta
+            version="1.4.0-next.1", branch="next", project_dir=beta
         )
         assert rc == 1
         assert not api.bodies_for("/git/commits")

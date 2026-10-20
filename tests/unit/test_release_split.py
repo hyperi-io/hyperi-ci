@@ -103,8 +103,8 @@ ALLOWED_RUN_LINES = {
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
         # helm dependency build, package and push render no template and run no hook.
         rf"{_INSTALL} publish-charts",
-        # Known gap, tracked in #413: the tagger loads a repo-controlled config.
-        r"npx semantic-release",
+        # The global binary with the central config only: no npx, no repo config.
+        r'semantic-release --repository-url "https://github\.com/\$\{GITHUB_REPOSITORY\}"',
         rf"{_INSTALL} run release",
         rf'{_INSTALL} release-commit --branch "\$RELEASE_BRANCH" "{_VERSION}"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome success',

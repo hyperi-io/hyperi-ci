@@ -436,7 +436,7 @@ class TestAFromHeadDispatch:
         assert f"::warning::Forced bump '{bump}' on prerelease branch" in stdout
         assert "bump=auto" in stdout
 
-    def test_the_repo_config_names_the_prerelease_branch(
+    def test_a_repo_config_cannot_name_a_prerelease_branch(
         self, released_head: Path
     ) -> None:
         (released_head / ".releaserc.json").write_text(
@@ -453,8 +453,8 @@ class TestAFromHeadDispatch:
         beta_ref, _ = _gate_run(
             "workflow_dispatch", released_head, ref=_BETA, from_head="true"
         )
-        assert next_ref == {"will-publish": "true"}
-        assert beta_ref == {"will-publish": "false"}
+        assert next_ref == {"will-publish": "false"}
+        assert beta_ref == {"will-publish": "true"}
 
     def test_a_tag_does_not_unlock_from_head_on_a_feature_branch(
         self, released_head: Path

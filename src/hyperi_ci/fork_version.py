@@ -30,7 +30,7 @@ from typing import Any, NamedTuple
 from hyperi_ci.classification import resolve
 from hyperi_ci.commit_range import git_log, last_version_tag
 from hyperi_ci.project_config import read_project_config
-from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, load_type_bump
+from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, default_type_bump
 from hyperi_ci.version_source import seed_version
 
 #: The canonical classification that versions from first-parent commits.
@@ -160,7 +160,7 @@ def predict_version(root: Path) -> tuple[str, str]:
             already names another commit.
 
     """
-    type_bump = load_type_bump(root)
+    type_bump = default_type_bump()
     tag = last_version_tag(first_parent=True, cwd=root)
     if tag is None:
         return _first_release(root, type_bump)
@@ -200,7 +200,7 @@ def fork_commit_bumps(root: Path, since_tag: str) -> list[tuple[str, str, str]]:
         ForkVersionError: git could not list the commits.
 
     """
-    type_bump = load_type_bump(root)
+    type_bump = default_type_bump()
     commits = _first_parent_commits(f"{since_tag}..HEAD", root)
     return [
         (

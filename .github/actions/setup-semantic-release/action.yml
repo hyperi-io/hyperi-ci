@@ -9,20 +9,20 @@
 # Predict and the real run must install identical plugins, else they compute
 # different versions ("tag vX already exists"). One place for that list -- here.
 #
-# When a repo has no .releaserc this composite drops the tagger-only
-# `default.releaserc.json` into the workspace (ephemeral, never committed). It
-# carries NO custom releaseRules: the bump is semantic-release's OWN defaults
-# (feat->minor, fix/perf/revert->patch, breaking->major, else none), the org
-# SSoT, which hyperi_ci.release_rules mirrors in Python for the pre-push gate.
-# A repo .releaserc that references @semantic-release/git or
-# @semantic-release/github (the issue #37 tag-rewrite plugins, which destroyed
-# every tag on dfe-receiver) is IGNORED in favour of the central config. A
-# .releaserc WITHOUT those plugins (e.g. an exec-only stamp for a multi-crate
-# workspace) is a legitimate exception and is honoured.
+# Every repo runs the tagger-only `default.releaserc.json`, dropped into the
+# workspace (ephemeral, never committed). It carries NO custom releaseRules: the
+# bump is semantic-release's OWN defaults (feat->minor, fix/perf/revert->patch,
+# breaking->major, else none), the org SSoT, which hyperi_ci.release_rules
+# mirrors in Python for the pre-push gate. Repo release config is never loaded:
+# the real run holds the bot token, and the dry-run must load exactly what the
+# real run loads (issue #413). Stamping is `release.stamp_cmd` / `stamp_paths`.
 # semantic-release is a TAGGER only: stamping is `hyperi-ci stamp-version` and
 # publishing is hyperi-ci's publish stage. @semantic-release/git is not
-# installed. @semantic-release/github is, because core depends on it, but no
-# config this composite honours loads it.
+# installed. @semantic-release/github is, because core depends on it, but the
+# central config does not load it.
+#
+# Callers run the global `semantic-release` binary, never `npx`: npx prefers a
+# checkout's node_modules/.bin and applies its .npmrc.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)
@@ -44,6 +44,8 @@ runs:
 
     - name: Install semantic-release + plugins (pinned)
       shell: bash
+      # Outside the checkout, so a repo .npmrc cannot redirect the registry.
+      working-directory: ${{ runner.temp }}
       # scripts/update-versions.py rewrites each marked value from the `tools:`
       # entry of the same name in versions.yaml -- edit it there, not here.
       env:
@@ -71,38 +73,29 @@ runs:
           "@semantic-release/github@$SR_GITHUB" \
           "conventional-changelog-conventionalcommits@$SR_CONVENTIONALCOMMITS"
 
-    - name: Provide the release config (central default, never the #37 plugins)
+    - name: Provide the release config (central only, never the repo's)
       shell: bash
-      # A legacy .releaserc carrying @semantic-release/git / @semantic-release/github
-      # is the issue #37 root cause: the git plugin commits off-main "chore:
-      # version X" commits and force-rewrites tags -- it destroyed every v* tag
-      # on dfe-receiver. So those plugins are NEVER honoured: if a repo .releaserc
-      # references either, it is ignored and the central tagger-only config is
-      # used instead. Combined with the existing-tag guard in _release-tail.yml,
-      # that fully neutralises #37 (no rewrite + a mispredicted collision fails
-      # loud instead of corrupting history).
-      #
-      # A .releaserc WITHOUT those plugins (e.g. an exec-only stamp for a
-      # multi-crate workspace like dfe-archiver, which the central single-root
-      # stamp can't cover) is a legitimate exception and is honoured. Repos with
-      # no .releaserc get the central tagger-only default. The long-term home for
-      # exceptions is `.hyperi-ci.yaml`, generating a SAFE config -- never a raw
-      # per-repo file, never the destructive plugins.
+      # cosmiconfig (semantic-release's loader) reads a meta config first
+      # (package.json `cosmiconfig`, package.yaml, .config/config.*, which may
+      # execute JS), then package.json `release`, .releaserc*, .config/releaserc*
+      # and release.config.*. Plain config files are deleted. Anything inside a
+      # file the build ships, or a meta config, fails the run instead.
       run: |
-        keep=""
-        if compgen -G "$GITHUB_WORKSPACE/.releaserc*" > /dev/null
+        cd "$GITHUB_WORKSPACE"
+        if compgen -G ".releaserc*" > /dev/null || compgen -G "release.config.*" > /dev/null || compgen -G ".config/releaserc*" > /dev/null
         then
-          if grep -qE '@semantic-release/(git|github)' "$GITHUB_WORKSPACE"/.releaserc*
-          then
-            echo "::warning::Ignoring repo .releaserc* -- it references @semantic-release/git or @semantic-release/github, the issue #37 tag-rewrite plugins. Using the central tagger-only config. Remove those plugins (stamping is 'hyperi-ci stamp-version', publishing is the publish stage)."
-            rm -f "$GITHUB_WORKSPACE"/.releaserc*
-          else
-            keep="yes"
-            echo "Repo .releaserc* has no destructive plugins -- honouring it (legitimate exception)."
-          fi
+          echo "::warning::Ignoring the repo's own semantic-release config (.releaserc* / .config/releaserc* / release.config.*). Every repo releases with the central tagger-only config. Delete the file. Per-repo stamping is release.stamp_cmd in .hyperi-ci.yaml."
+          rm -f .releaserc* release.config.* .config/releaserc*
         fi
-        if [ -z "$keep" ]
+        if [ -e package.yaml ] || compgen -G ".config/config.*" > /dev/null
         then
-          cp "$GITHUB_ACTION_PATH/default.releaserc.json" "$GITHUB_WORKSPACE/.releaserc.json"
-          echo "Using the central tagger-only .releaserc.json"
+          echo "::error::package.yaml or .config/config.* is a cosmiconfig meta config, which semantic-release reads ahead of the central config. Remove it."
+          exit 1
         fi
+        if [ -f package.json ] && node -e 'const p = require("./package.json"); process.exit("release" in p || "cosmiconfig" in p ? 0 : 1)'
+        then
+          echo "::error::package.json has a 'release' or 'cosmiconfig' key, which semantic-release would load ahead of the central config. Remove it."
+          exit 1
+        fi
+        cp "$GITHUB_ACTION_PATH/default.releaserc.json" .releaserc.json
+        echo "Using the central tagger-only .releaserc.json"

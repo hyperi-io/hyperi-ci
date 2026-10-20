@@ -18,7 +18,7 @@
 #                                  checks, cargo package, npm pack -- every
 #                                  step that runs repo code, holding no secret
 #   (here)    tag-and-release   <- hyperi-ci publish-charts (when enabled),
-#                                  then npx semantic-release real -> tag +
+#                                  then semantic-release real -> tag +
 #                                  CHANGELOG (tag-head for a fork on main);
 #                                  then hyperi-ci run release
 #                                  uploads what prepare left -> crates.io /
@@ -750,7 +750,7 @@ jobs:
             echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
             ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
-            npx semantic-release
+            semantic-release --repository-url "https://github.com/${GITHUB_REPOSITORY}"
           fi
 
       - name: Tag HEAD (fork, first-parent version)

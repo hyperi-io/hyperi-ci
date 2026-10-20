@@ -68,7 +68,7 @@ class TestAgainstTheCentralConfig:
 
 
 class TestAgainstARepoConfig:
-    def test_a_repo_config_decides_for_itself(self, workspace: Path) -> None:
+    def test_a_repo_config_is_ignored(self, workspace: Path) -> None:
         (workspace / ".releaserc.json").write_text(
             json.dumps(
                 {
@@ -79,8 +79,8 @@ class TestAgainstARepoConfig:
             encoding="utf-8",
             newline="\n",
         )
-        assert _run(workspace, "refs/heads/next") == "true"
-        assert _run(workspace, "refs/heads/beta") == "false"
+        assert _run(workspace, "refs/heads/next") == "false"
+        assert _run(workspace, "refs/heads/beta") == "true"
 
     def test_a_config_naming_the_37_plugins_falls_back_to_central(
         self, workspace: Path
