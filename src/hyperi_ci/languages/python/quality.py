@@ -20,15 +20,17 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
-from hyperi_ci.common import get_exclude_dirs, info, warn
+from hyperi_ci.common import error, get_exclude_dirs, info, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
     Via,
+    emit_tool_output,
     get_python_source_paths,
     get_test_ignore,
     get_test_paths,
@@ -190,20 +192,108 @@ def _build_ruff_docstring_cmd(
     )
 
 
-def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
+# Every extra and group the lock can install, a superset of CI's
+# `uv sync --all-extras`, minus the repo's own code, which pip-audit cannot pin.
+_UV_LOCK_EXPORT = [
+    "uv",
+    "export",
+    "--frozen",
+    "--no-hashes",
+    "--no-header",
+    "--all-extras",
+    "--all-groups",
+    "--no-emit-workspace",
+    "--no-emit-local",
+    "--format",
+    "requirements-txt",
+]
+
+
+def _build_pip_audit_cmd(
+    ignores: list[IgnoreEntry], requirements: Path | None = None
+) -> list[str]:
     """Build the pip-audit command, one ``--ignore-vuln <id>`` per ignore entry.
 
-    pip-audit scans the active environment, so with uv it runs as
-    ``uv run --with pip-audit==<pin> -- pip-audit`` to see the project's .venv
-    and not ~/.venv or the system Python. Without uv it is bare ``pip-audit``.
+    With uv and an exported ``requirements`` file it audits those pins and
+    nothing else: ``uvx`` runs pip-audit in its own environment, so its
+    dependencies (requests, certifi) are never part of the audited set.
+    Without a lock, ``uv run --with`` audits the project's .venv plus
+    pip-audit's own dependencies, which is the best uv can do for it. Without
+    uv it is bare ``pip-audit``.
+
+    Args:
+        ignores: ``quality.ignore`` entries for the ``pip-audit`` slug.
+        requirements: A ``uv export`` of the project's lock, or None.
+
+    Returns:
+        The command, before resolution.
+
     """
     base = ["pip-audit"]
     for entry in ignores:
         base.extend(["--ignore-vuln", entry.id])
-    if shutil.which("uv"):
-        spec = f"pip-audit=={tool_version('pip-audit')}"
+    if not shutil.which("uv"):
+        return base
+    spec = f"pip-audit=={tool_version('pip-audit')}"
+    if requirements is None:
         return ["uv", "run", "--with", spec, "--", *base]
-    return base
+    return [
+        "uvx",
+        "--python",
+        _parse_python(),
+        "--from",
+        spec,
+        *base,
+        "-r",
+        str(requirements),
+        "--disable-pip",
+        "--no-deps",
+    ]
+
+
+def _run_pip_audit(mode: str, ignores: list[IgnoreEntry]) -> bool:
+    """Run the pip-audit gate against the project's lock when it has one.
+
+    A lock is exported to a requirements file and audited as pins, so an
+    advisory against pip-audit's own dependencies cannot fail a project that
+    does not use them.
+
+    Args:
+        mode: ``blocking``, ``warn`` or ``disabled``.
+        ignores: ``quality.ignore`` entries for the ``pip-audit`` slug.
+
+    Returns:
+        True if the pipeline should continue, False on a blocking failure.
+
+    """
+
+    def audit(requirements: Path | None) -> bool:
+        return run_gate_tool(
+            "pip-audit",
+            _build_pip_audit_cmd(ignores, requirements),
+            mode,
+            via="uv",
+            retry_unreachable=_advisory_db_unreachable,
+        )
+
+    if mode == "disabled" or not (shutil.which("uv") and Path("uv.lock").is_file()):
+        return audit(None)
+
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-pip-audit-") as tmp:
+        requirements = Path(tmp) / "requirements.txt"
+        exported = run_cmd(
+            [*_UV_LOCK_EXPORT, "-o", str(requirements)], check=False, capture=True
+        )
+        if exported.returncode != 0:
+            note = "  pip-audit: could not export uv.lock, so nothing was checked"
+            if mode == "warn":
+                warn(note)
+            else:
+                error(note)
+            emit_tool_output("pip-audit", exported.stderr)
+            return mode == "warn"
+        info("  pip-audit: auditing the pins in uv.lock")
+        return audit(requirements)
 
 
 def _version_key(version: str) -> tuple[int, ...]:
@@ -420,14 +510,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     mode = resolve_tool_mode("pip_audit", config, language="python")
-    pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
-    if not run_gate_tool(
-        "pip-audit",
-        pip_audit_cmd,
-        mode,
-        via="uv",
-        retry_unreachable=_advisory_db_unreachable,
-    ):
+    if not _run_pip_audit(mode, for_tool(ignores, "pip-audit")):
         had_failure = True
 
     # Concise output is one finding per line, so the warn tier's cap counts findings.

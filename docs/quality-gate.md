@@ -157,6 +157,7 @@ A missing tool gets a message that says what to do. A single registry (`src/hype
 A tool on PATH at a version other than `versions.yaml` gives a local result CI would not.
 
 - **semgrep and the Python tools** (vulture, ty, pip-audit) run the pin through `uvx` / `uv run --with` whenever `uv` is installed, whatever is on PATH. Without `uv` the PATH copy runs, with a warning naming the pin.
+- pip-audit audits the pins in `uv.lock` (`uv export`, then `uvx pip-audit -r`), so an advisory against its own dependencies cannot fail a project that does not use them. A repo with no `uv.lock` is audited as its `.venv` plus pip-audit's dependencies.
 - **cargo-hack** is installed at the pin with `cargo install --locked --version`, and a different version is reinstalled over it.
 - **cargo-audit, cargo-deny, osv-scanner, golangci-lint, gosec, govulncheck** are not installed locally. When the PATH copy's version is not the pin, the stage warns once per tool and names both. In CI the setup actions install and assert the pin, so the warning stays quiet there.
 
