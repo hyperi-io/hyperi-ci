@@ -99,9 +99,10 @@ class TestTheCentralConfigAlwaysWins:
     shutil.which("node") is None, reason="the step reads package.json with node"
 )
 class TestPackageJson:
-    def test_a_release_key_fails_the_run(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("key", ["release", "cosmiconfig"])
+    def test_a_config_key_fails_the_run(self, tmp_path: Path, key: str) -> None:
         (tmp_path / "package.json").write_text(
-            json.dumps({"name": "x", "release": {"branches": ["main"]}}),
+            json.dumps({"name": "x", key: {"branches": ["main"]}}),
             encoding="utf-8",
         )
         result = _run(tmp_path)
@@ -115,6 +116,25 @@ class TestPackageJson:
         assert _run(tmp_path).returncode == 0
         assert (tmp_path / "package.json").read_text(encoding="utf-8") == body
         assert _installed(tmp_path) == _CENTRAL
+
+
+class TestTheConfigDirectory:
+    def test_a_config_dir_releaserc_is_removed(self, tmp_path: Path) -> None:
+        (tmp_path / ".config").mkdir()
+        (tmp_path / ".config" / "releaserc.json").write_text("{}", encoding="utf-8")
+        assert _run(tmp_path).returncode == 0
+        assert not (tmp_path / ".config" / "releaserc.json").exists()
+        assert _installed(tmp_path) == _CENTRAL
+
+    @pytest.mark.parametrize("name", [".config/config.js", "package.yaml"])
+    def test_a_meta_config_fails_the_run(self, tmp_path: Path, name: str) -> None:
+        # cosmiconfig reads these before any normal search, and runs the JS one.
+        path = tmp_path / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("release: {}\n", encoding="utf-8")
+        result = _run(tmp_path)
+        assert result.returncode == 1
+        assert "::error::" in result.stdout
 
 
 class TestNothingRunsFromTheCheckout:
@@ -134,3 +154,15 @@ class TestNothingRunsFromTheCheckout:
         # npx prefers a checkout's node_modules/.bin and applies its .npmrc.
         text = (Path(__file__).resolve().parents[2] / path).read_text(encoding="utf-8")
         assert "npx semantic-release" not in text
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            Path(".github/actions/predict-version/action.yml"),
+            Path(".github/workflows/_release-tail.yml"),
+        ],
+    )
+    def test_callers_pin_the_repository_url(self, path: Path) -> None:
+        # Otherwise package.json `repository` picks where the token is sent.
+        text = (Path(__file__).resolve().parents[2] / path).read_text(encoding="utf-8")
+        assert '--repository-url "https://github.com/${GITHUB_REPOSITORY}"' in text

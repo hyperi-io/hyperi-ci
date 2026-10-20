@@ -750,7 +750,7 @@ jobs:
             echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
             ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
-            semantic-release
+            semantic-release --repository-url "https://github.com/${GITHUB_REPOSITORY}"
           fi
 
       - name: Tag HEAD (fork, first-parent version)

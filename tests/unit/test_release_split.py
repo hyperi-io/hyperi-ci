@@ -104,7 +104,7 @@ ALLOWED_RUN_LINES = {
         # helm dependency build, package and push render no template and run no hook.
         rf"{_INSTALL} publish-charts",
         # The global binary with the central config only: no npx, no repo config.
-        r"semantic-release",
+        r'semantic-release --repository-url "https://github\.com/\$\{GITHUB_REPOSITORY\}"',
         rf"{_INSTALL} run release",
         rf'{_INSTALL} release-commit --branch "\$RELEASE_BRANCH" "{_VERSION}"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome success',

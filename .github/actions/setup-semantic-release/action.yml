@@ -75,20 +75,26 @@ runs:
 
     - name: Provide the release config (central only, never the repo's)
       shell: bash
-      # semantic-release reads package.json's `release` key first, then any
-      # .releaserc* or release.config.*, so all of them go before the central
-      # file lands. A package.json key cannot be removed without editing a file
-      # the build ships, so it fails the run instead.
+      # cosmiconfig (semantic-release's loader) reads a meta config first
+      # (package.json `cosmiconfig`, package.yaml, .config/config.*, which may
+      # execute JS), then package.json `release`, .releaserc*, .config/releaserc*
+      # and release.config.*. Plain config files are deleted. Anything inside a
+      # file the build ships, or a meta config, fails the run instead.
       run: |
         cd "$GITHUB_WORKSPACE"
-        if compgen -G ".releaserc*" > /dev/null || compgen -G "release.config.*" > /dev/null
+        if compgen -G ".releaserc*" > /dev/null || compgen -G "release.config.*" > /dev/null || compgen -G ".config/releaserc*" > /dev/null
         then
-          echo "::warning::Ignoring the repo's own semantic-release config (.releaserc* / release.config.*). Every repo releases with the central tagger-only config. Delete the file. Per-repo stamping is release.stamp_cmd in .hyperi-ci.yaml."
-          rm -f .releaserc* release.config.*
+          echo "::warning::Ignoring the repo's own semantic-release config (.releaserc* / .config/releaserc* / release.config.*). Every repo releases with the central tagger-only config. Delete the file. Per-repo stamping is release.stamp_cmd in .hyperi-ci.yaml."
+          rm -f .releaserc* release.config.* .config/releaserc*
         fi
-        if [ -f package.json ] && node -e 'process.exit("release" in require("./package.json") ? 0 : 1)'
+        if [ -e package.yaml ] || compgen -G ".config/config.*" > /dev/null
         then
-          echo "::error::package.json has a 'release' key, which semantic-release would load ahead of the central config. Remove it."
+          echo "::error::package.yaml or .config/config.* is a cosmiconfig meta config, which semantic-release reads ahead of the central config. Remove it."
+          exit 1
+        fi
+        if [ -f package.json ] && node -e 'const p = require("./package.json"); process.exit("release" in p || "cosmiconfig" in p ? 0 : 1)'
+        then
+          echo "::error::package.json has a 'release' or 'cosmiconfig' key, which semantic-release would load ahead of the central config. Remove it."
           exit 1
         fi
         cp "$GITHUB_ACTION_PATH/default.releaserc.json" .releaserc.json

@@ -317,7 +317,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         set +e
-        dry_output=$(semantic-release --dry-run 2>&1)
+        dry_output=$(semantic-release --dry-run --repository-url "https://github.com/${GITHUB_REPOSITORY}" 2>&1)
         dry_rc=$?
         set -e
         echo "$dry_output"
