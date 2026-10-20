@@ -50,6 +50,16 @@ def _alive(pid: int) -> bool:
     return stat.rsplit(")", 1)[-1].split()[0] != "Z"
 
 
+def _stat(pid: int) -> str:
+    """Return the state, parent and process group of ``pid``, for a failure message."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"pid {pid} unreadable ({exc})"
+    state, ppid, pgrp = fields.rsplit(")", 1)[-1].split()[:3]
+    return f"pid {pid} state={state} ppid={ppid} pgrp={pgrp}"
+
+
 def _not_ci(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "BUILDKITE"):
         monkeypatch.delenv(name, raising=False)
@@ -188,7 +198,7 @@ class TestRunCmdMemoryLimit:
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and _alive(pid):
             time.sleep(0.05)
-        assert not _alive(pid)
+        assert not _alive(pid), f"grandchild survived: {_stat(pid)}"
 
     def test_no_cap_by_default(self) -> None:
         probe = "import resource; print(resource.getrlimit(resource.RLIMIT_AS)[0])"
