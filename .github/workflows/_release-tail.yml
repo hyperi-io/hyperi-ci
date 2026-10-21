@@ -190,7 +190,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
           # The v* tags decide whether this image may take `:latest`: a
           # re-published older tag must not move it off a newer release.
           fetch-tags: true
@@ -358,7 +358,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -590,10 +590,10 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # A push or from-head dispatch (issue #35) checks out main HEAD so the tag
-          # is created there. A tag dispatch (retroactive re-publish) checks out the
-          # existing tag.
-          ref: ${{ inputs.tag || github.ref }}
+          # A push or from-head dispatch checks out github.sha, the commit Plan
+          # predicted for and Build compiled (issue #714). A tag dispatch
+          # (retroactive re-publish) checks out the existing tag.
+          ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -776,6 +776,32 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
+
+      - name: Guard -- the release tag must be on GitHub at this commit
+        # semantic-release tags nothing when this checkout is behind its branch,
+        # and gh release create would then cut the tag at the tip (issue #714).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
+        run: |
+          tag="v${RELEASE_VERSION}"
+          head=$(git rev-parse "HEAD^{commit}")
+          if ! ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.type + " " + .object.sha')
+          then
+            echo "::error::${tag} does not exist, so nothing is published. semantic-release tags nothing when ${head} is behind the branch tip, and a re-run checks out the same commit. Release the current head with 'hyperi-ci release'."
+            exit 1
+          fi
+          read -r kind sha <<< "$ref"
+          if [ "$kind" = "tag" ]
+          then
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '.object.sha')
+          fi
+          if [ "$sha" != "$head" ]
+          then
+            echo "::error::${tag} is at ${sha} but this run built ${head} -- refusing to publish."
+            exit 1
+          fi
+          echo "${tag} is at ${head}."
 
       - name: Publish
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
