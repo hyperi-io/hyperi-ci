@@ -202,7 +202,8 @@ def _compare(
         report.drift.append(Drift(name, "description", actual_description, description))
 
 
-def _label_names(issue: Mapping[str, Any]) -> list[str]:
+def label_names(issue: Mapping[str, Any]) -> list[str]:
+    """Return the label names of an issue as the REST API returns it."""
     labels = issue.get("labels")
     if not isinstance(labels, list):
         return []
@@ -215,10 +216,17 @@ def _label_names(issue: Mapping[str, Any]) -> list[str]:
     return names
 
 
-def _is_dashboard(issue: Mapping[str, Any]) -> bool:
+def is_work(issue: Mapping[str, Any]) -> bool:
+    """Return False for a pull request or Renovate's Dependency Dashboard.
+
+    The issues endpoint returns pull requests too, and the dashboard is a
+    findings list. hyperi-ai's ``pm backlog groom`` skips the same two.
+    """
+    if "pull_request" in issue:
+        return False
     user = issue.get("user")
     is_bot = isinstance(user, Mapping) and user.get("type") == "Bot"
-    return is_bot and _str(issue, "title") == _DASHBOARD_TITLE
+    return not (is_bot and _str(issue, "title") == _DASHBOARD_TITLE)
 
 
 def check_issues(
@@ -240,13 +248,13 @@ def check_issues(
     """
     area_names = {area_label(name).casefold() for name in areas}
     for issue in issues:
-        if "pull_request" in issue or _is_dashboard(issue):
+        if not is_work(issue):
             continue
         number = issue.get("number")
         if not isinstance(number, int):
             continue
         title = _str(issue, "title")
-        names = _label_names(issue)
+        names = label_names(issue)
         clash = conflicts(names)
         if clash:
             report.conflict.append(IssueRef(number, title, ", ".join(clash)))
@@ -278,6 +286,39 @@ def fetch(repo: str) -> tuple[list[dict], list[dict], str]:
     return labels.data, issues.data, ""
 
 
+class RemoteConfigError(ValueError):
+    """A repo's config on its default branch could not be read or parsed."""
+
+
+def remote_issues(repo: str) -> dict[str, Any]:
+    """Read the ``issues`` block of ``repo``'s config on its default branch.
+
+    Args:
+        repo: ``owner/name``.
+
+    Returns:
+        The block, empty when the repo has no config or no ``issues``.
+
+    Raises:
+        RemoteConfigError: The config could not be read or is not YAML.
+
+    """
+    for name in CONFIG_FILES:
+        try:
+            text = read_repo_file(repo, name)
+        except RepoFileError as exc:
+            raise RemoteConfigError(str(exc)) from exc
+        if text is None:
+            continue
+        try:
+            doc = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise RemoteConfigError(f"{repo}:{name} is not valid YAML: {exc}") from exc
+        issues = doc.get("issues") if isinstance(doc, dict) else None
+        return dict(issues) if isinstance(issues, dict) else {}
+    return {}
+
+
 def remote_areas(repo: str) -> dict[str, tuple[str, ...]]:
     """Read ``issues.areas`` from ``repo``'s config on its default branch.
 
@@ -292,20 +333,11 @@ def remote_areas(repo: str) -> dict[str, tuple[str, ...]]:
             block is malformed.
 
     """
-    for name in CONFIG_FILES:
-        try:
-            text = read_repo_file(repo, name)
-        except RepoFileError as exc:
-            raise AreasError(str(exc)) from exc
-        if text is None:
-            continue
-        try:
-            doc = yaml.safe_load(text)
-        except yaml.YAMLError as exc:
-            raise AreasError(f"{repo}:{name} is not valid YAML: {exc}") from exc
-        issues = doc.get("issues") if isinstance(doc, dict) else None
-        return parse_areas(issues.get("areas") if isinstance(issues, dict) else None)
-    return {}
+    try:
+        issues = remote_issues(repo)
+    except RemoteConfigError as exc:
+        raise AreasError(str(exc)) from exc
+    return parse_areas(issues.get("areas"))
 
 
 def _section(title: str, lines: list[str]) -> None:

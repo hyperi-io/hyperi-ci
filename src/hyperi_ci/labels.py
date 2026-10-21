@@ -24,11 +24,12 @@ What counts as a release, for counting how many an item has waited:
 - per repo, a ``v*`` git tag
 - per program, a change of the value at its ``released`` source's key, for
   dfe ``latest`` in dfe-infra ``versions.yaml``, the last GA stack cut. A
-  prerelease never changes it, and a patch GA does.
+  prerelease never changes it, and a patch GA does. An empty value means no
+  GA yet, which :class:`NoReleaseYetError` reports.
 """
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -70,6 +71,10 @@ class AreasError(ValueError):
 
 class ProgramError(ValueError):
     """A program is unknown, or its membership or version source is unusable."""
+
+
+class NoReleaseYetError(ProgramError):
+    """A program's ``released`` value is empty: it has had no GA release."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +166,22 @@ class Program:
     members: Source
     version: Source
     released: Source
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramRelease:
+    """One program release: the commit that moved the ``released`` value.
+
+    Attributes:
+        version: The GA version it moved to.
+        at: When the commit landed, ISO 8601 UTC.
+        commit: The commit SHA.
+
+    """
+
+    version: str
+    at: str
+    commit: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +702,16 @@ def program_version(name: str) -> str:
     return _semver_at(source, _read_source(source))
 
 
+def _released_at(program: Program, doc: object) -> str:
+    source = program.released
+    if _at_key(doc, source) in (None, ""):
+        raise NoReleaseYetError(
+            f"{source.repo}:{source.path} `{source.key}` is empty, so "
+            f"{program.name} has no GA release yet"
+        )
+    return _semver_at(source, doc)
+
+
 def program_released(name: str) -> str:
     """Return program ``name``'s last released version.
 
@@ -689,12 +720,120 @@ def program_released(name: str) -> str:
     ``versions.yaml``, the last GA stack cut, which no prerelease moves.
 
     Raises:
+        NoReleaseYetError: The value is empty or null: no GA release yet.
         ProgramError: The program is unknown, or the source is unreadable,
             missing, not YAML, or holds no semver string at its key.
 
     """
+    program = program_info(name)
+    return _released_at(program, _read_source(program.released))
+
+
+def ga_version(text: object) -> tuple[int, int, int] | None:
+    """Return ``(major, minor, patch)`` of a GA semver, None for anything else.
+
+    A ``v`` prefix and build metadata are accepted. A prerelease is not GA.
+    """
+    if not isinstance(text, str):
+        return None
+    match = _VERSION.match(text)
+    if match is None or match.group(4) is not None:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def _commits(source: Source, query: str, *, paginate: bool) -> list[tuple[str, str]]:
+    """Return ``(sha, committer date)`` of commits touching ``source``'s file."""
+    from hyperi_ci import gh
+
+    args = [f"repos/{source.repo}/commits?path={source.path}&{query}"]
+    result = gh.gh_api([*args, "--paginate"] if paginate else args)
+    if not isinstance(result.data, list):
+        raise ProgramError(result.reason or f"{args[0]} was not a JSON array")
+    found: list[tuple[str, str]] = []
+    for entry in result.data:
+        commit = entry.get("commit") if isinstance(entry, Mapping) else None
+        committer = commit.get("committer") if isinstance(commit, Mapping) else None
+        date = committer.get("date") if isinstance(committer, Mapping) else None
+        sha = entry.get("sha") if isinstance(entry, Mapping) else None
+        if isinstance(sha, str) and isinstance(date, str):
+            found.append((sha, date))
+    return found
+
+
+def program_releases_since(name: str, since: str) -> tuple[ProgramRelease, ...]:
+    """Return program ``name``'s releases after ``since``, oldest first.
+
+    A release is a commit on the ``released`` source's default branch that
+    moves the value to a GA version higher than every earlier one. A
+    prerelease and a reverted cut never count.
+
+    Reads the file's commit list from ``since`` on, plus the last commit
+    before it for the starting value. The file is read only at the commits a
+    bisection needs, at most once each: a commit range whose two ends hold the
+    same value is taken to hold no change.
+
+    Args:
+        name: Program name, e.g. ``dfe``.
+        since: ISO 8601 timestamp. Only commits after it count.
+
+    Returns:
+        The releases, each with the version, commit date and SHA.
+
+    Raises:
+        ProgramError: The program is unknown, or the commit list or the file
+            at a commit could not be read.
+
+    """
+    from hyperi_ci import gh
+
     source = program_info(name).released
-    return _semver_at(source, _read_source(source))
+    before = _commits(source, f"until={since}&per_page=1", paginate=False)[:1]
+    after = _commits(source, f"since={since}&per_page=100", paginate=True)
+    seen = {sha for sha, _ in before}
+    history = [*before, *(c for c in reversed(after) if c[0] not in seen)]
+    if not history:
+        return ()
+
+    values: dict[str, object] = {}
+
+    def value(index: int) -> object:
+        sha = history[index][0]
+        if sha not in values:
+            try:
+                text = gh.read_repo_file(source.repo, source.path, ref=sha)
+            except (gh.RepoFileError, OSError) as exc:
+                raise ProgramError(
+                    f"could not read {source.repo}:{source.path} at {sha}: {exc}"
+                ) from exc
+            try:
+                values[sha] = _at_key(yaml.safe_load(text or ""), source)
+            except (yaml.YAMLError, ProgramError):
+                values[sha] = None
+        return values[sha]
+
+    def changes(low: int, high: int) -> list[int]:
+        if value(low) == value(high):
+            return []
+        if high - low == 1:
+            return [high]
+        middle = (low + high) // 2
+        return changes(low, middle) + changes(middle, high)
+
+    moved = changes(0, len(history) - 1)
+    if before:
+        top = ga_version(value(0))
+    else:
+        top = None
+        moved.insert(0, 0)
+    releases: list[ProgramRelease] = []
+    for index in moved:
+        version = ga_version(value(index))
+        if version is not None and (top is None or version > top):
+            sha, date = history[index]
+            releases.append(ProgramRelease(str(value(index)), date, sha))
+            top = version
+    return tuple(releases)
 
 
 def horizon_line(version: str, horizon: str) -> str:
@@ -771,20 +910,26 @@ def _program_json(program: Program) -> dict[str, Any]:
     docs: dict[tuple[str, str], object] = {}
     reasons: list[str] = []
 
-    def semver(source: Source) -> str:
+    def semver(source: Source, parse: Callable[[object], str]) -> str:
         """Read ``source``, once per file, recording why on failure."""
         try:
             file = (source.repo, source.path)
             if file not in docs:
                 docs[file] = _read_source(source)
-            return _semver_at(source, docs[file])
+            return parse(docs[file])
+        except NoReleaseYetError:
+            raise
         except ProgramError as exc:
             if str(exc) not in reasons:
                 reasons.append(str(exc))
             return ""
 
-    version = semver(program.version)
-    released = semver(program.released)
+    version = semver(program.version, lambda doc: _semver_at(program.version, doc))
+    try:
+        released = semver(program.released, lambda doc: _released_at(program, doc))
+        released_state = "released" if released else "error"
+    except NoReleaseYetError:
+        released, released_state = "", "none"
     lines = {h: horizon_line(version, h) for h in program.horizons} if version else {}
     return {
         "labels": [
@@ -802,6 +947,7 @@ def _program_json(program: Program) -> dict[str, Any]:
         "lines": lines,
         "released_source": _source_json(program.released),
         "released": released,
+        "released_state": released_state,
         "error": "; ".join(reasons),
     }
 
@@ -820,7 +966,8 @@ def manifest_json(areas: Mapping[str, Iterable[str]] | None = None) -> dict[str,
     reads the concrete release line here rather than resolving per item. It
     reads each source file once through ``gh api``. A source that cannot be
     read leaves its value empty, ``lines`` too for the version source, and
-    says why in ``error``.
+    says why in ``error``. ``released_state`` is ``released``, ``none`` where
+    the released value is empty (no GA yet, not an error), or ``error``.
 
     Args:
         areas: The repo's validated areas, empty when it declares none.

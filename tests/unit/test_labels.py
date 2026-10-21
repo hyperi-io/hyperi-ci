@@ -25,6 +25,7 @@ from hyperi_ci.labels import (
     MANIFEST_FILE,
     AreasError,
     ManifestError,
+    NoReleaseYetError,
     ProgramError,
     area_description,
     area_label,
@@ -614,16 +615,27 @@ class TestPrograms:
         assert program_released("dfe") == "2.2.1"
         assert program_version("dfe") == "2.2.2-rc.1"
 
-    @pytest.mark.parametrize("latest", ["", "2.2", "latest"])
+    @pytest.mark.parametrize("latest", ["2.2", "latest"])
     def test_a_released_value_that_is_not_semver_raises(
         self, dfe_infra: dict, latest: str
     ) -> None:
         dfe_infra["versions.yaml"] = _VERSIONS.format(
             current="2.2.1-rc.17", latest=latest
         )
-        with pytest.raises(ProgramError, match="`latest` is"):
+        with pytest.raises(ProgramError, match="`latest` is") as raised:
             program_released("dfe")
+        assert not isinstance(raised.value, NoReleaseYetError)
         assert program_version("dfe") == "2.2.1-rc.17"
+
+    @pytest.mark.parametrize("latest", ['""', "", "null"])
+    def test_an_empty_released_value_is_no_release_yet(
+        self, dfe_infra: dict, latest: str
+    ) -> None:
+        dfe_infra["versions.yaml"] = (
+            f'schema: 2\ncurrent: "2.2.0-rc.3"\nlatest: {latest}\n'
+        )
+        with pytest.raises(NoReleaseYetError, match="no GA release yet"):
+            program_released("dfe")
 
     def test_released_reports_an_unreadable_source(
         self, monkeypatch: pytest.MonkeyPatch
@@ -776,6 +788,7 @@ class TestJson:
             "lines",
             "released_source",
             "released",
+            "released_state",
             "error",
         }
         assert [x["name"] for x in dfe["labels"]] == [
@@ -806,14 +819,30 @@ class TestJson:
             "key": "latest",
         }
         assert dfe["released"] == "2.2.0"
+        assert dfe["released_state"] == "released"
         assert dfe["error"] == ""
 
     def test_a_bad_released_value_keeps_the_lines(self, dfe_infra: dict) -> None:
-        dfe_infra["versions.yaml"] = _VERSIONS.format(current="2.2.1-rc.17", latest="")
+        dfe_infra["versions.yaml"] = _VERSIONS.format(
+            current="2.2.1-rc.17", latest="2.2"
+        )
         dfe = manifest_json()["programs"]["dfe"]
         assert dfe["lines"]["next-patch"] == "2.2.1"
         assert dfe["released"] == ""
-        assert "`latest` is ''" in dfe["error"]
+        assert dfe["released_state"] == "error"
+        assert "`latest` is '2.2'" in dfe["error"]
+
+    def test_an_empty_released_value_is_a_state_not_an_error(
+        self, dfe_infra: dict
+    ) -> None:
+        dfe_infra["versions.yaml"] = _VERSIONS.format(current="2.2.0-rc.3", latest="")
+        doc = manifest_json()
+        dfe = doc["programs"]["dfe"]
+        assert doc["schema"] == 1
+        assert dfe["released_state"] == "none"
+        assert dfe["released"] == ""
+        assert dfe["error"] == ""
+        assert dfe["lines"]["next-minor"] == "2.2"
 
     def test_an_unresolvable_program_says_why(self, dfe_infra: dict) -> None:
         dfe_infra["versions.yaml"] = None
@@ -821,6 +850,7 @@ class TestJson:
         assert dfe["lines"] == {}
         assert dfe["version"] == ""
         assert dfe["released"] == ""
+        assert dfe["released_state"] == "error"
         assert dfe["error"].count("versions.yaml does not exist") == 1
         assert len(dfe["labels"]) == 3
 

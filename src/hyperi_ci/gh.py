@@ -197,11 +197,16 @@ class RepoFileError(RuntimeError):
     """A repo file could not be read for a reason other than its absence."""
 
 
-def read_repo_file(full_name: str, path: str) -> str | None:
-    """Fetch one file's raw text from a repo's DEFAULT branch.
+def read_repo_file(full_name: str, path: str, *, ref: str | None = None) -> str | None:
+    """Fetch one file's raw text from a repo's DEFAULT branch, or from ``ref``.
 
     A local clone parked on a fix branch would report a fix that main lacks, so
     audits read it this way.
+
+    Args:
+        full_name: ``owner/name``.
+        path: Path in the repo.
+        ref: Commit, branch or tag to read at. None reads the default branch.
 
     Returns:
         The file's text, or None when GitHub answers 404.
@@ -210,10 +215,13 @@ def read_repo_file(full_name: str, path: str) -> str | None:
         RepoFileError: Any other failure, so an outage never reads as absence.
 
     """
+    endpoint = f"repos/{full_name}/contents/{path}"
+    if ref is not None:
+        endpoint += f"?ref={ref}"
     result = gh_run(
         [
             "api",
-            f"repos/{full_name}/contents/{path}",
+            endpoint,
             "--header",
             "Accept: application/vnd.github.raw+json",
         ],
