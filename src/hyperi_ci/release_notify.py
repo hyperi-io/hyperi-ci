@@ -31,7 +31,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from hyperi_ci.commit_range import last_version_tag
-from hyperi_ci.common import error, info, run_cmd, success, warn
+from hyperi_ci.common import announce, error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.curl_config import config_line
 from hyperi_ci.fork_version import check_fork
@@ -147,7 +147,9 @@ def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
 
     Only a plain ``vX.Y.Z`` bounds the range, because a prerelease sorts above
     its own release under ``-v:refname``. ``v{version}`` itself stays a candidate
-    whatever its shape, so a prerelease can find its position in the list.
+    whatever its shape, so a prerelease can find its position in the list. When
+    the tag is not in the clone (``tag-head`` made it through the API) the newest
+    plain tag is the previous one, as earlier tags arrive with the checkout.
     """
     result = run_cmd(
         ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
@@ -166,25 +168,110 @@ def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
     return candidates[0] if candidates else None
 
 
-def referenced_issues(version: str, *, cwd: str | None = None) -> list[int]:
+def _remote_tag_commit(repo: str, tag: str) -> tuple[str | None, str]:
+    """Resolve ``tag`` to its commit through the GitHub API.
+
+    ``tag-head`` creates its tag there, so the job's clone never holds it. An
+    annotated tag is dereferenced once, as the release workflow's tag guard does.
+
+    Returns:
+        ``(sha, "")``, or ``(None, reason)`` when GitHub has no such tag or could
+        not be asked.
+
+    """
+    ref, why = _call([f"repos/{repo}/git/ref/tags/{tag}"])
+    obj = ref.get("object") if isinstance(ref, dict) else None
+    if not isinstance(obj, dict) or not obj.get("sha"):
+        return None, why or f"gh api returned no object for {tag}"
+    sha = str(obj["sha"])
+    if obj.get("type") != "tag":
+        return sha, ""
+    annotated, why = _call([f"repos/{repo}/git/tags/{sha}"])
+    target = annotated.get("object") if isinstance(annotated, dict) else None
+    if not isinstance(target, dict) or not target.get("sha"):
+        return None, why or f"gh api returned no target for annotated tag {tag}"
+    return str(target["sha"]), ""
+
+
+def _release_ref(
+    version: str, *, repo: str | None = None, cwd: str | None = None
+) -> str | None:
+    """Name the commit ``v{version}`` points at, for git to read a range up to.
+
+    The local tag when the clone holds it, else the commit GitHub says it points
+    at. ``tag-head`` makes its tag through the API, so a forced-bump, fork or
+    tag-less first release has no local tag. A commit the clone lacks fails the
+    git log that follows, which warns.
+
+    Returns:
+        ``v{version}``, a commit sha, or None after a warning when neither the
+        clone nor GitHub knows the tag.
+
+    """
+    tag = f"v{version}"
+    local = run_cmd(
+        ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    if local.returncode == 0 and local.stdout.strip():
+        return tag
+    repo = repo or os.environ.get("GITHUB_REPOSITORY", "")
+    if repo:
+        sha, why = _remote_tag_commit(repo, tag)
+    else:
+        sha, why = None, "GITHUB_REPOSITORY is not set"
+    if sha:
+        return sha
+    announce(
+        f"{tag} is not in this clone and GitHub could not resolve it ({why}), "
+        "so no issue or PR is told about this release.",
+        "hyperi-ci release-notify found no tag",
+    )
+    return None
+
+
+def referenced_issues(
+    version: str, *, repo: str | None = None, cwd: str | None = None
+) -> list[int]:
     """Issue and PR numbers referenced by the commits in this release.
 
     Reads the commit range since the previous tag, including a squash-merge's
     ``(#123)`` suffix. A fork walks only its own first-parent history, because
     upstream's sync-merged commits carry upstream's issue numbers.
+
+    Args:
+        version: Bare version being released.
+        repo: ``owner/name`` to ask for a tag the clone lacks. Defaults to
+            ``GITHUB_REPOSITORY``.
+        cwd: Repository to read. Defaults to the current directory.
+
+    Returns:
+        The numbers, sorted. Empty after a warning when the tag cannot be
+        resolved or its range cannot be read.
+
     """
+    ref = _release_ref(version, repo=repo, cwd=cwd)
+    if ref is None:
+        return []
     root = Path(cwd) if cwd else Path.cwd()
     fork = check_fork(root).fork
     if fork:
-        previous = last_version_tag(first_parent=True, cwd=root, rev=f"v{version}^")
+        previous = last_version_tag(first_parent=True, cwd=root, rev=f"{ref}^")
     else:
         previous = _previous_tag(version, cwd=cwd)
-    span = f"{previous}..v{version}" if previous else f"v{version}"
+    span = f"{previous}..{ref}" if previous else ref
     log = ["git", "log", "--format=%B"]
     if fork:
         log.append("--first-parent")
     result = run_cmd([*log, span], capture=True, check=False, cwd=cwd)
     if result.returncode != 0:
+        announce(
+            f"git could not read {span} ({result.stderr.strip() or 'no detail'}), "
+            "so no issue or PR is told about this release.",
+            "hyperi-ci release-notify found no commits",
+        )
         return []
     numbers = {int(match) for match in _ISSUE_REF.findall(result.stdout)}
     return sorted(numbers)
@@ -304,7 +391,7 @@ def notify_success(
 
     _close_resolved_failures(repo, version)
 
-    numbers = referenced_issues(version, cwd=cwd)
+    numbers = referenced_issues(version, repo=repo, cwd=cwd)
     if not numbers:
         info(f"release-notify: no issues or PRs referenced by v{version}")
         return 0

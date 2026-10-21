@@ -83,7 +83,8 @@ class TestReferencedIssues:
         with patch("hyperi_ci.release_notify.run_cmd", return_value=_git(log)):
             assert referenced_issues("1.2.3") == []
 
-    def test_empty_when_git_fails(self) -> None:
+    def test_empty_when_git_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
         with patch("hyperi_ci.release_notify.run_cmd", return_value=_git("", 128)):
             assert referenced_issues("1.2.3") == []
 
@@ -129,6 +130,135 @@ class TestReferencedIssuesOnARealRepo:
         )
         self._release(root, fork=False)
         assert referenced_issues("0.2.9", cwd=str(root)) == [5, 7, 121]
+
+
+def _commit_sha(root: Path) -> str:
+    return run_cmd(
+        ["git", "rev-parse", "HEAD"], capture=True, check=True, cwd=root
+    ).stdout.strip()
+
+
+def _linear_history(root: Path) -> str:
+    """Build v1.0.0, then two commits and no v1.0.1 tag. Returns the head sha."""
+
+    def git(*args: str) -> None:
+        run_cmd(["git", *args], capture=True, check=True, cwd=root)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "ci@example.invalid")
+    git("config", "user.name", "CI")
+    git("config", "commit.gpgsign", "false")
+    git("commit", "--allow-empty", "-q", "-m", "fix: first (#1)")
+    git("tag", "v1.0.0")
+    git("commit", "--allow-empty", "-q", "-m", "fix: second (#2)")
+    git("commit", "--allow-empty", "-q", "-m", "fix: third\n\nCloses #3")
+    return _commit_sha(root)
+
+
+class TestTagOnlyOnGitHub:
+    """`tag-head` makes its tag through the API, so the job's clone never holds it."""
+
+    @pytest.fixture(autouse=True)
+    def repo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
+
+    def test_issues_found_through_the_github_tag(self, tmp_path: Path) -> None:
+        head = _linear_history(tmp_path)
+        ref = {"object": {"type": "commit", "sha": head}}
+        with patch("hyperi_ci.release_notify._call", return_value=(ref, "")) as call:
+            found = referenced_issues("1.0.1", cwd=str(tmp_path))
+        assert found == [2, 3]
+        assert call.call_args.args[0] == [
+            "repos/hyperi-io/hyperi-ci/git/ref/tags/v1.0.1"
+        ]
+
+    def test_an_annotated_tag_is_followed_to_its_commit(self, tmp_path: Path) -> None:
+        head = _linear_history(tmp_path)
+        answers = [
+            ({"object": {"type": "tag", "sha": "f" * 40}}, ""),
+            ({"object": {"type": "commit", "sha": head}}, ""),
+        ]
+        with patch("hyperi_ci.release_notify._call", side_effect=answers) as call:
+            found = referenced_issues("1.0.1", cwd=str(tmp_path))
+        assert found == [2, 3]
+        assert call.call_args.args[0] == [
+            f"repos/hyperi-io/hyperi-ci/git/tags/{'f' * 40}"
+        ]
+
+    def test_a_fork_reads_its_range_from_the_github_tag(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        root = make_fork_history(tmp_path, own=("fix: x (#7)",))
+        (root / ".hyperi-ci.yaml").write_text(
+            "classification: fork\n", encoding="utf-8"
+        )
+        ref = {"object": {"type": "commit", "sha": _commit_sha(root)}}
+        with patch("hyperi_ci.release_notify._call", return_value=(ref, "")):
+            assert referenced_issues("0.2.9", cwd=str(root)) == [7, 121]
+
+    def test_the_local_tag_is_not_second_guessed(self, tmp_path: Path) -> None:
+        _linear_history(tmp_path)
+        run_cmd(["git", "tag", "v1.0.1"], capture=True, check=True, cwd=tmp_path)
+        with patch("hyperi_ci.release_notify._call") as call:
+            assert referenced_issues("1.0.1", cwd=str(tmp_path)) == [2, 3]
+        call.assert_not_called()
+
+    def test_announces_after_a_tag_head_release(self, tmp_path: Path) -> None:
+        head = _linear_history(tmp_path)
+        posted: list[str] = []
+
+        def call(
+            args: list[str], *, body: dict | None = None
+        ) -> tuple[dict | list | None, str]:
+            if args[0].endswith("/git/ref/tags/v1.0.1"):
+                return {"object": {"type": "commit", "sha": head}}, ""
+            if "POST" in args:
+                posted.append(args[-1])
+                return {"id": 1}, ""
+            return [], ""
+
+        with patch("hyperi_ci.release_notify._call", side_effect=call):
+            assert notify_success(version="1.0.1", cwd=str(tmp_path)) == 0
+        assert posted == [
+            "repos/hyperi-io/hyperi-ci/issues/2/comments",
+            "repos/hyperi-io/hyperi-ci/issues/3/comments",
+        ]
+
+    def test_an_unresolvable_tag_warns_instead_of_returning_quietly(
+        self, tmp_path: Path
+    ) -> None:
+        _linear_history(tmp_path)
+        failed = (
+            None,
+            "gh api repos/hyperi-io/hyperi-ci/git/ref/tags/v1.0.1 failed: 404",
+        )
+        with (
+            patch("hyperi_ci.release_notify._call", return_value=failed),
+            patch("hyperi_ci.release_notify.announce") as announce,
+        ):
+            assert referenced_issues("1.0.1", cwd=str(tmp_path)) == []
+        message = announce.call_args.args[0]
+        assert "v1.0.1" in message
+        assert "404" in message
+
+    def test_no_repository_warns_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _linear_history(tmp_path)
+        monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+        with patch("hyperi_ci.release_notify.announce") as announce:
+            assert referenced_issues("1.0.1", cwd=str(tmp_path)) == []
+        assert "GITHUB_REPOSITORY is not set" in announce.call_args.args[0]
+
+    def test_a_commit_the_clone_lacks_warns(self, tmp_path: Path) -> None:
+        _linear_history(tmp_path)
+        ref = {"object": {"type": "commit", "sha": "a" * 40}}
+        with (
+            patch("hyperi_ci.release_notify._call", return_value=(ref, "")),
+            patch("hyperi_ci.release_notify.announce") as announce,
+        ):
+            assert referenced_issues("1.0.1", cwd=str(tmp_path)) == []
+        assert "git could not read" in announce.call_args.args[0]
 
 
 class TestNotifySuccess:
