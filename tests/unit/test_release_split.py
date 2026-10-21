@@ -105,6 +105,15 @@ ALLOWED_RUN_LINES = {
         rf"{_INSTALL} publish-charts",
         # The global binary with the central config only: no npx, no repo config.
         r'semantic-release --repository-url "https://github\.com/\$\{GITHUB_REPOSITORY\}"',
+        # The tag guard reads GitHub's view of the tag and only echoes.
+        r'tag="v\$\{RELEASE_VERSION\}"',
+        r"if ! ref=\$\(gh api \"repos/\$\{GITHUB_REPOSITORY\}/git/ref/tags/\$\{tag\}\" --jq '\.object\.type \+ \" \" \+ \.object\.sha'\)",
+        r'read -r kind sha <<< "\$ref"',
+        r'if \[ "\$kind" = "tag" \]',
+        r"sha=\$\(gh api \"repos/\$\{GITHUB_REPOSITORY\}/git/tags/\$\{sha\}\" --jq '\.object\.sha'\)",
+        r'if \[ "\$sha" != "\$head" \]',
+        r'echo "::error::\$\{tag\} [^`;|&]*"',
+        r'echo "\$\{tag\} is at \$\{head\}\."',
         rf"{_INSTALL} run release",
         rf'{_INSTALL} release-commit --branch "\$RELEASE_BRANCH" "{_VERSION}"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome success',

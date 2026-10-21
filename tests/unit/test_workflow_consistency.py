@@ -2968,3 +2968,37 @@ class TestIacWorkflow:
         ours = self._workflow()["concurrency"]["group"]
         for name in LANGUAGE_WORKFLOWS:
             assert _load_workflow(name)["concurrency"]["group"] != ours, name
+
+
+class TestEveryJobChecksOutTheBuiltCommit:
+    """A job that checks out the branch head can build or tag a commit Plan never saw (issue #714)."""
+
+    _PIPELINES = (
+        "ci.yml",
+        "go-ci.yml",
+        "python-ci.yml",
+        "rust-ci.yml",
+        "ts-ci.yml",
+        "_release-tail.yml",
+    )
+
+    @pytest.mark.parametrize("workflow", _PIPELINES)
+    def test_checkouts_pin_the_run_commit(self, workflow: str) -> None:
+        for job_id, job in _load_workflow(workflow)["jobs"].items():
+            for step in job.get("steps", []):
+                if "actions/checkout@" not in str(step.get("uses", "")):
+                    continue
+                ref = (step.get("with") or {}).get("ref")
+                if ref is None:
+                    continue
+                assert ref == "${{ inputs.tag || github.sha }}", (
+                    f"{workflow}:{job_id} checks out {ref}"
+                )
+
+    def test_the_tag_guard_runs_after_every_tag_step_and_before_publish(self) -> None:
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
+        names = [s.get("name") for s in steps]
+        guard = names.index("Guard -- the release tag must be on GitHub at this commit")
+        tags = [i for i, n in enumerate(names) if n and n.startswith("Tag ")]
+        assert tags and max(tags) < guard < names.index("Publish")
+        assert "if" not in steps[guard], "the guard must cover every tagging path"

@@ -332,6 +332,10 @@ runs:
         # would tag the stable number this run exists to avoid spending.
         version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' | head -1 | awk '{print $5}')
 
+        if [[ -z "$version" ]] && grep -q 'is behind the remote one' <<< "$dry_output"; then
+          echo "::error::The branch moved past ${GITHUB_SHA} after this run started, so semantic-release will not release it. Release the current head with 'hyperi-ci release'."
+          exit 1
+        fi
         if [[ -z "$version" ]]; then
           echo "::error::No release-worthy commits since last tag. On a push, drop the 'Release: true' trailer (this is a non-release commit) or land a fix:/feat:/perf: commit. On a from-head dispatch, re-run with --bump patch (or minor) to force a release."
           exit 1
