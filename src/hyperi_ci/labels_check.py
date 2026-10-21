@@ -136,6 +136,9 @@ def check_labels(
 ) -> None:
     """Compare the repo's labels with the manifest, adding to ``report``.
 
+    Community and program labels are checked for drift where present and
+    never reported missing.
+
     Args:
         present: The repo's labels as `GET /repos/{repo}/labels` returns them.
         areas: The repo's validated ``issues.areas``.
@@ -144,7 +147,13 @@ def check_labels(
     """
     manifest = load_manifest()
     expected = {label.name.casefold(): label for label in expected_labels(areas)}
-    optional = {label.name.casefold(): label for label in manifest.community}
+    # Program labels stay on a repo that left the program, so none is extra.
+    program_labels = [
+        label for program in manifest.programs.values() for label in program.labels
+    ]
+    optional = {
+        label.name.casefold(): label for label in (*manifest.community, *program_labels)
+    }
     bots = {name.casefold() for name in manifest.bot_owned}
     retired = {name.casefold(): new for name, new in manifest.retired.items()}
     area_prefix = manifest.area_prefix.casefold()

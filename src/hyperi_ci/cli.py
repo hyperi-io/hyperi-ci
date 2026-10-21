@@ -794,6 +794,8 @@ def labels(
 
     `--json` prints the whole manifest plus the repo's areas, for consumers
     that cannot import `hyperi_ci.labels`. Its shape is versioned by `schema`.
+    It includes the release horizons and each program's resolved release
+    lines, read from the program's version source through `gh api`.
     """
     from hyperi_ci.common import error
     from hyperi_ci.description_source import repo_slug
