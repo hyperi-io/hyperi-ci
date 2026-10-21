@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.21](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.20...v2.14.21) (2026-10-21)
+
+### Bug Fixes
+
+* **labels:** add next-major and program release horizons ([#720](https://github.com/hyperi-io/hyperi-ci/issues/720)) ([be57f9e](https://github.com/hyperi-io/hyperi-ci/commit/be57f9e436aa3347200409a55f947158e8eadace))
+
 ## [2.14.20](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.19...v2.14.20) (2026-10-21)
 
 ### Bug Fixes
