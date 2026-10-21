@@ -31,19 +31,60 @@ types:
 
 # Release gate, exactly one per issue, STRICTEST FIRST. The order is the
 # precedence when an issue carries more than one. No gate label = untriaged.
+# These names are the one horizon vocabulary, programs below included.
+# `set_by`: anyone, release-owner (agents never set it), or hand (a deliberate
+# `gh issue edit` with a comment, never a tool's default).
 gate:
   - name: release-blocker
     color: b60205
     description: The next release cut does not ship while this is open
+    set_by: hand
   - name: next-patch
     color: 1d76db
     description: Wanted in an upcoming patch release. Does not hold a cut
+    set_by: anyone
   - name: next-minor
     color: 5319e7
     description: Waits for the next minor release. Placed by the release owner
+    set_by: release-owner
+  - name: next-major
+    color: 3b0a8c
+    description: Waits for the next major release. Set by the release owner only, never proposed by agents
+    set_by: release-owner
   - name: backlog
     color: d4c5f9
     description: Captured future work, not scheduled now
+    set_by: anyone
+
+# Release trains that span repos. Each takes the next-* horizons as
+# `<program>:<horizon>`, coloured as the horizon, because release-blocker and
+# backlog belong to each repo's own gate. `members`, `version` and `released`
+# name the one file that answers each question, read from its repo's default
+# branch.
+# A repo leaving a program keeps its labels, because the reconcile never
+# deletes one. To retire a family, move each of its labels into `retired:`
+# and delete the program here.
+programs:
+  dfe:
+    labels:
+      next-patch: Wanted in the next DFE stack patch release. Does not hold a cut
+      next-minor: Waits for the next DFE stack minor release. Placed by the release owner
+      next-major: Waits for the next DFE stack major release. Release owner only, never proposed by agents
+    # Every `nodes.<node>.repo`. No repo config repeats this list.
+    members:
+      repo: hyperi-io/dfe-infra
+      path: suite.yaml
+      key: nodes
+    # The stack version every horizon resolves from, prereleases included.
+    version:
+      repo: hyperi-io/dfe-infra
+      path: versions.yaml
+      key: current
+    # The last GA stack cut. A change of it is one program release.
+    released:
+      repo: hyperi-io/dfe-infra
+      path: versions.yaml
+      key: latest
 
 # At most one per issue, with the decider as assignee.
 waiting:

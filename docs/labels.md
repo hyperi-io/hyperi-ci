@@ -13,7 +13,27 @@ Every HyperI repo carries the same gate, waiting and flag labels, plus its own `
 
 ## The gate
 
-Exactly one per open issue, strictest first: `release-blocker`, `next-patch`, `next-minor`, `backlog`. No gate label means untriaged, and untriaged holds the cut. Two or more is a conflict, and the strictest wins.
+Exactly one per open issue, strictest first: `release-blocker`, `next-patch`, `next-minor`, `next-major`, `backlog`. No gate label means untriaged, and untriaged holds the cut. Two or more is a conflict, and the strictest wins.
+
+These five are the one release-horizon vocabulary. Each entry's `set_by` says who places it: `hand` for `release-blocker` (a deliberate `gh issue edit` with a comment), `release-owner` for `next-minor` and `next-major`, `anyone` for the rest. Agents never propose `next-major`.
+
+## Programs
+
+A program is a release train spanning repos. It takes the `next-*` horizons as `<program>:<horizon>` labels, `dfe:next-patch`, `dfe:next-minor` and `dfe:next-major`, coloured as the horizon. There is no program `release-blocker` or `backlog`: each repo's own gate owns those.
+
+Each program names three sources, read from the default branch through `gh api`. For dfe all live in hyperi-io/dfe-infra:
+
+- membership: `suite.yaml`, every `nodes.<node>.repo`. No repo config repeats it.
+- version: `versions.yaml` `current`, the stack being built. The lines resolve from it.
+- released: `versions.yaml` `latest`, the last GA stack cut.
+
+Every suite node carries the dfe labels, libraries with `audience: general` included. Those keep their own repo horizons too, and the two are independent.
+
+A label resolves to a concrete line from that version. From `2.2.1-rc.17`, `dfe:next-patch` is `2.2.1`, `dfe:next-minor` is `2.3` and `dfe:next-major` is `3.0`. A prerelease's own version counts as unreleased, so from `2.3.0-rc.1` next-minor is `2.3`. `hyperi_ci.labels.horizon_line` has the rules.
+
+The reconcile creates a program's labels on its members only, and never deletes one, so a repo leaving the program keeps its labels. `--check` accepts them on any repo and reports their drift. To retire a whole family, move each label into `retired:` and delete the program.
+
+When counting how many releases an item has waited, a repo release is a `v*` git tag, and a program release is a change of the value at its `released` source's key (for dfe, `latest` in `versions.yaml`). A prerelease never moves it, and a patch GA does.
 
 release-notify files a `release-commit-back` issue with `next-patch`, creating the label from the manifest if the repo lacks it. A `release-failure` issue gets no gate label on purpose, so it holds the next cut until someone triages it.
 
@@ -68,8 +88,12 @@ For consumers that cannot import `hyperi_ci` (hyperi-ai's pm layer, dfe-sweep). 
 | `retired` | `{old: replacement}` | Retired label map |
 | `retired_description` | str | `RETIRED: use {replacement}` |
 | `areas` | `{name: [paths]}` | This repo's `issues.areas`, `{}` when none |
+| `horizons` | list of `{name, rank, set_by, description}` | The gate as horizons, `rank` 1 strictest. `set_by` is `anyone`, `release-owner` or `hand` |
+| `programs` | `{name: {labels, membership_source, version_source, version, lines, released_source, released, error}}` | `labels` adds `horizon` to each label. A source is `{repo, path, key}`. `lines` maps horizon to its resolved line. `released` is the last GA version |
 
 `--json` and `--check` are separate modes. With `--repo`, `areas` comes from that repo's default branch.
+
+`--json` reads each program's version source once, so take a program line from `lines` rather than resolving it per item. A source that cannot be read leaves its value `""`, `lines` `{}` for the version source, and `error` says why. The command still exits 0.
 
 ## Using the manifest from another repo
 
@@ -81,6 +105,11 @@ labels.conflicts(["backlog", "next-patch"])       # ("next-patch", "backlog")
 areas = labels.parse_areas(raw_issues_areas)      # raises AreasError
 for label in labels.expected_labels(areas):       # Label(name, color, description)
     ...
+members = labels.program_members("dfe")           # {"hyperi-io/dfe-loader", ...}, raises ProgramError
+labels.expected_labels(areas, programs=["dfe"])   # adds dfe:next-patch, dfe:next-minor, dfe:next-major
+labels.resolve_program_horizon("dfe", "next-minor")  # "2.3"
+labels.program_version("dfe")                     # "2.2.1-rc.17", the train the lines resolve from
+labels.program_released("dfe")                    # "2.2.0", a change of it is one program release
 labels.retired_labels()                           # {"blocked": "needs-decision or blocked-by", ...}
 labels.is_allowed("initiative:dfe-ga")            # True
 labels.manifest_json(areas)                       # the --json document

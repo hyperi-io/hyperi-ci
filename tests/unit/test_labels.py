@@ -25,16 +25,22 @@ from hyperi_ci.labels import (
     MANIFEST_FILE,
     AreasError,
     ManifestError,
+    ProgramError,
     area_description,
     area_label,
     conflicts,
     expected_labels,
     gate_labels,
     gate_of,
+    horizon_line,
     is_allowed,
     load_manifest,
     manifest_json,
     parse_areas,
+    program_members,
+    program_released,
+    program_version,
+    resolve_program_horizon,
     retired_description,
     retired_labels,
 )
@@ -63,8 +69,13 @@ class TestManifest:
             "release-blocker",
             "next-patch",
             "next-minor",
+            "next-major",
             "backlog",
         )
+
+    def test_next_major_sits_between_next_minor_and_backlog(self) -> None:
+        assert gate_of(["backlog", "next-major"]) == "next-major"
+        assert gate_of(["next-major", "next-minor"]) == "next-minor"
 
     def test_backlog_keeps_the_label_pm_creates(self) -> None:
         """The repo projects' auto-add filter and `pm backlog` both rely on it."""
@@ -107,6 +118,29 @@ class TestMalformedManifest:
             (lambda d: d.update(area="area/"), "`area`"),
             (lambda d: d["allowed"].update(patterns=["initiative:("]), "allowed"),
             (lambda d: d["allowed"].pop("literals"), "allowed.literals"),
+            (lambda d: d["gate"][3].pop("set_by"), "set_by"),
+            (lambda d: d["gate"].pop(3), "next-major"),
+            (lambda d: d.pop("programs"), "`programs`"),
+            (
+                lambda d: d["programs"]["dfe"]["labels"].update(backlog="x"),
+                "'backlog' is not one of",
+            ),
+            (
+                lambda d: d["programs"]["dfe"]["labels"].update(
+                    {"next-patch": "x" * 101}
+                ),
+                "100",
+            ),
+            (
+                lambda d: d["programs"]["dfe"]["members"].update(repo="dfe-infra"),
+                "owner/name",
+            ),
+            (lambda d: d["programs"]["dfe"].pop("version"), "programs.dfe.version"),
+            (lambda d: d["programs"]["dfe"].pop("released"), "programs.dfe.released"),
+            (
+                lambda d: d["retired"].update({"dfe:next-patch": "x"}),
+                "more than once",
+            ),
         ],
     )
     def test_is_refused_with_a_reason(
@@ -436,8 +470,244 @@ class TestAllowed:
         assert not is_allowed(name)
 
 
+# Excerpts of dfe-infra's suite.yaml and versions.yaml, in their real shape.
+_SUITE = """\
+schema: "1"
+verified: "2026-09-03"
+nodes:
+  dfe-infra:
+    repo: hyperi-io/dfe-infra
+    role: infra
+    maturity: release
+  dfe-loader:
+    repo: hyperi-io/dfe-loader
+    role: service
+    artefacts:
+      - kind: container
+        registry: ghcr
+        public: false
+  scalo-rs:
+    repo: hyperi-io/scalo-rs
+    package: scalo
+    role: library
+edges:
+  - from: scalo-rs
+    to: dfe-loader
+    kind: cargo-dep
+"""
+
+_VERSIONS = """\
+schema: 2
+current: "{current}"
+latest: "{latest}"
+lts:
+stacks:
+  2.2.0:
+    maturity: release
+    support: standard
+  2.2.1-rc.17:
+    maturity: rc
+    support: standard
+"""
+
+
+@pytest.fixture
+def dfe_infra(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
+    """Serve dfe-infra's files from a dict, editable per test."""
+    files: dict[str, str | None] = {
+        "suite.yaml": _SUITE,
+        "versions.yaml": _VERSIONS.format(current="2.2.1-rc.17", latest="2.2.0"),
+    }
+
+    def read(repo: str, path: str) -> str | None:
+        assert repo == "hyperi-io/dfe-infra"
+        return files[path]
+
+    monkeypatch.setattr(gh, "read_repo_file", read)
+    return files
+
+
+class TestHorizonLine:
+    @pytest.mark.parametrize(
+        ("version", "patch_line", "minor_line", "major_line"),
+        [
+            ("2.2.1-rc.17", "2.2.1", "2.3", "3.0"),
+            ("2.2.0", "2.2.1", "2.3", "3.0"),
+            ("2.2.1", "2.2.2", "2.3", "3.0"),
+            ("2.3.0-rc.1", "2.3.1", "2.3", "3.0"),
+            ("3.0.0-rc.1", "3.0.1", "3.1", "3.0"),
+            ("3.0.0", "3.0.1", "3.1", "4.0"),
+            ("0.9.3", "0.9.4", "0.10", "1.0"),
+            ("v2.9.10", "2.9.11", "2.10", "3.0"),
+            ("2.2.1+build.5", "2.2.2", "2.3", "3.0"),
+            ("2.2.1-rc.1+build.5", "2.2.1", "2.3", "3.0"),
+        ],
+    )
+    def test_each_horizon(
+        self, version: str, patch_line: str, minor_line: str, major_line: str
+    ) -> None:
+        assert horizon_line(version, "next-patch") == patch_line
+        assert horizon_line(version, "next-minor") == minor_line
+        assert horizon_line(version, "next-major") == major_line
+
+    @pytest.mark.parametrize("version", ["2.2", "latest", "", "2.2.1.4", "2.x.1"])
+    def test_a_non_semver_version_raises(self, version: str) -> None:
+        with pytest.raises(ProgramError, match="MAJOR.MINOR.PATCH"):
+            horizon_line(version, "next-patch")
+
+    @pytest.mark.parametrize("horizon", ["release-blocker", "backlog", "next"])
+    def test_only_next_horizons_have_a_line(self, horizon: str) -> None:
+        with pytest.raises(ProgramError, match="no release line"):
+            horizon_line("2.2.0", horizon)
+
+
+class TestPrograms:
+    def test_expected_labels_without_programs_is_unchanged(self) -> None:
+        names = [label.name for label in expected_labels({"docs": ("docs/",)})]
+        assert names == [
+            *gate_labels(),
+            "needs-decision",
+            "security",
+            "regression",
+            "area/docs",
+        ]
+
+    def test_expected_labels_adds_the_program_family(self) -> None:
+        wanted = expected_labels({"docs": ("docs/",)}, programs=["dfe"])
+        names = [label.name for label in wanted]
+        assert names[-4:] == [
+            "dfe:next-patch",
+            "dfe:next-minor",
+            "dfe:next-major",
+            "area/docs",
+        ]
+        family = {label.name: label for label in wanted}
+        gate = {label.name: label for label in load_manifest().gate}
+        assert family["dfe:next-major"].color == gate["next-major"].color
+
+    def test_an_unknown_program_raises(self) -> None:
+        with pytest.raises(ProgramError, match="'nope'"):
+            expected_labels(programs=["nope"])
+
+    def test_no_program_has_release_blocker_or_backlog(self) -> None:
+        for program in load_manifest().programs.values():
+            assert program.horizons == ("next-patch", "next-minor", "next-major")
+
+    def test_members_are_every_node_repo(self, dfe_infra: dict) -> None:
+        assert program_members("dfe") == {
+            "hyperi-io/dfe-infra",
+            "hyperi-io/dfe-loader",
+            "hyperi-io/scalo-rs",
+        }
+
+    def test_resolve_each_horizon(self, dfe_infra: dict) -> None:
+        assert program_version("dfe") == "2.2.1-rc.17"
+        assert resolve_program_horizon("dfe", "next-patch") == "2.2.1"
+        assert resolve_program_horizon("dfe", "next-minor") == "2.3"
+        assert resolve_program_horizon("dfe", "next-major") == "3.0"
+
+    def test_released_is_the_last_ga_not_the_train(self, dfe_infra: dict) -> None:
+        assert program_released("dfe") == "2.2.0"
+        dfe_infra["versions.yaml"] = _VERSIONS.format(
+            current="2.2.2-rc.1", latest="2.2.1"
+        )
+        assert program_released("dfe") == "2.2.1"
+        assert program_version("dfe") == "2.2.2-rc.1"
+
+    @pytest.mark.parametrize("latest", ["", "2.2", "latest"])
+    def test_a_released_value_that_is_not_semver_raises(
+        self, dfe_infra: dict, latest: str
+    ) -> None:
+        dfe_infra["versions.yaml"] = _VERSIONS.format(
+            current="2.2.1-rc.17", latest=latest
+        )
+        with pytest.raises(ProgramError, match="`latest` is"):
+            program_released("dfe")
+        assert program_version("dfe") == "2.2.1-rc.17"
+
+    def test_released_reports_an_unreadable_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(repo: str, path: str) -> str | None:
+            raise RepoFileError(f"could not read {repo}:{path}: HTTP 502")
+
+        monkeypatch.setattr(gh, "read_repo_file", fail)
+        with pytest.raises(ProgramError, match="HTTP 502"):
+            program_released("dfe")
+
+    def test_a_program_has_no_backlog_horizon(self, dfe_infra: dict) -> None:
+        with pytest.raises(ProgramError, match="no 'backlog' horizon"):
+            resolve_program_horizon("dfe", "backlog")
+
+    def test_a_missing_source_raises(self, dfe_infra: dict) -> None:
+        dfe_infra["suite.yaml"] = None
+        with pytest.raises(ProgramError, match="does not exist"):
+            program_members("dfe")
+
+    def test_an_unreadable_source_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fail(repo: str, path: str) -> str | None:
+            raise RepoFileError(f"could not read {repo}:{path}: HTTP 502")
+
+        monkeypatch.setattr(gh, "read_repo_file", fail)
+        with pytest.raises(ProgramError, match="HTTP 502"):
+            program_members("dfe")
+        with pytest.raises(ProgramError, match="HTTP 502"):
+            resolve_program_horizon("dfe", "next-patch")
+
+    def test_no_gh_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def missing(repo: str, path: str) -> str | None:
+            raise FileNotFoundError("gh")
+
+        monkeypatch.setattr(gh, "read_repo_file", missing)
+        with pytest.raises(ProgramError, match="could not read"):
+            program_version("dfe")
+
+    @pytest.mark.parametrize(
+        ("path", "text", "message"),
+        [
+            ("suite.yaml", "nodes: [", "not valid YAML"),
+            ("suite.yaml", "schema: '1'\n", "has no `nodes`"),
+            ("suite.yaml", "nodes: {}\n", "non-empty mapping"),
+            ("suite.yaml", "nodes:\n  x:\n    role: infra\n", "owner/name"),
+        ],
+    )
+    def test_a_malformed_membership_source_raises(
+        self, dfe_infra: dict, path: str, text: str, message: str
+    ) -> None:
+        dfe_infra[path] = text
+        with pytest.raises(ProgramError, match=message):
+            program_members("dfe")
+
+    @pytest.mark.parametrize("text", ["schema: 2\n", "current: 2.3\n", "current: x\n"])
+    def test_a_malformed_version_source_raises(
+        self, dfe_infra: dict, text: str
+    ) -> None:
+        dfe_infra["versions.yaml"] = text
+        with pytest.raises(ProgramError):
+            resolve_program_horizon("dfe", "next-minor")
+
+    def test_check_accepts_program_labels_and_reports_their_drift(self) -> None:
+        family = load_manifest().programs["dfe"].labels
+        present = [
+            *_all_expected(),
+            _label(family[0].name, family[0].color, family[0].description),
+            _label(family[1].name, "ededed", family[1].description),
+        ]
+        report = Report()
+        check_labels(present, {}, report)
+        assert not report.extra
+        assert not report.missing
+        assert [(d.name, d.field) for d in report.drift] == [
+            ("dfe:next-minor", "color")
+        ]
+
+
 class TestJson:
     """`labels --json` is read by consumers that cannot import hyperi_ci."""
+
+    @pytest.fixture(autouse=True)
+    def _dfe_infra(self, dfe_infra: dict) -> None:
+        """Keep the program reads off the network."""
 
     _SHAPE = {
         "schema": int,
@@ -452,6 +722,8 @@ class TestJson:
         "retired": dict,
         "retired_description": str,
         "areas": dict,
+        "horizons": list,
+        "programs": dict,
     }
 
     def test_the_top_level_keys_and_types_are_pinned(self) -> None:
@@ -469,6 +741,88 @@ class TestJson:
         assert set(doc["allowed"]) == {"patterns", "literals"}
         assert doc["area"] == {"prefix": "area/", "color": "bfdadc"}
         assert doc["areas"] == {"docs": ["docs/"]}
+
+    def test_horizons(self) -> None:
+        horizons = manifest_json()["horizons"]
+        assert [h["name"] for h in horizons] == list(gate_labels())
+        assert [h["rank"] for h in horizons] == [1, 2, 3, 4, 5]
+        assert set(horizons[0]) == {"name", "rank", "set_by", "description"}
+        set_by = {h["name"]: h["set_by"] for h in horizons}
+        assert set_by == {
+            "release-blocker": "hand",
+            "next-patch": "anyone",
+            "next-minor": "release-owner",
+            "next-major": "release-owner",
+            "backlog": "anyone",
+        }
+
+    def test_next_major_is_release_owner_only(self) -> None:
+        doc = manifest_json()
+        major = next(h for h in doc["horizons"] if h["name"] == "next-major")
+        assert major["set_by"] == "release-owner"
+        assert "never proposed by agents" in major["description"]
+        dfe_major = next(
+            x for x in doc["programs"]["dfe"]["labels"] if x["horizon"] == "next-major"
+        )
+        assert "never proposed by agents" in dfe_major["description"]
+
+    def test_a_program_carries_its_sources_and_resolved_lines(self) -> None:
+        dfe = manifest_json()["programs"]["dfe"]
+        assert set(dfe) == {
+            "labels",
+            "membership_source",
+            "version_source",
+            "version",
+            "lines",
+            "released_source",
+            "released",
+            "error",
+        }
+        assert [x["name"] for x in dfe["labels"]] == [
+            "dfe:next-patch",
+            "dfe:next-minor",
+            "dfe:next-major",
+        ]
+        assert set(dfe["labels"][0]) == {"name", "horizon", "color", "description"}
+        assert dfe["membership_source"] == {
+            "repo": "hyperi-io/dfe-infra",
+            "path": "suite.yaml",
+            "key": "nodes",
+        }
+        assert dfe["version_source"] == {
+            "repo": "hyperi-io/dfe-infra",
+            "path": "versions.yaml",
+            "key": "current",
+        }
+        assert dfe["version"] == "2.2.1-rc.17"
+        assert dfe["lines"] == {
+            "next-patch": "2.2.1",
+            "next-minor": "2.3",
+            "next-major": "3.0",
+        }
+        assert dfe["released_source"] == {
+            "repo": "hyperi-io/dfe-infra",
+            "path": "versions.yaml",
+            "key": "latest",
+        }
+        assert dfe["released"] == "2.2.0"
+        assert dfe["error"] == ""
+
+    def test_a_bad_released_value_keeps_the_lines(self, dfe_infra: dict) -> None:
+        dfe_infra["versions.yaml"] = _VERSIONS.format(current="2.2.1-rc.17", latest="")
+        dfe = manifest_json()["programs"]["dfe"]
+        assert dfe["lines"]["next-patch"] == "2.2.1"
+        assert dfe["released"] == ""
+        assert "`latest` is ''" in dfe["error"]
+
+    def test_an_unresolvable_program_says_why(self, dfe_infra: dict) -> None:
+        dfe_infra["versions.yaml"] = None
+        dfe = manifest_json()["programs"]["dfe"]
+        assert dfe["lines"] == {}
+        assert dfe["version"] == ""
+        assert dfe["released"] == ""
+        assert dfe["error"].count("versions.yaml does not exist") == 1
+        assert len(dfe["labels"]) == 3
 
     def test_the_command_prints_json_only(self, tmp_path: Path) -> None:
         (tmp_path / ".hyperi-ci.yaml").write_text(
