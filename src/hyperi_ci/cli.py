@@ -21,6 +21,7 @@ Usage:
     hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
     hyperi-ci labels [--check|--json]   Expected issue labels, drift, or the manifest
+    hyperi-ci labels --stale [--json]   Horizon labels past their release limit
     hyperi-ci --version                 Show version
 
 Conventions (all commands):
@@ -778,7 +779,19 @@ def labels(
     ] = None,
     as_json: Annotated[
         bool,
-        typer.Option("--json", help="Print the manifest and this repo's areas as JSON"),
+        typer.Option(
+            "--json",
+            help="Print the manifest and this repo's areas as JSON, or with "
+            "--stale the stale report",
+        ),
+    ] = False,
+    stale: Annotated[
+        bool,
+        typer.Option(
+            "--stale",
+            help="Report horizon labels past their release limit, gate conflicts "
+            "and untriaged issues",
+        ),
     ] = False,
 ) -> None:
     """Print the labels the org issue standard expects on this repo.
@@ -796,10 +809,22 @@ def labels(
     that cannot import `hyperi_ci.labels`. Its shape is versioned by `schema`.
     It includes the release horizons and each program's resolved release
     lines, read from the program's version source through `gh api`.
+
+    `--stale` reports open issues whose horizon label has waited
+    `issues.horizons` releases of its own scope since it was applied, plus gate
+    conflicts and untriaged issues. Report only: exit 0 whatever it finds, 2
+    when GitHub could not be read. `--json` prints it as JSON.
     """
     from hyperi_ci.common import error
     from hyperi_ci.description_source import repo_slug
     from hyperi_ci.gh import require_gh
+
+    if check and stale:
+        error("--check and --stale are separate modes -- pass one")
+        raise typer.Exit(2)
+    if stale:
+        _labels_stale(Path(project_dir) if project_dir else None, repo, as_json)
+        return
     from hyperi_ci.labels import (
         AreasError,
         ManifestError,
@@ -862,6 +887,58 @@ def labels(
     check_issues(issues, areas, report)
     print_report(target, report)
     raise typer.Exit(0 if report.clean else 1)
+
+
+def _labels_stale(dir_path: Path | None, repo: str | None, as_json: bool) -> None:
+    """Run `labels --stale`: exit 0 with the report, 2 when it could not run."""
+    from hyperi_ci.common import error
+    from hyperi_ci.config import shipped_default
+    from hyperi_ci.description_source import repo_slug
+    from hyperi_ci.gh import require_gh
+    from hyperi_ci.horizons import (
+        CONFIG_KEY,
+        HorizonConfigError,
+        HorizonReadError,
+        overlay,
+        parse_thresholds,
+        print_stale,
+        report_json,
+        stale_report,
+    )
+    from hyperi_ci.labels_check import RemoteConfigError, remote_issues
+
+    if not require_gh():
+        raise typer.Exit(2)
+    target = repo or repo_slug(dir_path)
+    if not target:
+        error("Cannot tell which GitHub repo this is -- pass --repo owner/name")
+        raise typer.Exit(2)
+    try:
+        if repo:
+            raw = overlay(
+                shipped_default(CONFIG_KEY), remote_issues(repo).get("horizons")
+            )
+        else:
+            cfg = load_config(
+                reload=True, project_dir=dir_path, report_removed=not as_json
+            )
+            raw = cfg.setting(CONFIG_KEY)
+        thresholds = parse_thresholds(raw)
+    except (HorizonConfigError, RemoteConfigError) as exc:
+        error(str(exc))
+        raise typer.Exit(2) from exc
+
+    try:
+        report = stale_report(target, thresholds)
+    except HorizonReadError as exc:
+        error(f"Cannot read {target} (is gh authenticated? `gh auth status`): {exc}")
+        raise typer.Exit(2) from exc
+
+    if as_json:
+        typer.echo(json.dumps(report_json(report), indent=2))
+    else:
+        print_stale(report)
+    raise typer.Exit(0)
 
 
 @app.command("audit-callers")

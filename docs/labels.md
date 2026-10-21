@@ -33,7 +33,35 @@ A label resolves to a concrete line from that version. From `2.2.1-rc.17`, `dfe:
 
 The reconcile creates a program's labels on its members only, and never deletes one, so a repo leaving the program keeps its labels. `--check` accepts them on any repo and reports their drift. To retire a whole family, move each label into `retired:` and delete the program.
 
-When counting how many releases an item has waited, a repo release is a `v*` git tag, and a program release is a change of the value at its `released` source's key (for dfe, `latest` in `versions.yaml`). A prerelease never moves it, and a patch GA does.
+When counting how many releases an item has waited, a repo release is a `v*` git tag, and a program release is a change of the value at its `released` source's key (for dfe, `latest` in `versions.yaml`). A prerelease never moves it, and a patch GA does. An empty `latest` means the program has no GA yet, which `program_released` raises as `NoReleaseYetError` and `--json` reports as `released_state: none`.
+
+## Stale horizons
+
+`hyperi-ci labels --stale` reports open issues whose horizon label has waited too many releases of its own scope since it was applied:
+
+- a repo horizon counts the repo's GA `v*` tags made after the label's last `labeled` event
+- a `dfe:` horizon counts the times `latest` moved to a new, higher GA version after it, read from the commit history of dfe-infra `versions.yaml`
+- prerelease tags, an rc in `latest` and a reverted cut never count
+- `release-blocker` and `backlog` never go stale, and a program with no GA yet has no stale horizons
+
+It also lists gate conflicts and untriaged issues, by the same rule as `--check` and `pm backlog groom`. It is a report for a release or stack cut, and exits 0 whatever it finds. Exit 2 means GitHub could not be read or `issues.horizons` is malformed.
+
+The limits live in `.hyperi-ci.yaml`. These are the shipped values:
+
+```yaml
+issues:
+  horizons:
+    stale_after:
+      next-patch: 2
+      next-minor: 2
+      next-major: 1
+    programs:
+      dfe: {next-patch: 3}   # optional, per program, overrides stale_after
+```
+
+A lightweight tag carries no creation time, so its date is the tagged commit's. A tag made after the label on a commit made before it is not counted.
+
+`--stale --json` prints `schema` (1), `repo`, `checked`, `stale`, `conflicts`, `untriaged` and `programs`. Each `stale` entry carries `number`, `title`, `label`, `scope` (`repo` or `program`), `releases_since`, `threshold`, `label_applied_at` and `applied_from`, which is `issue_created` where GitHub kept no `labeled` event. `programs.<name>` is `{released_state, released, error}`.
 
 release-notify files a `release-commit-back` issue with `next-patch`, creating the label from the manifest if the repo lacks it. A `release-failure` issue gets no gate label on purpose, so it holds the next cut until someone triages it.
 
@@ -55,6 +83,8 @@ hyperi-ci labels                          # labels this repo should carry: name,
 hyperi-ci labels --check                  # compare against GitHub, for the cwd's repo
 hyperi-ci labels --check --repo owner/x   # another repo, its areas read from its default branch
 hyperi-ci labels --json                   # the manifest plus this repo's areas, JSON on stdout
+hyperi-ci labels --stale [--repo owner/x] # stale horizons, gate conflicts, untriaged issues
+hyperi-ci labels --stale --json           # the same, as JSON
 ```
 
 `--check` is read-only, through `gh api` with the ambient token. It reports:
@@ -89,7 +119,7 @@ For consumers that cannot import `hyperi_ci` (hyperi-ai's pm layer, dfe-sweep). 
 | `retired_description` | str | `RETIRED: use {replacement}` |
 | `areas` | `{name: [paths]}` | This repo's `issues.areas`, `{}` when none |
 | `horizons` | list of `{name, rank, set_by, description}` | The gate as horizons, `rank` 1 strictest. `set_by` is `anyone`, `release-owner` or `hand` |
-| `programs` | `{name: {labels, membership_source, version_source, version, lines, released_source, released, error}}` | `labels` adds `horizon` to each label. A source is `{repo, path, key}`. `lines` maps horizon to its resolved line. `released` is the last GA version |
+| `programs` | `{name: {labels, membership_source, version_source, version, lines, released_source, released, released_state, error}}` | `labels` adds `horizon` to each label. A source is `{repo, path, key}`. `lines` maps horizon to its resolved line. `released` is the last GA version. `released_state` is `released`, `none` (no GA yet, not an error) or `error` |
 
 `--json` and `--check` are separate modes. With `--repo`, `areas` comes from that repo's default branch.
 

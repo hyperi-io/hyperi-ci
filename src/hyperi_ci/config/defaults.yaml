@@ -525,8 +525,22 @@ notify:
 #   areas:
 #     auth: [src/app/auth/, src/app/orgs/]
 #     docs: [docs/]
+#
+# `horizons` sets when `hyperi-ci labels --stale` calls a horizon label stale:
+# once it has waited this many releases of its own scope since it was applied.
+# A repo horizon counts the repo's GA `v*` tags, a program horizon its
+# program's releases. release-blocker and backlog never go stale.
+# `programs` overrides `stale_after` for one program, e.g.
+#   programs:
+#     dfe: {next-patch: 3}
 issues:
   areas: {}
+  horizons:
+    stale_after:
+      next-patch: 2
+      next-minor: 2
+      next-major: 1
+    programs: {}
 
 # IaC linting (`hyperi-ci lint-iac`). Every dimension detects its own targets;
 # these only tune it. Modes live under `quality:` (kubeconform, tofu, ...).
