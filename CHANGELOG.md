@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.20](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.19...v2.14.20) (2026-10-21)
+
+### Bug Fixes
+
+* **release:** build and tag the commit the run started on ([#719](https://github.com/hyperi-io/hyperi-ci/issues/719)) ([d38b8c1](https://github.com/hyperi-io/hyperi-ci/commit/d38b8c12278a7bc9644c4b0fed0d5f36c9a18204)), closes [#714](https://github.com/hyperi-io/hyperi-ci/issues/714)
+
 ## [2.14.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.18...v2.14.19) (2026-10-20)
 
 ### Bug Fixes
