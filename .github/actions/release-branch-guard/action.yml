@@ -1,0 +1,45 @@
+# Project:   HyperI CI
+# File:      .github/actions/release-branch-guard/action.yml
+# Purpose:   Stop a semantic-release release before it publishes once its branch moved
+#
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# semantic-release tags nothing once the checkout is behind the branch, so the
+# Container push and the Helm chart publish, which both run before the tag,
+# would ship with no tag behind them (issue #717). _release-tail.yml calls this
+# right before each. Only a release semantic-release tags needs it: a forced
+# bump, a fork and a tag dispatch tag github.sha (or an existing tag) directly.
+
+name: Release branch guard
+description: Fail when the release branch on GitHub has moved past the commit this run builds
+
+inputs:
+  github-token:
+    description: Token that can read the repository's refs
+    required: true
+  before:
+    description: What this guard runs ahead of, for the error message
+    required: true
+  pushed-image:
+    description: Image this run already pushed, named in the error when the branch moved
+    required: false
+    default: ""
+  version:
+    description: Version this run releases. A re-run passes when v<version> already tags github.sha.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check the branch still points at this commit
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GUARD_BEFORE: ${{ inputs.before }}
+        PUSHED_IMAGE: ${{ inputs.pushed-image }}
+        RELEASE_BRANCH: ${{ github.ref_name }}
+        RELEASE_SHA: ${{ github.sha }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: python3 "$GITHUB_ACTION_PATH/branch_guard.py"

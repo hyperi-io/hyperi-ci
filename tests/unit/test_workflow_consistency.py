@@ -3002,3 +3002,363 @@ class TestEveryJobChecksOutTheBuiltCommit:
         tags = [i for i, n in enumerate(names) if n and n.startswith("Tag ")]
         assert tags and max(tags) < guard < names.index("Publish")
         assert "if" not in steps[guard], "the guard must cover every tagging path"
+
+
+# The release signal, as far as `concurrency:` can see it (github, inputs and
+# vars only). Plan matches the trailer with a regex. This substring test
+# approximates it, erring towards treating a run as a release.
+_MESSAGE = "github.event.head_commit.message"
+_TRAILER = " || ".join(
+    f"contains({_MESSAGE}, '{trailer}')"
+    for trailer in ("Release: true", "Release:true", "Publish: true", "Publish:true")
+)
+_PUSH_RELEASE = f"github.event_name == 'push' && ({_TRAILER})"
+RELEASE_RUN = f"inputs.tag != '' || inputs.from-head == 'true' || {_PUSH_RELEASE}"
+RELEASE_GROUP = (
+    f"(inputs.from-head == 'true' || {_PUSH_RELEASE}) "
+    "&& format('release-{0}', github.ref)"
+)
+CANCEL_IN_PROGRESS = "${{ !(" + RELEASE_RUN + ") }}"
+
+_TOKEN = re.compile(
+    r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>\|\||&&|==|!=|!|\(|\)|,)"
+    r"|(?P<name>[A-Za-z_][\w.-]*))"
+)
+
+
+def _gh_number(value: object) -> float:
+    """GitHub's loose-equality coercion to a number."""
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return float(value)
+    text = str(value).strip()
+    try:
+        return float(text) if text else 0.0
+    except ValueError:
+        return float("nan")
+
+
+def _gh_str(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _gh_eval(expression: str, context: dict[str, object]) -> object:
+    """Evaluate a GitHub expression of the shapes `concurrency:` uses.
+
+    Follows docs.github.com "Evaluate expressions": `&&` / `||` return an
+    operand, `==` ignores case and coerces mismatched types to numbers, and
+    `contains` casts to string and ignores case. A name absent from
+    ``context`` reads as null, as GitHub reads a missing property.
+    """
+    matches = list(_TOKEN.finditer(expression))
+    covered = "".join(m.group(0) for m in matches)
+    assert covered.rstrip() == expression.rstrip(), (
+        f"untokenised text in {expression!r}"
+    )
+    tokens = [m.group(0).strip() for m in matches]
+    pos = 0
+
+    def peek() -> str | None:
+        return tokens[pos] if pos < len(tokens) else None
+
+    def take() -> str:
+        nonlocal pos
+        pos += 1
+        return tokens[pos - 1]
+
+    def primary() -> object:
+        token = take()
+        if token == "(":
+            value = either()
+            assert take() == ")"
+            return value
+        if token.startswith("'"):
+            return token[1:-1].replace("''", "'")
+        if token in ("true", "false"):
+            return token == "true"
+        if token == "null":
+            return None
+        if peek() == "(":
+            take()
+            args = [] if peek() == ")" else [either()]
+            while peek() == ",":
+                take()
+                args.append(either())
+            assert take() == ")"
+            if token == "contains":
+                return _gh_str(args[1]).lower() in _gh_str(args[0]).lower()
+            if token == "format":
+                text = _gh_str(args[0])
+                for i, arg in enumerate(args[1:]):
+                    text = text.replace(f"{{{i}}}", _gh_str(arg))
+                return text
+            raise AssertionError(f"function this model cannot run: {token}")
+        return context.get(token)
+
+    def compare() -> object:
+        left = primary()
+        if peek() in ("==", "!="):
+            negate = take() == "!="
+            right = primary()
+            if isinstance(left, str) and isinstance(right, str):
+                same = left.lower() == right.lower()
+            else:
+                same = _gh_number(left) == _gh_number(right)
+            return same != negate
+        return left
+
+    def unary() -> object:
+        if peek() == "!":
+            take()
+            return not unary()
+        return compare()
+
+    def both() -> object:
+        value = unary()
+        while peek() == "&&":
+            take()
+            right = unary()
+            value = right if value else value
+        return value
+
+    def either() -> object:
+        value = both()
+        while peek() == "||":
+            take()
+            right = both()
+            value = value if value else right
+        return value
+
+    result = either()
+    assert pos == len(tokens), f"unparsed tail in {expression!r}"
+    return result
+
+
+def _gh_render(template: str, context: dict[str, object]) -> object:
+    """Render a value holding ``${{ }}`` blocks, as GitHub does for `concurrency:`.
+
+    A folded ``>-`` block keeps the line breaks of its more-indented lines, so
+    a block may span lines.
+    """
+    block = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+    blocks = list(block.finditer(template))
+    if len(blocks) == 1 and blocks[0].group(0) == template.strip():
+        return _gh_eval(blocks[0].group(1), context)
+    return block.sub(lambda m: _gh_str(_gh_eval(m.group(1), context)), template)
+
+
+class TestAReleaseRunIsNeverCancelled:
+    """A newer push must not cancel a release part way through (issue #717).
+
+    A cancel after semantic-release pushed the tag and before Publish leaves a
+    tag with no artefact behind it. Release runs get their own group and never
+    cancel. Whichever run's `cancel-in-progress` GitHub reads, the old one's or
+    the new one's, a release is safe: no other run shares its group, and its
+    own value is false.
+    """
+
+    _PIPELINES = (*LANGUAGE_WORKFLOWS, "ci.yml")
+
+    @staticmethod
+    def _event(
+        event: str,
+        *,
+        ref: str = "refs/heads/main",
+        message: str | None = None,
+        tag: str | None = "",
+        from_head: str | None = "",
+    ) -> dict[str, object]:
+        return {
+            "github.workflow": "CI",
+            "github.event_name": event,
+            "github.ref": ref,
+            "github.event.head_commit.message": message,
+            "inputs.tag": tag,
+            "inputs.from-head": from_head,
+        }
+
+    def _releases(self) -> dict[str, dict[str, object]]:
+        return {
+            "trailer push": self._event("push", message="fix: x\n\nRelease: true"),
+            "legacy trailer push": self._event(
+                "push", message="fix: x\n\nPublish: true"
+            ),
+            "unspaced trailer push": self._event(
+                "push", message="fix: x\n\nrelease:true"
+            ),
+            "prerelease branch push": self._event(
+                "push", ref="refs/heads/beta", message="fix: x\n\nRelease: true"
+            ),
+            "from-head dispatch": self._event("workflow_dispatch", from_head="true"),
+            "tag dispatch": self._event("workflow_dispatch", tag="v1.2.3"),
+        }
+
+    def _others(self) -> dict[str, dict[str, object]]:
+        return {
+            "plain push": self._event("push", message="fix: x"),
+            # hyperi-ci's own ci.yml has no inputs on a push: they read as null.
+            "plain push, no inputs": self._event(
+                "push", message="fix: x", tag=None, from_head=None
+            ),
+            "chore(release) push": self._event(
+                "push", message="chore(release): v1.2.3"
+            ),
+            "pull request": self._event("pull_request", ref="refs/pull/7/merge"),
+            "bare dispatch": self._event("workflow_dispatch"),
+            "schedule": self._event("schedule"),
+        }
+
+    @pytest.mark.parametrize("workflow_name", _PIPELINES)
+    def test_the_cancel_expression_is_pinned(self, workflow_name: str) -> None:
+        concurrency = _load_workflow(workflow_name)["concurrency"]
+        assert concurrency["cancel-in-progress"] == CANCEL_IN_PROGRESS
+        assert (
+            f"inputs.tag || {RELEASE_GROUP} || github.ref }}}}"
+            in (concurrency["group"])
+        )
+
+    @pytest.mark.parametrize("workflow_name", _PIPELINES)
+    def test_a_release_never_cancels_and_is_never_cancelled(
+        self, workflow_name: str
+    ) -> None:
+        concurrency = _load_workflow(workflow_name)["concurrency"]
+        other_groups = {
+            _gh_render(concurrency["group"], context)
+            for context in self._others().values()
+        }
+        for case, context in self._releases().items():
+            assert _gh_render(concurrency["cancel-in-progress"], context) is False, case
+            group = _gh_render(concurrency["group"], context)
+            assert group not in other_groups, f"{case} shares {group}"
+
+    @pytest.mark.parametrize("workflow_name", _PIPELINES)
+    def test_everything_else_still_cancels(self, workflow_name: str) -> None:
+        concurrency = _load_workflow(workflow_name)["concurrency"]
+        for case, context in self._others().items():
+            assert _gh_render(concurrency["cancel-in-progress"], context) is True, case
+        main = _gh_render(concurrency["group"], self._others()["plain push"])
+        assert main == "CI-refs/heads/main"
+
+    def test_the_model_reads_github_semantics(self) -> None:
+        # Guards the evaluator, which the two tests above rest on.
+        assert _gh_eval("null != ''", {}) is False
+        assert _gh_eval("'A' == 'a'", {}) is True
+        assert _gh_eval("contains(null, 'x')", {}) is False
+        assert _gh_eval("'' || 'b'", {}) == "b"
+        assert _gh_eval("'a' && 'b'", {}) == "b"
+        assert _gh_eval("format('r-{0}', 'x')", {}) == "r-x"
+
+    def test_the_failed_release_record_fires_on_a_cancel(self) -> None:
+        job = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]
+        record = next(
+            s for s in job["steps"] if s.get("name") == "Record a failed release"
+        )
+        assert record["if"] == "failure() || cancelled()"
+        # always() is what keeps a plain run cancel from stopping the job once
+        # it has started, so the tag and Publish land together.
+        assert str(job["if"]).strip().startswith("${{ always() &&")
+
+
+_BRANCH_GUARD = "hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main"
+
+
+class TestTheBranchGuardRunsBeforeEveryPublish:
+    """A release semantic-release tags must not publish once its branch moved.
+
+    The Container push and the Helm charts both publish before the tag, and
+    semantic-release tags nothing when the checkout is behind the branch, so a
+    merge mid-release left artefacts with no tag (issue #717).
+    """
+
+    @staticmethod
+    def _steps(job: str) -> list[dict]:
+        return _load_workflow("_release-tail.yml")["jobs"][job]["steps"]
+
+    @staticmethod
+    def _guard_index(steps: list[dict]) -> int:
+        found = [i for i, s in enumerate(steps) if s.get("uses") == _BRANCH_GUARD]
+        assert len(found) == 1, f"expected one branch guard, found {len(found)}"
+        return found[0]
+
+    def test_it_is_the_last_step_before_the_container_push(self) -> None:
+        steps = self._steps("container")
+        names = [s.get("name") for s in steps]
+        assert self._guard_index(steps) == names.index("Build container") - 1
+
+    def test_it_runs_before_the_charts_and_every_tag(self) -> None:
+        steps = self._steps("tag-and-release")
+        names = [s.get("name") for s in steps]
+        guard = self._guard_index(steps)
+        tags = [i for i, n in enumerate(names) if n and n.startswith("Tag ")]
+        assert guard < names.index("Publish Helm charts") < min(tags)
+        assert guard < names.index("Publish")
+
+    def test_the_tail_names_the_image_already_pushed(self) -> None:
+        steps = self._steps("tag-and-release")
+        guard = steps[self._guard_index(steps)]
+        assert guard["with"]["pushed-image"] == "${{ needs.container.outputs.image }}"
+
+    @pytest.mark.parametrize("job", ["container", "tag-and-release"])
+    def test_a_re_run_of_a_tagged_release_can_pass(self, job: str) -> None:
+        # The guard passes when v<version> already tags github.sha, so a re-run
+        # after the tag push completes that release instead of cutting another.
+        steps = self._steps(job)
+        guard = steps[self._guard_index(steps)]
+        assert guard["with"]["version"] == "${{ inputs.next-version }}"
+
+    # (event, tag, from-head, bump, fork, guarded). Only a release
+    # semantic-release tags is guarded: tag-head tags github.sha whatever the tip.
+    CASES = (
+        ("push", "", "", "auto", "", True),
+        ("workflow_dispatch", "", "true", "auto", "", True),
+        ("workflow_dispatch", "", "true", "patch", "", False),
+        ("workflow_dispatch", "", "true", "1.2.3", "", False),
+        ("push", "", "", "auto", "true", False),
+        ("workflow_dispatch", "v1.2.3", "", "auto", "", False),
+    )
+
+    @pytest.mark.parametrize("job", ["container", "tag-and-release"])
+    @pytest.mark.parametrize(
+        ("event", "tag", "from_head", "bump", "fork", "guarded"), CASES
+    )
+    def test_it_guards_only_an_auto_bump(
+        self,
+        job: str,
+        event: str,
+        tag: str,
+        from_head: str,
+        bump: str,
+        fork: str,
+        guarded: bool,
+    ) -> None:
+        steps = self._steps(job)
+        condition = str(steps[self._guard_index(steps)]["if"])
+        context: dict[str, object] = {
+            "github.event_name": event,
+            "inputs.tag": tag,
+            "inputs.from-head": from_head,
+            "inputs.bump": bump,
+            "inputs.fork": fork,
+            "inputs.will-publish": "true",
+            "steps.resolve.outputs.build": "true",
+        }
+        assert bool(_gh_render(condition, context)) is guarded
+
+    def test_a_validate_only_container_build_is_not_guarded(self) -> None:
+        steps = self._steps("container")
+        condition = str(steps[self._guard_index(steps)]["if"])
+        context: dict[str, object] = {
+            "github.event_name": "push",
+            "inputs.tag": "",
+            "inputs.from-head": "",
+            "inputs.bump": "auto",
+            "inputs.fork": "",
+            "inputs.will-publish": "false",
+            "steps.resolve.outputs.build": "true",
+        }
+        assert _gh_render(condition, context) is False

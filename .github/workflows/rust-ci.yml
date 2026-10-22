@@ -175,8 +175,13 @@ on:
 concurrency:
   # A schedule and a no-publish dispatch get their own group: sharing main's, either
   # could cancel a release in flight or be cancelled by the next push.
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || github.ref }}
-  cancel-in-progress: true
+  # A release (tag or from-head dispatch, or a push carrying the trailer) gets its
+  # own group and never cancels or is cancelled: a cancel after the tag push leaves
+  # a tag with no artefact behind it (issue #717). Plan matches the trailer with a line
+  # regex (predict-version/action.yml) but this is a substring test, so it also holds a
+  # message that only mentions the trailer and misses odd spacing like `Release:  true`.
+  group: "${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || (inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) && format('release-{0}', github.ref) || github.ref }}"
+  cancel-in-progress: "${{ !(inputs.tag != '' || inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) }}"
 
 env:
   # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a

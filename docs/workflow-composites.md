@@ -24,6 +24,7 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Language toolchain + project deps (rustup, setup-go, setup-node, `uv sync`, `install-deps`) | NO | Inline per language in `<lang>-ci.yml` |
 | OSV vulnerability scan | YES | `actions/setup-osv-scanner` composite |
 | semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
+| Stop a semantic-release release before it publishes once its branch moved | YES | `actions/release-branch-guard` composite, called twice in `_release-tail.yml` |
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
 | Version stamping (VERSION file) | YES | CLI `stamp-version` (central), see below |
 | Build commands, cache keys, per-call `run_gate_tool` options | NO | Inline per language in `<lang>-ci.yml` + handlers |
