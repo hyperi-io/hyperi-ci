@@ -46,15 +46,28 @@ The dispatch ref decides whether a from-head run releases (#471). `hyperi-ci rel
 
 A `tag` dispatch re-publishes from any ref, because the tag already names the commit.
 
+## Merges during a release
+
+A later push never cancels a release run (issue #717). A from-head dispatch, or a push whose head commit carries the `Release: true` (or `Publish: true`) trailer, runs in its own `release-<ref>` concurrency group, and a `tag` dispatch in one named for the tag. Neither cancels in progress. A second release on the same ref waits for the first, and a third replaces the waiting one.
+
+The concurrency key tests the trailer as a substring, `Release: true` or `Release:true`, while Plan matches the line with any spacing. A trailer written `Release:  true` still releases, but its run stays cancellable. A message that only mentions the trailer gets the release group, and Plan still decides.
+
+A merge still breaks a release that lets semantic-release pick the version, because semantic-release tags nothing once the checkout is behind the branch. The image and Helm charts publish before the tag, so the `release-branch-guard` composite runs right before each and stops the run when the branch has moved. Nothing is tagged or published.
+
+- The guard in Tag & Release opens the release-failure issue. The one in the Container job does not.
+- A merge after the Container guard and before the Tag & Release guard leaves the pushed image untagged. That span is the image build and push plus the start of Tag & Release: about 5 minutes on dfe-loader run 37891535269, 4 of them the build.
+- A merge after the Tag & Release guard, while the charts publish, leaves the charts untagged. The tag guard then stops the registry uploads.
+- A re-run whose tag already exists at the built commit passes both guards and finishes that release.
+- Recovery: `hyperi-ci release` releases the current head as a new version, and `hyperi-ci release v<x>` re-publishes an existing tag.
+- Two auto releases back to back: one of them fails. If the second push landed before the first's tag, the first fails at a guard and the second releases both sets of commits. If after, the first ships, its commit-back moves the branch, and the second fails at Plan ("The branch moved past ...") with no issue.
+
+A forced bump (`--bump patch|minor|X.Y.Z`) tags the commit it built through the API, so a merge does not stop it.
+
 ## Operating rules
 
 ### Do not dispatch a release while a merge is queued into that repo
 
-A merge to `main` cancels the in-flight release run. A push and a from-head dispatch on `main` share one concurrency group, keyed on `github.ref`, with `cancel-in-progress: true`. Only a schedule, a validate-only dispatch and a `tag` dispatch get groups of their own (`concurrency:` in each `<lang>-ci.yml`). Land the merges, then dispatch.
-
-Wait for the last merge's push run to appear in `gh run list` before you dispatch. GitHub registers a push run a few seconds after the merge, so a dispatch sent straight after can land first and then be cancelled. A `release <tag>` dispatch is safe.
-
-The cancelled run leaves no tag and no artefacts, so recovery is another `hyperi-ci release`. The cost is the build time: 35-45 minutes per arch on a Tier 2 Rust release. Issue #228 has the measurements and the options.
+A merge landing during a release that lets semantic-release pick the version fails it ([Merges during a release](#merges-during-a-release)). Land the merges, then dispatch. A failed release costs the build time: 35-45 minutes per arch on a Tier 2 Rust release. Issue #228 has the measurements.
 
 ### `push --release` drops the trailer when HEAD is already upstream
 

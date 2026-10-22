@@ -63,6 +63,8 @@ ALLOWED_USES = {
         "actions/create-github-app-token@",
         "actions/setup-node@",
         "hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main",
+        # Reads one ref through the API and runs none of the repo's code.
+        "hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main",
     ),
     "prepare": (
         "astral-sh/setup-uv@",
@@ -507,7 +509,12 @@ class TestContainerRunsNoRepoCode:
             if "secrets.GITHUB_TOKEN" in yaml.safe_dump(s)
             or "github.token" in yaml.safe_dump(s)
         ]
-        assert holders == ["Init submodules", "GHCR login"]
+        # The branch guard reads one ref with it, after the GHCR login has
+        # already written the same token to the docker config on disk.
+        guard = "Guard -- the branch has not moved past this release"
+        assert holders == ["Init submodules", "GHCR login", guard]
+        names = [s.get("name") for s in steps]
+        assert names.index("GHCR login") < names.index(guard)
 
 
 def test_only_the_publish_job_holds_a_publish_credential() -> None:

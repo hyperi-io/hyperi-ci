@@ -305,6 +305,19 @@ jobs:
             if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
+      - name: Guard -- the branch has not moved past this release
+        # Last step before the push, which runs ahead of the tag: semantic-release
+        # tags nothing once main moves, and the image would ship untagged (issue #717).
+        if: >-
+          ${{ steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true'
+              && inputs.tag == '' && inputs.fork != 'true'
+              && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+        uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          before: pushing the container image, so nothing was published
+          version: ${{ inputs.next-version }}
+
       - name: Build container
         # HYPERCI_RELEASE_MODE unset/false -> docker build only. true -> build and
         # push to all configured registries.
@@ -714,6 +727,18 @@ jobs:
             echo "${predicted} already exists at HEAD -- nothing to tag."
           fi
 
+      - name: Guard -- the branch has not moved past this release
+        # Before the charts, which publish ahead of the tag, as in the Container job.
+        if: >-
+          ${{ inputs.tag == '' && inputs.fork != 'true'
+              && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+        uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          before: publishing charts, tagging or uploading anything
+          pushed-image: ${{ needs.container.outputs.image }}
+          version: ${{ inputs.next-version }}
+
       - name: Publish Helm charts
         # Before the tag, like the container, so a chart that fails to push
         # cuts no tag. The CLI does nothing unless release.helm.enabled, and
@@ -788,7 +813,7 @@ jobs:
           head=$(git rev-parse "HEAD^{commit}")
           if ! ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.type + " " + .object.sha')
           then
-            echo "::error::${tag} does not exist, so nothing is published. semantic-release tags nothing when ${head} is behind the branch tip, and a re-run checks out the same commit. Release the current head with 'hyperi-ci release'."
+            echo "::error::${tag} does not exist, so this run uploads nothing to the package registries, R2 or a GitHub Release. A container image or Helm chart it already pushed has no tag behind it. semantic-release tags nothing when ${head} is behind the branch tip, and a re-run checks out the same commit. Release the current head with 'hyperi-ci release'."
             exit 1
           fi
           read -r kind sha <<< "$ref"
@@ -885,8 +910,12 @@ jobs:
 
       - name: Record a failed release
         # semantic-release's `fail` step: a release that dies overnight waits
-        # in the tracker rather than in a run log nobody reopens.
-        if: failure()
+        # in the tracker rather than in a run log nobody reopens. The job's
+        # always() keeps a plain cancel from stopping it, but a force-cancel can
+        # land after the tag push (issue #717). At step level both functions
+        # read this job's own status, so a job that kept going and shipped
+        # records nothing.
+        if: failure() || cancelled()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

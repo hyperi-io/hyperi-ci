@@ -162,6 +162,7 @@ Multi-arch uses **native runners per arch** (amd64 on ARC, arm64 on `ubuntu-24.0
   actions/     predict-version, setup-runtime, setup-semantic-release,
                setup-osv-scanner, setup-go-tools, setup-rust-tools,
                setup-nextest                                          (pinned tool installs)
+               release-branch-guard                                   (stop a release whose branch moved)
 src/hyperi_ci/
   cli.py, dispatch.py, detect.py, config.py, common.py, stamp.py, init.py
   config/      defaults, org, versions, deprecated-files, toolchains/, native-deps/

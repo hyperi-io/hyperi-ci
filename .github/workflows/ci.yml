@@ -47,9 +47,11 @@ on:
 
 # A queue entry's github.ref is its own gh-readonly-queue/main/pr-<n>-<sha>
 # branch, so it shares a group with nothing. Cancelling one would eject the PR.
+# A release gets its own group and is never cancelled, as in the <lang>-ci.yml
+# workflows (issue #717).
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
-  cancel-in-progress: true
+  group: "${{ github.workflow }}-${{ inputs.tag || (inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) && format('release-{0}', github.ref) || github.ref }}"
+  cancel-in-progress: "${{ !(inputs.tag != '' || inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) }}"
 
 # Least-privilege default (CodeQL actions/missing-workflow-permissions). Two jobs
 # elevate: release-tail (passes write down to _release-tail.yml) and plan
