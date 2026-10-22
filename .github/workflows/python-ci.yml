@@ -343,6 +343,9 @@ jobs:
           python-version: ${{ needs.plan.outputs.python-version }}
           force-python-install: "true"
           enable-uv-cache: "true"
+          # Quality is the one job per run that saves the uv cache: it runs on every
+          # run-checks run, once, where Test is a matrix and Build needs both.
+          save-uv-cache: "true"
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install dependencies

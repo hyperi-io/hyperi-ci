@@ -37,6 +37,10 @@ inputs:
     description: setup-uv cache -- true for Python (deps dominate), false for Rust (cargo cache dominates)
     required: false
     default: "false"
+  save-uv-cache:
+    description: Save the setup-uv cache at job end. Only one job per workflow run may set this true, because parallel savers on one key warn "Unable to reserve cache". Ignored unless enable-uv-cache is true.
+    required: false
+    default: "false"
   hyperci-install:
     description: How to invoke the hyperi-ci CLI
     required: false
@@ -52,6 +56,7 @@ runs:
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
+        save-cache: ${{ inputs.save-uv-cache }}
     - name: Install uv (retry 1)
       id: uv_try2
       if: ${{ steps.uv_try1.outcome == 'failure' }}
@@ -59,11 +64,13 @@ runs:
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
+        save-cache: ${{ inputs.save-uv-cache }}
     - name: Install uv (retry 2)
       if: ${{ steps.uv_try2.outcome == 'failure' }}
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
+        save-cache: ${{ inputs.save-uv-cache }}
 
     - name: Set up Python
       shell: bash

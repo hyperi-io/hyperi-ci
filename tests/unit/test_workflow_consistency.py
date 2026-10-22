@@ -106,6 +106,79 @@ class TestSetupRuntimeInstall:
         assert call["with"]["force-python-install"] == "true"
 
 
+def _truthy(value: object) -> bool:
+    """A `with:` value that is not literally off: true, "true" or an expression."""
+    return str(value).strip().lower() != "false"
+
+
+def _jobs_saving_the_uv_cache(workflow_name: str) -> list[str]:
+    """Jobs of one workflow whose setup-uv writes the cache at job end.
+
+    A direct setup-uv call saves when `enable-cache` is on and `save-cache` is
+    not off (setup-uv's own default, `auto`, saves). A setup-runtime call saves
+    when both `enable-uv-cache` and `save-uv-cache` are on. A job's retry
+    steps count once.
+    """
+    saving = []
+    for job_name, job in (_load_workflow(workflow_name).get("jobs") or {}).items():
+        for step in job.get("steps") or []:
+            uses = str(step.get("uses", ""))
+            args = step.get("with") or {}
+            if uses.startswith("astral-sh/setup-uv@"):
+                saves = _truthy(args.get("enable-cache", "auto")) and _truthy(
+                    args.get("save-cache", "auto")
+                )
+            elif "actions/setup-runtime@" in uses:
+                saves = _truthy(args.get("enable-uv-cache", "false")) and _truthy(
+                    args.get("save-uv-cache", "false")
+                )
+            else:
+                continue
+            if saves:
+                saving.append(job_name)
+                break
+    return saving
+
+
+class TestOneJobSavesTheUvCache:
+    """Parallel jobs of one run share a setup-uv cache key, so a second saver
+    warns "Unable to reserve cache ... another job may be creating this cache"
+    on every run. Exactly one job saves and the rest restore only."""
+
+    @pytest.mark.parametrize("workflow_name", ["python-ci.yml", "ci.yml"])
+    def test_quality_is_the_only_saver(self, workflow_name: str) -> None:
+        assert _jobs_saving_the_uv_cache(workflow_name) == ["quality"]
+
+    @pytest.mark.parametrize(
+        "workflow_name", ["rust-ci.yml", "go-ci.yml", "ts-ci.yml", "_release-tail.yml"]
+    )
+    def test_workflows_that_do_not_cache_uv_save_nothing(
+        self, workflow_name: str
+    ) -> None:
+        assert _jobs_saving_the_uv_cache(workflow_name) == []
+
+    @pytest.mark.parametrize("workflow_name", ["python-ci.yml", "ci.yml"])
+    def test_the_saver_is_not_a_matrix_job(self, workflow_name: str) -> None:
+        # Matrix legs on one OS share a key, so a matrix saver races itself.
+        job = _load_workflow(workflow_name)["jobs"]["quality"]
+        assert "matrix" not in (job.get("strategy") or {})
+
+    def test_setup_runtime_saves_only_when_asked(self) -> None:
+        path = WORKFLOW_DIR.parent / "actions" / "setup-runtime" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert action["inputs"]["save-uv-cache"]["default"] == "false"
+        uv_steps = [
+            s
+            for s in action["runs"]["steps"]
+            if str(s.get("uses", "")).startswith("astral-sh/setup-uv@")
+        ]
+        assert uv_steps, "no setup-uv steps found -- the test is looking wrong"
+        for step in uv_steps:
+            assert step["with"]["save-cache"] == "${{ inputs.save-uv-cache }}", (
+                f"{step['name']}: save-cache must follow the save-uv-cache input"
+            )
+
+
 class TestPrepareInstallsNativeDeps:
     """cargo-semver-checks builds the crate in `prepare`, on a runner with no C
     compiler, so without native deps it reaches no verdict (issue #678)."""
