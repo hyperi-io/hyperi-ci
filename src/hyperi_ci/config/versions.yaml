@@ -104,6 +104,9 @@ tools:
     version: 0.18.13
     npm: linkedom
     lockfile: src/hyperi_ci/config/node-tools/package-lock.json
+  # Risk accepted: braces 3.0.3 (GHSA-vfj7-8cjw-p6xm, no fixed release) reaches
+  # here through micromatch. It expands only the globs the linted repo supplies,
+  # and that repo's `.markdownlint-cli2.cjs` already runs code in the same job.
   markdownlint-cli2:
     version: 0.23.3
     npm: markdownlint-cli2
