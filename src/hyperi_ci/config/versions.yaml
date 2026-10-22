@@ -124,6 +124,13 @@ tools:
     version: 1.9.0
     npm: smol-toml
     lockfile: src/hyperi_ci/config/node-tools/package-lock.json
+  # markdownlint-cli2 0.23.3 pins markdown-it 15.0.1 exactly (GHSA-gfr2-rv44-r23c,
+  # GHSA-r7fv-28h4-cvq7, GHSA-vfgh-jcmw-g37q, fixed in 15.0.3). Drop this entry
+  # once a markdownlint-cli2 past the 7-day cooldown pins markdown-it 15.0.3 or later.
+  markdown-it:
+    version: 15.0.3
+    npm: markdown-it
+    lockfile: src/hyperi_ci/config/node-tools/package-lock.json
   # mermaid takes katex ^0.16, which carries the prototype-pollution trust bypass
   # fixed in 0.18.2. The mermaid check parses grammar and never renders maths.
   katex:
