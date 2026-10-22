@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.24](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.23...v2.14.24) (2026-10-22)
+
+### Bug Fixes
+
+* **deps:** move markdown-it to 15.0.3 in the node tools ([#724](https://github.com/hyperi-io/hyperi-ci/issues/724)) ([c6d579c](https://github.com/hyperi-io/hyperi-ci/commit/c6d579c6f0f28c3a3fcf9c683e565318098136d8))
+* **release:** never cancel a release run part way through ([#723](https://github.com/hyperi-io/hyperi-ci/issues/723)) ([1d12440](https://github.com/hyperi-io/hyperi-ci/commit/1d12440f0e9c069949bade3aea714045a0d5ea2b)), closes [#717](https://github.com/hyperi-io/hyperi-ci/issues/717)
+
 ## [2.14.23](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.22...v2.14.23) (2026-10-21)
 
 ### Bug Fixes
