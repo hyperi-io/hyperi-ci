@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.25](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.24...v2.14.25) (2026-10-23)
+
+### Bug Fixes
+
+* **ci:** save the uv cache from one job per run ([#726](https://github.com/hyperi-io/hyperi-ci/issues/726)) ([2c2ea5a](https://github.com/hyperi-io/hyperi-ci/commit/2c2ea5ad13c4529dedf7c8782f81b938b34e9a1b))
+* **labels:** flag open issues that still carry a retired label ([#728](https://github.com/hyperi-io/hyperi-ci/issues/728)) ([55b1999](https://github.com/hyperi-io/hyperi-ci/commit/55b1999ab9b1ea017caed33f59e3d201949aca5e))
+
 ## [2.14.24](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.23...v2.14.24) (2026-10-22)
 
 ### Bug Fixes
