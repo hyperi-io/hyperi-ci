@@ -133,6 +133,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
+          save-cache: false
       - name: Set up Python
         run: uv python install 3.14
       - name: Install dependencies
@@ -156,7 +157,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          # The one job per run that saves the uv cache. Every other job restores only,
+          # because parallel savers on one key warn "Unable to reserve cache".
           enable-cache: true
+          save-cache: true
 
       - name: Set up Python
         run: uv python install 3.14
@@ -209,6 +213,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
+          save-cache: false
 
       - name: Set up Python
         run: uv python install 3.14
@@ -266,6 +271,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
+          save-cache: false
 
       - name: Set up Python
         run: uv python install 3.14
@@ -349,6 +355,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
+          save-cache: false
 
       - name: Set up Python
         run: uv python install 3.14
@@ -418,6 +425,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
+          save-cache: false
       - name: Set up Python
         run: uv python install 3.14
       - name: Install dependencies
