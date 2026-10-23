@@ -93,6 +93,7 @@ hyperi-ci labels --stale --json           # the same, as JSON
 - drift in a label's name case, colour or description
 - extra labels: anything not in the manifest, bot-owned, community, allowed, or retired with its `RETIRED: use <new>` description
 - open issues with no gate label, more than one, no issue type, or no area label where the repo declares areas
+- open issues still carrying a retired label, with its replacement
 
 Pull requests and Renovate's Dependency Dashboard are skipped. Exit 0 when clean, 1 on any finding, 2 when it could not run: no `gh`, an unreadable repo, or a malformed `issues.areas`.
 

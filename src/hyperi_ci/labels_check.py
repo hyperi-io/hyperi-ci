@@ -97,6 +97,7 @@ class Report:
         conflict: Open issues with more than one gate label.
         no_type: Open issues with no native issue type.
         no_area: Open issues with no area label, when the repo declares areas.
+        retired: Open issues still carrying a retired label.
 
     """
 
@@ -107,6 +108,7 @@ class Report:
     conflict: list[IssueRef] = field(default_factory=list)
     no_type: list[IssueRef] = field(default_factory=list)
     no_area: list[IssueRef] = field(default_factory=list)
+    retired: list[IssueRef] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -120,6 +122,7 @@ class Report:
                 self.conflict,
                 self.no_type,
                 self.no_area,
+                self.retired,
             )
         )
 
@@ -243,10 +246,12 @@ def check_issues(
         issues: Open issues as `GET /repos/{repo}/issues` returns them.
         areas: The repo's validated ``issues.areas``. The area check runs only
             when it is non-empty.
-        report: Collects the no-gate, conflict, no-type and no-area findings.
+        report: Collects the no-gate, conflict, no-type, no-area and retired
+            findings.
 
     """
     area_names = {area_label(name).casefold() for name in areas}
+    retired = {name.casefold(): new for name, new in load_manifest().retired.items()}
     for issue in issues:
         if not is_work(issue):
             continue
@@ -264,6 +269,11 @@ def check_issues(
             report.no_type.append(IssueRef(number, title))
         if area_names and not any(n.casefold() in area_names for n in names):
             report.no_area.append(IssueRef(number, title))
+        stale = [
+            f"{n} -> {retired[n.casefold()]}" for n in names if n.casefold() in retired
+        ]
+        if stale:
+            report.retired.append(IssueRef(number, title, ", ".join(stale)))
 
 
 def fetch(repo: str) -> tuple[list[dict], list[dict], str]:
@@ -375,5 +385,9 @@ def print_report(repo: str, report: Report) -> None:
     )
     _section("Open issues with no issue type", [_issue_line(r) for r in report.no_type])
     _section("Open issues with no area label", [_issue_line(r) for r in report.no_area])
+    _section(
+        "Open issues with a retired label",
+        [_issue_line(r) for r in report.retired],
+    )
     if report.clean:
         success("labels and open issues match the manifest")

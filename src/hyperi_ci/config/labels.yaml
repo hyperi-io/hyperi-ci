@@ -119,6 +119,7 @@ bot_owned:
   - dependencies
   - rust
   - javascript
+  - github_actions
   - upstream-sync
 
 # Declared by hyperi-ai's issue-management standard. `labels --check` accepts
