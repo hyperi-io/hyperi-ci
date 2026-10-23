@@ -286,6 +286,7 @@ class TestCheckLabels:
             _label("post-ga", "ededed", "After GA"),
             _label("rc14", "ededed", "RETIRED: use a gate label"),
             _label("released", "ededed", ""),
+            _label("github_actions", "000000", ""),
             _label("good first issue", "7057ff", "Good for newcomers"),
             _label("area/ghost", "bfdadc", ""),
             _label("wip", "ededed", ""),
@@ -346,6 +347,14 @@ class TestCheckIssues:
         declared = Report()
         check_issues([issue], {"docs": ("docs/",)}, declared)
         assert [r.number for r in declared.no_area] == [4]
+
+    def test_retired_label_on_an_issue(self) -> None:
+        report = Report()
+        check_issues([_issue(7, ["next-patch", "post-ga", "Bug"])], {}, report)
+        assert [(r.number, r.detail) for r in report.retired] == [
+            (7, "post-ga -> backlog or next-patch, Bug -> type Bug")
+        ]
+        assert not report.no_gate
 
     def test_pull_requests_and_the_dashboard_are_skipped(self) -> None:
         dashboard = _issue(6, [], title="Dependency Dashboard")
