@@ -519,9 +519,11 @@ notify:
   slack:
     webhook_env: ""
 
-# Issue labelling (`hyperi-ci labels`). The org label set ships in
-# config/labels.yaml. A repo adds only its areas, each an `area/<name>` label
-# covering the listed paths. Name: lower-case slug. Paths: a non-empty list.
+# Issue labelling (`hyperi-ci labels`). The org label set is read at run time
+# from `labels.path` on the default branch of the org's `.github` repo. With no
+# such file, or an empty path, the neutral default in config/labels.yaml
+# applies. A repo adds only its areas, each an `area/<name>` label covering the
+# listed paths. Name: lower-case slug. Paths: a non-empty list.
 #   areas:
 #     auth: [src/app/auth/, src/app/orgs/]
 #     docs: [docs/]
@@ -534,6 +536,8 @@ notify:
 #   programs:
 #     dfe: {next-patch: 3}
 issues:
+  labels:
+    path: labels/labels.yaml
   areas: {}
   horizons:
     stale_after:

@@ -18,13 +18,17 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from hyperi_ci import gh, labels_check
+from hyperi_ci import common, gh, labels_check
 from hyperi_ci.cli import app
+from hyperi_ci.common import run_cmd
+from hyperi_ci.config import load_config
 from hyperi_ci.gh import ApiResult, RepoFileError
 from hyperi_ci.labels import (
     MANIFEST_FILE,
     AreasError,
+    Manifest,
     ManifestError,
+    ManifestSource,
     NoReleaseYetError,
     ProgramError,
     area_description,
@@ -41,11 +45,16 @@ from hyperi_ci.labels import (
     program_members,
     program_released,
     program_version,
+    resolve_org,
     resolve_program_horizon,
     retired_description,
     retired_labels,
 )
 from hyperi_ci.labels_check import Report, check_issues, check_labels
+
+# HyperI's own set, kept in the repo to seed hyperi-io/.github.
+HYPERI_FILE = Path(__file__).resolve().parents[2] / "config" / "labels-hyperi.yaml"
+HYPERI = load_manifest(HYPERI_FILE)
 
 
 def _write(tmp_path: Path, doc: object) -> Path:
@@ -54,8 +63,8 @@ def _write(tmp_path: Path, doc: object) -> Path:
     return path
 
 
-def _shipped_doc() -> dict:
-    return yaml.safe_load(MANIFEST_FILE.read_text(encoding="utf-8"))
+def _hyperi_doc() -> dict:
+    return yaml.safe_load(HYPERI_FILE.read_text(encoding="utf-8"))
 
 
 class TestManifest:
@@ -64,6 +73,9 @@ class TestManifest:
         assert [t.name for t in manifest.types] == ["Bug", "Feature", "Task", "Epic"]
         assert manifest.area_prefix == "area/"
         assert manifest.area_color == "bfdadc"
+        assert manifest.source == ManifestSource(
+            "packaged-default", path="hyperi_ci/config/labels.yaml"
+        )
 
     def test_gate_is_strictest_first(self) -> None:
         assert gate_labels() == (
@@ -90,20 +102,82 @@ class TestManifest:
         assert "release-commit-back" in bots
 
     def test_a_retired_label_description(self) -> None:
-        assert retired_labels()["blocked"] == "needs-decision or blocked-by"
+        retired = retired_labels(manifest=HYPERI)
+        assert retired["blocked"] == "needs-decision or blocked-by"
         assert (
-            retired_description("needs-decision or blocked-by")
+            retired_description("needs-decision or blocked-by", manifest=HYPERI)
             == "RETIRED: use needs-decision or blocked-by"
         )
 
     def test_the_result_is_read_only(self) -> None:
-        retired = cast(dict[str, str], load_manifest().retired)
+        retired = cast(dict[str, str], HYPERI.retired)
         with pytest.raises(TypeError):
             retired["new"] = "x"
 
     def test_a_copy_loads_from_a_path(self, tmp_path: Path) -> None:
-        manifest = load_manifest(_write(tmp_path, _shipped_doc()))
+        shipped = yaml.safe_load(MANIFEST_FILE.read_text(encoding="utf-8"))
+        path = _write(tmp_path, shipped)
+        manifest = load_manifest(path)
         assert manifest == load_manifest()
+        assert manifest.source == ManifestSource("file", path=str(path))
+
+
+class TestPackagedDefault:
+    """The shipped default is neutral, and HyperI's set lives beside the code."""
+
+    def test_it_carries_nothing_of_one_org(self) -> None:
+        packaged = load_manifest(MANIFEST_FILE)
+        assert dict(packaged.programs) == {}
+        assert dict(packaged.retired) == {}
+        assert packaged.allowed_patterns == ()
+        assert packaged.allowed_literals == ()
+        content = json.dumps(yaml.safe_load(MANIFEST_FILE.read_text(encoding="utf-8")))
+        assert "dfe" not in content
+        assert "hyperi" not in content.casefold()
+
+    def test_it_still_carries_every_horizon(self) -> None:
+        names = gate_labels(manifest=load_manifest(MANIFEST_FILE))
+        assert names == (
+            "release-blocker",
+            "next-patch",
+            "next-minor",
+            "next-major",
+            "backlog",
+        )
+
+    def test_the_hyperi_set_is_the_default_plus_its_own(self) -> None:
+        packaged = load_manifest(MANIFEST_FILE)
+        for section in ("gate", "horizons", "waiting", "flags", "community"):
+            assert getattr(HYPERI, section) == getattr(packaged, section), section
+        assert [t.name for t in HYPERI.types] == [t.name for t in packaged.types]
+        assert set(packaged.bot_owned) < set(HYPERI.bot_owned)
+        assert (HYPERI.area_prefix, HYPERI.area_color) == (
+            packaged.area_prefix,
+            packaged.area_color,
+        )
+        assert HYPERI.retired_template == packaged.retired_template
+        assert list(HYPERI.programs) == ["dfe"]
+        assert HYPERI.retired["post-ga"] == "backlog or next-patch"
+        assert HYPERI.allowed_literals == ("dfe-v1", "dfe-v2")
+        assert HYPERI.allowed_patterns == ("initiative:[a-z0-9]+(?:-[a-z0-9]+)*",)
+
+    def test_both_declare_the_schema(self) -> None:
+        for path in (MANIFEST_FILE, HYPERI_FILE):
+            assert yaml.safe_load(path.read_text(encoding="utf-8"))["schema"] == 1
+
+
+class TestSchema:
+    def test_a_missing_schema_is_version_one(self, tmp_path: Path) -> None:
+        doc = _hyperi_doc()
+        del doc["schema"]
+        assert load_manifest(_write(tmp_path, doc)) == HYPERI
+
+    @pytest.mark.parametrize("schema", [2, 0, "1", True, None])
+    def test_any_other_schema_is_refused(self, tmp_path: Path, schema: object) -> None:
+        doc = _hyperi_doc()
+        doc["schema"] = schema
+        with pytest.raises(ManifestError, match="`schema`"):
+            load_manifest(_write(tmp_path, doc))
 
 
 class TestMalformedManifest:
@@ -147,7 +221,7 @@ class TestMalformedManifest:
     def test_is_refused_with_a_reason(
         self, tmp_path: Path, mutate: Callable[[dict], object], message: str
     ) -> None:
-        doc = _shipped_doc()
+        doc = _hyperi_doc()
         mutate(doc)
         with pytest.raises(ManifestError, match=message.replace("{", r"\{")):
             load_manifest(_write(tmp_path, doc))
@@ -241,8 +315,11 @@ def _label(name: str, color: str, description: str) -> dict:
     return {"name": name, "color": color, "description": description}
 
 
-def _all_expected(areas: dict | None = None) -> list[dict]:
-    return [_label(x.name, x.color, x.description) for x in expected_labels(areas)]
+def _all_expected(
+    areas: dict | None = None, manifest: Manifest | None = None
+) -> list[dict]:
+    wanted = expected_labels(areas, manifest=manifest)
+    return [_label(x.name, x.color, x.description) for x in wanted]
 
 
 def _issue(number: int, labels: list[str], *, typed: bool = True, **extra) -> dict:
@@ -282,7 +359,7 @@ class TestCheckLabels:
 
     def test_extra(self) -> None:
         present = [
-            *_all_expected(),
+            *_all_expected(manifest=HYPERI),
             _label("post-ga", "ededed", "After GA"),
             _label("rc14", "ededed", "RETIRED: use a gate label"),
             _label("released", "ededed", ""),
@@ -295,7 +372,7 @@ class TestCheckLabels:
             _label("initiative:Not_A_Slug", "0e8a16", ""),
         ]
         report = Report()
-        check_labels(present, {}, report)
+        check_labels(present, {}, report, manifest=HYPERI)
         assert [(e.name, e.hint) for e in report.extra] == [
             (
                 "post-ga",
@@ -306,6 +383,12 @@ class TestCheckLabels:
             ("initiative:Not_A_Slug", ""),
         ]
         assert not report.drift
+
+    def test_the_default_has_no_opinion_on_another_orgs_labels(self) -> None:
+        present = [*_all_expected(), _label("post-ga", "ededed", "After GA")]
+        report = Report()
+        check_labels(present, {}, report)
+        assert [(e.name, e.hint) for e in report.extra] == [("post-ga", "")]
 
 
 def gate_desc(name: str) -> str:
@@ -350,7 +433,8 @@ class TestCheckIssues:
 
     def test_retired_label_on_an_issue(self) -> None:
         report = Report()
-        check_issues([_issue(7, ["next-patch", "post-ga", "Bug"])], {}, report)
+        issue = _issue(7, ["next-patch", "post-ga", "Bug"])
+        check_issues([issue], {}, report, manifest=HYPERI)
         assert [(r.number, r.detail) for r in report.retired] == [
             (7, "post-ga -> backlog or next-patch, Bug -> type Bug")
         ]
@@ -465,19 +549,23 @@ class TestReadRepoFile:
 
 class TestAllowed:
     def test_declared_by_issue_management(self) -> None:
-        assert is_allowed("initiative:dfe-ga")
-        assert is_allowed("dfe-v1")
-        assert is_allowed("dfe-v2")
+        assert is_allowed("initiative:dfe-ga", manifest=HYPERI)
+        assert is_allowed("dfe-v1", manifest=HYPERI)
+        assert is_allowed("dfe-v2", manifest=HYPERI)
+
+    def test_the_default_allows_nothing(self) -> None:
+        assert not is_allowed("initiative:dfe-ga")
+        assert not is_allowed("dfe-v1")
 
     def test_never_reconciled(self) -> None:
-        names = {label.name for label in expected_labels()}
+        names = {label.name for label in expected_labels(manifest=HYPERI)}
         assert "dfe-v1" not in names
 
     @pytest.mark.parametrize(
         "name", ["initiative:", "initiative:DFE", "initiative:a--b", "xinitiative:a"]
     )
     def test_the_pattern_is_a_whole_lower_case_slug(self, name: str) -> None:
-        assert not is_allowed(name)
+        assert not is_allowed(name, manifest=HYPERI)
 
 
 # Excerpts of dfe-infra's suite.yaml and versions.yaml, in their real shape.
@@ -583,7 +671,8 @@ class TestPrograms:
         ]
 
     def test_expected_labels_adds_the_program_family(self) -> None:
-        wanted = expected_labels({"docs": ("docs/",)}, programs=["dfe"])
+        areas = {"docs": ("docs/",)}
+        wanted = expected_labels(areas, programs=["dfe"], manifest=HYPERI)
         names = [label.name for label in wanted]
         assert names[-4:] == [
             "dfe:next-patch",
@@ -592,37 +681,41 @@ class TestPrograms:
             "area/docs",
         ]
         family = {label.name: label for label in wanted}
-        gate = {label.name: label for label in load_manifest().gate}
+        gate = {label.name: label for label in HYPERI.gate}
         assert family["dfe:next-major"].color == gate["next-major"].color
 
     def test_an_unknown_program_raises(self) -> None:
         with pytest.raises(ProgramError, match="'nope'"):
-            expected_labels(programs=["nope"])
+            expected_labels(programs=["nope"], manifest=HYPERI)
+
+    def test_the_default_declares_no_program(self) -> None:
+        with pytest.raises(ProgramError, match="'dfe'"):
+            expected_labels(programs=["dfe"])
 
     def test_no_program_has_release_blocker_or_backlog(self) -> None:
-        for program in load_manifest().programs.values():
+        for program in HYPERI.programs.values():
             assert program.horizons == ("next-patch", "next-minor", "next-major")
 
     def test_members_are_every_node_repo(self, dfe_infra: dict) -> None:
-        assert program_members("dfe") == {
+        assert program_members("dfe", manifest=HYPERI) == {
             "hyperi-io/dfe-infra",
             "hyperi-io/dfe-loader",
             "hyperi-io/scalo-rs",
         }
 
     def test_resolve_each_horizon(self, dfe_infra: dict) -> None:
-        assert program_version("dfe") == "2.2.1-rc.17"
-        assert resolve_program_horizon("dfe", "next-patch") == "2.2.1"
-        assert resolve_program_horizon("dfe", "next-minor") == "2.3"
-        assert resolve_program_horizon("dfe", "next-major") == "3.0"
+        assert program_version("dfe", manifest=HYPERI) == "2.2.1-rc.17"
+        assert resolve_program_horizon("dfe", "next-patch", manifest=HYPERI) == "2.2.1"
+        assert resolve_program_horizon("dfe", "next-minor", manifest=HYPERI) == "2.3"
+        assert resolve_program_horizon("dfe", "next-major", manifest=HYPERI) == "3.0"
 
     def test_released_is_the_last_ga_not_the_train(self, dfe_infra: dict) -> None:
-        assert program_released("dfe") == "2.2.0"
+        assert program_released("dfe", manifest=HYPERI) == "2.2.0"
         dfe_infra["versions.yaml"] = _VERSIONS.format(
             current="2.2.2-rc.1", latest="2.2.1"
         )
-        assert program_released("dfe") == "2.2.1"
-        assert program_version("dfe") == "2.2.2-rc.1"
+        assert program_released("dfe", manifest=HYPERI) == "2.2.1"
+        assert program_version("dfe", manifest=HYPERI) == "2.2.2-rc.1"
 
     @pytest.mark.parametrize("latest", ["2.2", "latest"])
     def test_a_released_value_that_is_not_semver_raises(
@@ -632,9 +725,9 @@ class TestPrograms:
             current="2.2.1-rc.17", latest=latest
         )
         with pytest.raises(ProgramError, match="`latest` is") as raised:
-            program_released("dfe")
+            program_released("dfe", manifest=HYPERI)
         assert not isinstance(raised.value, NoReleaseYetError)
-        assert program_version("dfe") == "2.2.1-rc.17"
+        assert program_version("dfe", manifest=HYPERI) == "2.2.1-rc.17"
 
     @pytest.mark.parametrize("latest", ['""', "", "null"])
     def test_an_empty_released_value_is_no_release_yet(
@@ -644,7 +737,7 @@ class TestPrograms:
             f'schema: 2\ncurrent: "2.2.0-rc.3"\nlatest: {latest}\n'
         )
         with pytest.raises(NoReleaseYetError, match="no GA release yet"):
-            program_released("dfe")
+            program_released("dfe", manifest=HYPERI)
 
     def test_released_reports_an_unreadable_source(
         self, monkeypatch: pytest.MonkeyPatch
@@ -654,16 +747,16 @@ class TestPrograms:
 
         monkeypatch.setattr(gh, "read_repo_file", fail)
         with pytest.raises(ProgramError, match="HTTP 502"):
-            program_released("dfe")
+            program_released("dfe", manifest=HYPERI)
 
     def test_a_program_has_no_backlog_horizon(self, dfe_infra: dict) -> None:
         with pytest.raises(ProgramError, match="no 'backlog' horizon"):
-            resolve_program_horizon("dfe", "backlog")
+            resolve_program_horizon("dfe", "backlog", manifest=HYPERI)
 
     def test_a_missing_source_raises(self, dfe_infra: dict) -> None:
         dfe_infra["suite.yaml"] = None
         with pytest.raises(ProgramError, match="does not exist"):
-            program_members("dfe")
+            program_members("dfe", manifest=HYPERI)
 
     def test_an_unreadable_source_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fail(repo: str, path: str) -> str | None:
@@ -671,9 +764,9 @@ class TestPrograms:
 
         monkeypatch.setattr(gh, "read_repo_file", fail)
         with pytest.raises(ProgramError, match="HTTP 502"):
-            program_members("dfe")
+            program_members("dfe", manifest=HYPERI)
         with pytest.raises(ProgramError, match="HTTP 502"):
-            resolve_program_horizon("dfe", "next-patch")
+            resolve_program_horizon("dfe", "next-patch", manifest=HYPERI)
 
     def test_no_gh_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def missing(repo: str, path: str) -> str | None:
@@ -681,7 +774,7 @@ class TestPrograms:
 
         monkeypatch.setattr(gh, "read_repo_file", missing)
         with pytest.raises(ProgramError, match="could not read"):
-            program_version("dfe")
+            program_version("dfe", manifest=HYPERI)
 
     @pytest.mark.parametrize(
         ("path", "text", "message"),
@@ -697,7 +790,7 @@ class TestPrograms:
     ) -> None:
         dfe_infra[path] = text
         with pytest.raises(ProgramError, match=message):
-            program_members("dfe")
+            program_members("dfe", manifest=HYPERI)
 
     @pytest.mark.parametrize("text", ["schema: 2\n", "current: 2.3\n", "current: x\n"])
     def test_a_malformed_version_source_raises(
@@ -705,17 +798,17 @@ class TestPrograms:
     ) -> None:
         dfe_infra["versions.yaml"] = text
         with pytest.raises(ProgramError):
-            resolve_program_horizon("dfe", "next-minor")
+            resolve_program_horizon("dfe", "next-minor", manifest=HYPERI)
 
     def test_check_accepts_program_labels_and_reports_their_drift(self) -> None:
-        family = load_manifest().programs["dfe"].labels
+        family = HYPERI.programs["dfe"].labels
         present = [
-            *_all_expected(),
+            *_all_expected(manifest=HYPERI),
             _label(family[0].name, family[0].color, family[0].description),
             _label(family[1].name, "ededed", family[1].description),
         ]
         report = Report()
-        check_labels(present, {}, report)
+        check_labels(present, {}, report, manifest=HYPERI)
         assert not report.extra
         assert not report.missing
         assert [(d.name, d.field) for d in report.drift] == [
@@ -745,14 +838,46 @@ class TestJson:
         "areas": dict,
         "horizons": list,
         "programs": dict,
+        "source": dict,
     }
 
     def test_the_top_level_keys_and_types_are_pinned(self) -> None:
-        doc = manifest_json()
+        doc = manifest_json(manifest=HYPERI)
         assert set(doc) == set(self._SHAPE)
         for key, kind in self._SHAPE.items():
             assert type(doc[key]) is kind, key
         assert doc["schema"] == 1
+
+    def test_source_names_where_the_manifest_came_from(self) -> None:
+        assert manifest_json(manifest=HYPERI)["source"] == {
+            "kind": "file",
+            "org": "",
+            "path": str(HYPERI_FILE),
+            "sha": "",
+        }
+        assert manifest_json()["source"] == {
+            "kind": "packaged-default",
+            "org": "",
+            "path": "hyperi_ci/config/labels.yaml",
+            "sha": "",
+        }
+
+    def test_the_command_reads_a_named_manifest(self, tmp_path: Path) -> None:
+        result = CliRunner().invoke(
+            app,
+            ["labels", "--json", "-C", str(tmp_path), "--manifest", str(HYPERI_FILE)],
+        )
+        assert result.exit_code == 0, result.output
+        doc = json.loads(result.stdout)
+        assert doc["source"]["kind"] == "file"
+        assert list(doc["programs"]) == ["dfe"]
+
+    def test_an_unreadable_named_manifest_exits_two(self, tmp_path: Path) -> None:
+        missing = tmp_path / "absent.yaml"
+        result = CliRunner().invoke(
+            app, ["labels", "-C", str(tmp_path), "--manifest", str(missing)]
+        )
+        assert result.exit_code == 2
 
     def test_nested_shapes(self) -> None:
         doc = manifest_json({"docs": ("docs/",)})
@@ -764,7 +889,7 @@ class TestJson:
         assert doc["areas"] == {"docs": ["docs/"]}
 
     def test_horizons(self) -> None:
-        horizons = manifest_json()["horizons"]
+        horizons = manifest_json(manifest=HYPERI)["horizons"]
         assert [h["name"] for h in horizons] == list(gate_labels())
         assert [h["rank"] for h in horizons] == [1, 2, 3, 4, 5]
         assert set(horizons[0]) == {"name", "rank", "set_by", "description"}
@@ -778,7 +903,7 @@ class TestJson:
         }
 
     def test_next_major_is_release_owner_only(self) -> None:
-        doc = manifest_json()
+        doc = manifest_json(manifest=HYPERI)
         major = next(h for h in doc["horizons"] if h["name"] == "next-major")
         assert major["set_by"] == "release-owner"
         assert "never proposed by agents" in major["description"]
@@ -788,7 +913,7 @@ class TestJson:
         assert "never proposed by agents" in dfe_major["description"]
 
     def test_a_program_carries_its_sources_and_resolved_lines(self) -> None:
-        dfe = manifest_json()["programs"]["dfe"]
+        dfe = manifest_json(manifest=HYPERI)["programs"]["dfe"]
         assert set(dfe) == {
             "labels",
             "membership_source",
@@ -835,7 +960,7 @@ class TestJson:
         dfe_infra["versions.yaml"] = _VERSIONS.format(
             current="2.2.1-rc.17", latest="2.2"
         )
-        dfe = manifest_json()["programs"]["dfe"]
+        dfe = manifest_json(manifest=HYPERI)["programs"]["dfe"]
         assert dfe["lines"]["next-patch"] == "2.2.1"
         assert dfe["released"] == ""
         assert dfe["released_state"] == "error"
@@ -845,7 +970,7 @@ class TestJson:
         self, dfe_infra: dict
     ) -> None:
         dfe_infra["versions.yaml"] = _VERSIONS.format(current="2.2.0-rc.3", latest="")
-        doc = manifest_json()
+        doc = manifest_json(manifest=HYPERI)
         dfe = doc["programs"]["dfe"]
         assert doc["schema"] == 1
         assert dfe["released_state"] == "none"
@@ -855,7 +980,7 @@ class TestJson:
 
     def test_an_unresolvable_program_says_why(self, dfe_infra: dict) -> None:
         dfe_infra["versions.yaml"] = None
-        dfe = manifest_json()["programs"]["dfe"]
+        dfe = manifest_json(manifest=HYPERI)["programs"]["dfe"]
         assert dfe["lines"] == {}
         assert dfe["version"] == ""
         assert dfe["released"] == ""
@@ -874,3 +999,223 @@ class TestJson:
     def test_json_and_check_are_separate_modes(self) -> None:
         result = CliRunner().invoke(app, ["labels", "--json", "--check"])
         assert result.exit_code == 2
+
+
+_SHA = "0123456789abcdef0123456789abcdef01234567"
+_NOT_FOUND = "gh: Not Found (HTTP 404)"
+
+
+class FakeDotGithub:
+    """Answers the reads the org lookup makes of `<org>/.github`."""
+
+    def __init__(self) -> None:
+        self.path = "labels/labels.yaml"
+        self.commits: ApiResult = ApiResult([{"sha": _SHA}], "", None)
+        self.file: str | None | Exception = HYPERI_FILE.read_text(encoding="utf-8")
+        self.calls: list[list[str]] = []
+        self.reads: list[tuple[str, str, str | None]] = []
+
+    def api(self, args: list[str], *, body: dict | None = None) -> ApiResult:
+        self.calls.append(args)
+        assert args == [f"repos/hyperi-io/.github/commits?path={self.path}&per_page=1"]
+        return self.commits
+
+    def read(self, repo: str, path: str, *, ref: str | None = None) -> str | None:
+        self.reads.append((repo, path, ref))
+        if isinstance(self.file, Exception):
+            raise self.file
+        return self.file
+
+
+@pytest.fixture
+def dotgithub(monkeypatch: pytest.MonkeyPatch) -> FakeDotGithub:
+    """Turn the org lookup back on, with the shipped path, and serve its reads."""
+    fake = FakeDotGithub()
+    monkeypatch.delenv("HYPERCI_ISSUES_LABELS_PATH")
+    load_config(reload=True, report_removed=False)
+    monkeypatch.setattr(gh, "gh_api", fake.api)
+    monkeypatch.setattr(gh, "read_repo_file", fake.read)
+    return fake
+
+
+@pytest.fixture
+def warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    said: list[str] = []
+    monkeypatch.setattr(common, "warn", said.append)
+    return said
+
+
+class TestOrgSource:
+    """The manifest is read from the org's `.github` repo when it has one."""
+
+    def test_the_org_file_wins_over_the_packaged_default(
+        self, dotgithub: FakeDotGithub, warnings: list[str]
+    ) -> None:
+        manifest = load_manifest(org="hyperi-io")
+        assert manifest == HYPERI
+        assert manifest.source == ManifestSource(
+            "org-dotgithub", "hyperi-io", "labels/labels.yaml", _SHA
+        )
+        assert dotgithub.reads == [("hyperi-io/.github", "labels/labels.yaml", _SHA)]
+        assert warnings == []
+
+    def test_a_named_file_wins_over_the_org(self, dotgithub: FakeDotGithub) -> None:
+        manifest = load_manifest(HYPERI_FILE, org="hyperi-io")
+        assert manifest.source.kind == "file"
+        assert dotgithub.calls == []
+
+    def test_the_path_comes_from_the_config_cascade(
+        self, dotgithub: FakeDotGithub, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_ISSUES_LABELS_PATH", "issue-labels.yaml")
+        load_config(reload=True, report_removed=False)
+        dotgithub.path = "issue-labels.yaml"
+        assert load_manifest(org="hyperi-io").source.path == "issue-labels.yaml"
+
+    def test_an_empty_path_turns_the_lookup_off(
+        self, dotgithub: FakeDotGithub, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_ISSUES_LABELS_PATH", "")
+        load_config(reload=True, report_removed=False)
+        assert load_manifest(org="hyperi-io").source.kind == "packaged-default"
+        assert dotgithub.calls == []
+
+    @pytest.mark.parametrize(
+        ("commits", "file"),
+        [
+            (ApiResult(None, f"gh api failed: {_NOT_FOUND}", _NOT_FOUND), "unread"),
+            (ApiResult([], "", None), "unread"),
+            (ApiResult([{"sha": _SHA}], "", None), None),
+        ],
+        ids=["no-dotgithub-repo", "no-file", "file-deleted"],
+    )
+    def test_absence_falls_to_the_default_silently(
+        self,
+        dotgithub: FakeDotGithub,
+        warnings: list[str],
+        commits: ApiResult,
+        file: str | None,
+    ) -> None:
+        dotgithub.commits = commits
+        dotgithub.file = file
+        manifest = load_manifest(org="hyperi-io")
+        assert manifest.source.kind == "packaged-default"
+        assert warnings == []
+        if file == "unread":
+            assert dotgithub.reads == []
+
+    @pytest.mark.parametrize(
+        ("commits", "file", "reason"),
+        [
+            (ApiResult(None, "gh api failed: HTTP 502", "HTTP 502"), "", "HTTP 502"),
+            (ApiResult({"sha": _SHA}, "", None), "", "not a JSON array"),
+            (ApiResult([{"commit": {}}], "", None), "", "no sha"),
+            (
+                ApiResult([{"sha": _SHA}], "", None),
+                RepoFileError("could not read hyperi-io/.github: HTTP 401"),
+                "HTTP 401",
+            ),
+            (
+                ApiResult([{"sha": _SHA}], "", None),
+                FileNotFoundError("gh"),
+                "gh",
+            ),
+            (
+                ApiResult([{"sha": _SHA}], "", None),
+                "gate: [",
+                "while parsing a flow node",
+            ),
+            (ApiResult([{"sha": _SHA}], "", None), "gate: []\n", "`bot_owned`"),
+            (ApiResult([{"sha": _SHA}], "", None), "schema: 2\n", "`schema` is 2"),
+        ],
+        ids=[
+            "commits-502",
+            "commits-not-a-list",
+            "commit-without-sha",
+            "file-401",
+            "no-gh",
+            "not-yaml",
+            "invalid-manifest",
+            "unknown-schema",
+        ],
+    )
+    def test_any_other_failure_warns_once_and_falls_back(
+        self,
+        dotgithub: FakeDotGithub,
+        warnings: list[str],
+        commits: ApiResult,
+        file: str | Exception,
+        reason: str,
+    ) -> None:
+        dotgithub.commits = commits
+        dotgithub.file = file
+        assert load_manifest(org="hyperi-io").source.kind == "packaged-default"
+        assert load_manifest(org="hyperi-io").source.kind == "packaged-default"
+        [line] = warnings
+        assert "hyperi-io/.github:labels/labels.yaml" in line
+        assert reason in line
+        assert "\n" not in line
+
+    def test_the_org_file_is_read_once_per_process(
+        self, dotgithub: FakeDotGithub
+    ) -> None:
+        for _ in range(3):
+            gate_of(["backlog"], manifest=load_manifest(org="hyperi-io"))
+        assert len(dotgithub.calls) == 1
+        assert len(dotgithub.reads) == 1
+
+    def test_the_json_source_carries_the_commit(self, dotgithub: FakeDotGithub) -> None:
+        doc = manifest_json(manifest=load_manifest(org="hyperi-io"))
+        assert doc["source"] == {
+            "kind": "org-dotgithub",
+            "org": "hyperi-io",
+            "path": "labels/labels.yaml",
+            "sha": _SHA,
+        }
+
+    def test_check_names_the_source_and_its_commit(
+        self, dotgithub: FakeDotGithub, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(common, "info", said.append)
+        answers = [
+            ApiResult(_all_expected(manifest=HYPERI), "", None),
+            ApiResult([_issue(1, ["next-patch"])], "", None),
+        ]
+        with (
+            patch("hyperi_ci.gh.shutil.which", return_value="/usr/bin/gh"),
+            patch.object(labels_check, "gh_api", side_effect=answers),
+            patch.object(labels_check, "read_repo_file", return_value=None),
+        ):
+            result = CliRunner().invoke(
+                app, ["labels", "--check", "--repo", "hyperi-io/x"]
+            )
+        assert result.exit_code == 0, result.output
+        source = f"labels: manifest from hyperi-io/.github:labels/labels.yaml at {_SHA}"
+        assert source in said
+
+
+class TestResolveOrg:
+    @pytest.fixture(autouse=True)
+    def _outside_actions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for name in ("GITHUB_REPOSITORY_OWNER", "GITHUB_REPOSITORY"):
+            monkeypatch.delenv(name, raising=False)
+
+    def test_the_repo_owner_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "acme")
+        assert resolve_org("other-org/x") == "other-org"
+
+    def test_in_ci_the_repository_owner(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "acme")
+        assert resolve_org() == "acme"
+
+    def test_locally_the_owner_of_the_origin_remote(self, tmp_path: Path) -> None:
+        for args in (
+            ["init", "-q"],
+            ["remote", "add", "origin", "git@github.com:acme/widget.git"],
+        ):
+            run_cmd(["git", *args], capture=True, check=True, cwd=tmp_path)
+        assert resolve_org(cwd=tmp_path) == "acme"
+
+    def test_nothing_names_no_org(self, tmp_path: Path) -> None:
+        assert resolve_org(cwd=tmp_path) == ""

@@ -27,6 +27,7 @@ from hyperi_ci import gh
 from hyperi_ci.common import info, success, warn
 from hyperi_ci.labels import (
     PROGRAM_HORIZONS,
+    Manifest,
     NoReleaseYetError,
     ProgramError,
     ga_version,
@@ -34,6 +35,7 @@ from hyperi_ci.labels import (
     load_manifest,
     program_released,
     program_releases_since,
+    resolve_org,
 )
 from hyperi_ci.labels_check import IssueRef, Report, check_issues, is_work, label_names
 
@@ -186,12 +188,14 @@ def _counts(raw: object, where: str, *, complete: bool) -> dict[str, int]:
     return counts
 
 
-def parse_thresholds(raw: object) -> Thresholds:
+def parse_thresholds(raw: object, *, manifest: Manifest | None = None) -> Thresholds:
     """Validate a merged ``issues.horizons`` block.
 
     Args:
         raw: ``stale_after`` mapping each ``next-*`` horizon to a release
             count, and ``programs`` mapping a program to overrides of it.
+        manifest: The manifest whose programs an override may name,
+            :func:`~hyperi_ci.labels.load_manifest` when None.
 
     Returns:
         The :class:`Thresholds`.
@@ -207,7 +211,7 @@ def parse_thresholds(raw: object) -> Thresholds:
     entries = raw.get("programs") or {}
     if not isinstance(entries, Mapping):
         raise HorizonConfigError(f"`{CONFIG_KEY}.programs` must be a mapping")
-    known = load_manifest().programs
+    known = (load_manifest() if manifest is None else manifest).programs
     programs: dict[str, Mapping[str, int]] = {}
     for name, entry in entries.items():
         where = f"{CONFIG_KEY}.programs.{name}"
@@ -302,10 +306,10 @@ def repo_release_dates(repo: str) -> list[datetime]:
 
 
 def _candidates(
-    issues: Iterable[Mapping[str, Any]], thresholds: Thresholds
+    issues: Iterable[Mapping[str, Any]], thresholds: Thresholds, manifest: Manifest
 ) -> list[_Candidate]:
     """Return each issue's countable gate, and its strictest label per program."""
-    programs = load_manifest().programs.values()
+    programs = manifest.programs.values()
     found: list[_Candidate] = []
     for issue in issues:
         number = issue.get("number")
@@ -314,7 +318,7 @@ def _candidates(
         title = str(issue.get("title") or "")
         created = str(issue.get("created_at") or "")
         names = label_names(issue)
-        gate = gate_of(names)
+        gate = gate_of(names, manifest=manifest)
         if gate is not None and thresholds.of(gate) is not None:
             found.append(_Candidate(number, title, created, gate, gate, ""))
         present = {name.casefold() for name in names}
@@ -330,9 +334,9 @@ def _candidates(
     return found
 
 
-def _program_status(name: str) -> ProgramStatus:
+def _program_status(name: str, manifest: Manifest) -> ProgramStatus:
     try:
-        return ProgramStatus("released", program_released(name), "")
+        return ProgramStatus("released", program_released(name, manifest=manifest), "")
     except NoReleaseYetError:
         return ProgramStatus("none", "", "")
     except ProgramError as exc:
@@ -361,7 +365,9 @@ def _applied(
     return _when(item.created_at), "issue_created"
 
 
-def stale_report(repo: str, thresholds: Thresholds) -> StaleReport:
+def stale_report(
+    repo: str, thresholds: Thresholds, *, manifest: Manifest | None = None
+) -> StaleReport:
     """Build the report for ``repo``, reading GitHub through ``gh api``.
 
     Reads the open issues, then the issue events of each one carrying a
@@ -371,6 +377,8 @@ def stale_report(repo: str, thresholds: Thresholds) -> StaleReport:
     Args:
         repo: ``owner/name``.
         thresholds: The validated limits.
+        manifest: The label manifest, the one ``repo``'s org supplies when
+            None.
 
     Returns:
         The :class:`StaleReport`. A program whose releases could not be
@@ -381,14 +389,16 @@ def stale_report(repo: str, thresholds: Thresholds) -> StaleReport:
             be read.
 
     """
+    if manifest is None:
+        manifest = load_manifest(org=resolve_org(repo))
     issues = _read_list(f"repos/{repo}/issues?state=open&per_page=100")
     triage = Report()
-    check_issues(issues, {}, triage)
+    check_issues(issues, {}, triage, manifest=manifest)
     report = StaleReport(repo, conflicts=triage.conflict, untriaged=triage.no_gate)
 
-    candidates = _candidates(issues, thresholds)
+    candidates = _candidates(issues, thresholds, manifest)
     for name in sorted({c.program for c in candidates if c.program}):
-        report.programs[name] = _program_status(name)
+        report.programs[name] = _program_status(name, manifest)
 
     events: dict[int, list[Any]] = {}
     applied: dict[tuple[int, str], tuple[datetime, str]] = {}
@@ -407,7 +417,7 @@ def stale_report(repo: str, thresholds: Thresholds) -> StaleReport:
             applied[(c.number, c.label)][0] for c in candidates if c.program == name
         )
         try:
-            found = program_releases_since(name, _iso(since))
+            found = program_releases_since(name, _iso(since), manifest=manifest)
         except ProgramError as exc:
             report.programs[name] = replace(
                 status, released_state="error", error=str(exc)

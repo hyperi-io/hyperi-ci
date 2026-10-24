@@ -9,7 +9,27 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Issue labels
 
-Every HyperI repo carries the same gate, waiting and flag labels, plus its own `area/<name>` labels. The org set is data, shipped in the wheel at `src/hyperi_ci/config/labels.yaml`, and read through `hyperi_ci.labels`. hyperi-infra's label reconcile creates from it and dfe-sweep reads the gate from it, so change a name or colour there and nowhere else.
+Every repo in an org carries the same gate, waiting and flag labels, plus its own `area/<name>` labels. The org set is data, read at run time through `hyperi_ci.labels`. hyperi-infra's label reconcile creates from it and dfe-sweep reads the gate from it, so change a name or colour in the org's file and nowhere else.
+
+## Where the manifest comes from
+
+The first of these that exists wins:
+
+1. `--manifest FILE` on `hyperi-ci labels`, or `load_manifest(path)` from Python.
+2. The file at `issues.labels.path` (default `labels/labels.yaml`) on the default branch of the org's `.github` repo, read through `gh api` with the ambient token. In CI that is the `GITHUB_TOKEN` the job already has.
+3. The neutral default shipped in the wheel at `src/hyperi_ci/config/labels.yaml`.
+
+The org is the `--repo` owner, else `GITHUB_REPOSITORY_OWNER`, else the owner of the project's `origin` remote. The org file is read once per process. No `.github` repo or no file there falls to the default silently. Any other failure (auth, network, bad YAML, an invalid manifest, a `schema` other than 1) falls to the default with one warning. An empty `issues.labels.path` turns the org lookup off.
+
+For HyperI the org file is `hyperi-io/.github:labels/labels.yaml`, the only copy anyone edits. `config/labels-hyperi.yaml` in this repo holds HyperI's set to seed it, and is not shipped. <!-- doc-paths: ignore -->
+
+The neutral default carries types, the gate, `needs-decision`, the two flags, GitHub's community labels and the release bots' labels. It has no programs, no retired labels and no allowed labels: an org's own file declares those, and replaces the default whole.
+
+Allowed labels are ones another standard declares. `--check` accepts them and the reconcile never creates them. They live under `allowed:`, patterns as Python `re` matched against the whole name. HyperI's set allows `initiative:<slug>` and the literals `dfe-v1`, `dfe-v2`, from hyperi-ai's issue-management standard.
+
+A manifest file starts `schema: 1`. Missing means 1.
+
+`--check` and `--stale` log the source on one line, and `--json` carries it as `source`: `labels: manifest from hyperi-io/.github:labels/labels.yaml at <sha>`. The sha is the last `.github` commit that touched the file, and the file is read at that commit, so the two always agree.
 
 ## The gate
 
@@ -19,7 +39,7 @@ These five are the one release-horizon vocabulary. Each entry's `set_by` says wh
 
 ## Programs
 
-A program is a release train spanning repos. It takes the `next-*` horizons as `<program>:<horizon>` labels, `dfe:next-patch`, `dfe:next-minor` and `dfe:next-major`, coloured as the horizon. There is no program `release-blocker` or `backlog`: each repo's own gate owns those.
+A program is a release train spanning repos, declared in the org's manifest. It takes the `next-*` horizons as `<program>:<horizon>` labels, `dfe:next-patch`, `dfe:next-minor` and `dfe:next-major`, coloured as the horizon. There is no program `release-blocker` or `backlog`: each repo's own gate owns those.
 
 Each program names three sources, read from the default branch through `gh api`. For dfe all live in hyperi-io/dfe-infra:
 
@@ -85,6 +105,7 @@ hyperi-ci labels --check --repo owner/x   # another repo, its areas read from it
 hyperi-ci labels --json                   # the manifest plus this repo's areas, JSON on stdout
 hyperi-ci labels --stale [--repo owner/x] # stale horizons, gate conflicts, untriaged issues
 hyperi-ci labels --stale --json           # the same, as JSON
+hyperi-ci labels --check --manifest FILE  # any mode, against this manifest file
 ```
 
 `--check` is read-only, through `gh api` with the ambient token. It reports:
@@ -95,11 +116,7 @@ hyperi-ci labels --stale --json           # the same, as JSON
 - open issues with no gate label, more than one, no issue type, or no area label where the repo declares areas
 - open issues still carrying a retired label, with its replacement
 
-Pull requests and Renovate's Dependency Dashboard are skipped. Exit 0 when clean, 1 on any finding, 2 when it could not run: no `gh`, an unreadable repo, or a malformed `issues.areas`.
-
-## Allowed labels
-
-Labels hyperi-ai's issue-management standard declares: `initiative:<slug>` and the literals `dfe-v1`, `dfe-v2`. `--check` accepts them and the reconcile never creates them. They live under `allowed:` in the manifest, patterns as Python `re` matched against the whole name.
+Pull requests and Renovate's Dependency Dashboard are skipped. Exit 0 when clean, 1 on any finding, 2 when it could not run: no `gh`, an unreadable repo, a malformed `issues.areas`, or an unreadable `--manifest` file.
 
 ## `--json` -- the contract
 
@@ -121,6 +138,7 @@ For consumers that cannot import `hyperi_ci` (hyperi-ai's pm layer, dfe-sweep). 
 | `areas` | `{name: [paths]}` | This repo's `issues.areas`, `{}` when none |
 | `horizons` | list of `{name, rank, set_by, description}` | The gate as horizons, `rank` 1 strictest. `set_by` is `anyone`, `release-owner` or `hand` |
 | `programs` | `{name: {labels, membership_source, version_source, version, lines, released_source, released, released_state, error}}` | `labels` adds `horizon` to each label. A source is `{repo, path, key}`. `lines` maps horizon to its resolved line. `released` is the last GA version. `released_state` is `released`, `none` (no GA yet, not an error) or `error` |
+| `source` | `{kind, org, path, sha}` | Where the manifest came from. `kind` is `org-dotgithub`, `file` or `packaged-default`. `org` and `sha` are `""` except for `org-dotgithub` |
 
 `--json` and `--check` are separate modes. With `--repo`, `areas` comes from that repo's default branch.
 
@@ -128,9 +146,12 @@ For consumers that cannot import `hyperi_ci` (hyperi-ai's pm layer, dfe-sweep). 
 
 ## Using the manifest from another repo
 
+Each function takes an optional `manifest=`. Without it, it loads the manifest for the org of the environment or the cwd's repo.
+
 ```python
 from hyperi_ci import labels
 
+manifest = labels.load_manifest(org="hyperi-io")  # manifest.source says where from
 labels.gate_of(["backlog", "next-patch"])         # "next-patch"
 labels.conflicts(["backlog", "next-patch"])       # ("next-patch", "backlog")
 areas = labels.parse_areas(raw_issues_areas)      # raises AreasError

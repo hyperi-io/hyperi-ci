@@ -17,7 +17,7 @@ from typing import Self
 import pytest
 from scalo.logger import setup as setup_logger
 
-from hyperi_ci import channel, common
+from hyperi_ci import channel, common, config, labels
 from hyperi_ci.common import is_ci, run_cmd
 from hyperi_ci.container import stage as container_stage
 
@@ -285,6 +285,20 @@ def no_registry_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
     of the lookup patches it back.
     """
     monkeypatch.setattr(container_stage, "published_image", lambda _ref: None)
+
+
+@pytest.fixture(autouse=True)
+def packaged_label_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the org `.github` label lookup off, so the packaged default applies.
+
+    Every label function would otherwise ask the real org's `.github` repo. A
+    test of the lookup sets the path back and serves GitHub's answers itself.
+    """
+    monkeypatch.setenv("HYPERCI_ISSUES_LABELS_PATH", "")
+    # A config cached by an earlier test predates the variable.
+    monkeypatch.setattr(config, "_config_cache", None)
+    labels._from_org.cache_clear()
+    labels._default_org.cache_clear()
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:

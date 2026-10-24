@@ -22,6 +22,7 @@ from hyperi_ci.common import info, success, warn
 from hyperi_ci.gh import RepoFileError, gh_api, read_repo_file
 from hyperi_ci.labels import (
     AreasError,
+    Manifest,
     area_label,
     conflicts,
     expected_labels,
@@ -136,6 +137,8 @@ def check_labels(
     present: Iterable[Mapping[str, Any]],
     areas: Mapping[str, Iterable[str]],
     report: Report,
+    *,
+    manifest: Manifest | None = None,
 ) -> None:
     """Compare the repo's labels with the manifest, adding to ``report``.
 
@@ -146,10 +149,14 @@ def check_labels(
         present: The repo's labels as `GET /repos/{repo}/labels` returns them.
         areas: The repo's validated ``issues.areas``.
         report: Collects the missing, drift and extra findings.
+        manifest: The manifest to check against, :func:`load_manifest` when
+            None.
 
     """
-    manifest = load_manifest()
-    expected = {label.name.casefold(): label for label in expected_labels(areas)}
+    if manifest is None:
+        manifest = load_manifest()
+    wanted = expected_labels(areas, manifest=manifest)
+    expected = {label.name.casefold(): label for label in wanted}
     # Program labels stay on a repo that left the program, so none is extra.
     program_labels = [
         label for program in manifest.programs.values() for label in program.labels
@@ -171,10 +178,10 @@ def check_labels(
         want = expected.get(key) or optional.get(key)
         if want is not None:
             _compare(name, entry, want.name, want.color, want.description, report)
-        elif key in bots or is_allowed(name):
+        elif key in bots or is_allowed(name, manifest=manifest):
             continue
         elif key in retired:
-            marked = retired_description(retired[key])
+            marked = retired_description(retired[key], manifest=manifest)
             if _str(entry, "description") != marked:
                 report.extra.append(Extra(name, f'retired: set description "{marked}"'))
         elif key.startswith(area_prefix):
@@ -236,6 +243,8 @@ def check_issues(
     issues: Iterable[Mapping[str, Any]],
     areas: Mapping[str, Iterable[str]],
     report: Report,
+    *,
+    manifest: Manifest | None = None,
 ) -> None:
     """Triage-check the repo's open issues, adding to ``report``.
 
@@ -248,10 +257,14 @@ def check_issues(
             when it is non-empty.
         report: Collects the no-gate, conflict, no-type, no-area and retired
             findings.
+        manifest: The manifest to check against, :func:`load_manifest` when
+            None.
 
     """
-    area_names = {area_label(name).casefold() for name in areas}
-    retired = {name.casefold(): new for name, new in load_manifest().retired.items()}
+    if manifest is None:
+        manifest = load_manifest()
+    area_names = {area_label(name, manifest=manifest).casefold() for name in areas}
+    retired = {name.casefold(): new for name, new in manifest.retired.items()}
     for issue in issues:
         if not is_work(issue):
             continue
@@ -260,10 +273,10 @@ def check_issues(
             continue
         title = _str(issue, "title")
         names = label_names(issue)
-        clash = conflicts(names)
+        clash = conflicts(names, manifest=manifest)
         if clash:
             report.conflict.append(IssueRef(number, title, ", ".join(clash)))
-        elif gate_of(names) is None:
+        elif gate_of(names, manifest=manifest) is None:
             report.no_gate.append(IssueRef(number, title))
         if not issue.get("type"):
             report.no_type.append(IssueRef(number, title))

@@ -25,16 +25,25 @@ from hyperi_ci.horizons import (
     HorizonConfigError,
     HorizonReadError,
     ProgramStatus,
+    StaleReport,
     Thresholds,
     overlay,
     parse_thresholds,
     report_json,
     stale_report,
 )
-from hyperi_ci.labels import program_releases_since
+from hyperi_ci.labels import load_manifest, program_releases_since
 from hyperi_ci.labels_check import IssueRef
 
 REPO = "hyperi-io/x"
+
+# HyperI's own set, which declares the dfe program these tests count.
+HYPERI_FILE = Path(__file__).resolve().parents[2] / "config" / "labels-hyperi.yaml"
+HYPERI = load_manifest(HYPERI_FILE)
+
+
+def _stale(thresholds: Thresholds) -> StaleReport:
+    return stale_report(REPO, thresholds, manifest=HYPERI)
 
 
 def _issue(number: int, labels: list[str], **extra: Any) -> dict[str, Any]:
@@ -75,6 +84,9 @@ class FakeGitHub:
         endpoint = args[0]
         if self.fail and endpoint.startswith(self.fail):
             return ApiResult(None, f"gh api {endpoint} failed: HTTP 502", "")
+        if endpoint.startswith("repos/hyperi-io/.github/commits"):
+            missing = "gh: Not Found (HTTP 404)"
+            return ApiResult(None, f"gh api {endpoint} failed: {missing}", missing)
         if endpoint.startswith(f"repos/{REPO}/issues?state=open"):
             return ApiResult(self.issues, "", None)
         if match := re.search(r"/issues/(\d+)/events", endpoint):
@@ -113,7 +125,8 @@ def github(monkeypatch: pytest.MonkeyPatch) -> FakeGitHub:
 
 
 def _limits(**project: Any) -> Thresholds:
-    return parse_thresholds(overlay(shipped_default(CONFIG_KEY), project or None))
+    raw = overlay(shipped_default(CONFIG_KEY), project or None)
+    return parse_thresholds(raw, manifest=HYPERI)
 
 
 DEFAULTS = _limits()
@@ -128,7 +141,7 @@ class TestRepoHorizons:
             ("v1.0.1", "2026-10-02T00:00:00Z"),
             ("v1.0.2", "2026-10-03T00:00:00Z"),
         ]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.checked == 1
         [item] = report.stale
         assert (item.number, item.label, item.scope) == (1, "next-patch", "repo")
@@ -143,7 +156,7 @@ class TestRepoHorizons:
             ("v1.0.0", "2026-09-30T00:00:00Z"),
             ("v1.0.1", "2026-10-02T00:00:00Z"),
         ]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.checked == 1
         assert report.stale == []
 
@@ -151,7 +164,7 @@ class TestRepoHorizons:
         github.issues = [_issue(1, ["next-major"])]
         github.events[1] = [_event("next-major", "2026-10-01T00:00:00Z")]
         github.tags = [("v2.0.0", "2026-10-02T00:00:00Z")]
-        [item] = stale_report(REPO, DEFAULTS).stale
+        [item] = _stale(DEFAULTS).stale
         assert (item.releases_since, item.threshold) == (1, 1)
 
     def test_prerelease_and_non_version_tags_never_count(
@@ -166,9 +179,9 @@ class TestRepoHorizons:
             ("1.1.0", "2026-10-05T00:00:00Z"),
         ]
         limits = _limits(stale_after={"next-patch": 1})
-        assert stale_report(REPO, limits).stale == []
+        assert _stale(limits).stale == []
         github.tags.append(("v1.1.0", "2026-10-06T00:00:00Z"))
-        [item] = stale_report(REPO, limits).stale
+        [item] = _stale(limits).stale
         assert item.releases_since == 1
 
     def test_a_reapplied_label_counts_from_the_latest_labeled_event(
@@ -186,8 +199,8 @@ class TestRepoHorizons:
             ("v1.0.2", "2026-09-03T00:00:00Z"),
             ("v1.0.3", "2026-10-06T00:00:00Z"),
         ]
-        assert stale_report(REPO, DEFAULTS).stale == []
-        [item] = stale_report(REPO, _limits(stale_after={"next-patch": 1})).stale
+        assert _stale(DEFAULTS).stale == []
+        [item] = _stale(_limits(stale_after={"next-patch": 1})).stale
         assert item.label_applied_at == "2026-10-05T00:00:00Z"
         assert item.releases_since == 1
 
@@ -199,7 +212,7 @@ class TestRepoHorizons:
             ("v1.0.1", "2026-09-02T00:00:00Z"),
             ("v1.0.2", "2026-09-03T00:00:00Z"),
         ]
-        [item] = stale_report(REPO, DEFAULTS).stale
+        [item] = _stale(DEFAULTS).stale
         assert item.applied_from == "issue_created"
         assert item.label_applied_at == "2026-08-01T00:00:00Z"
 
@@ -208,7 +221,7 @@ class TestRepoHorizons:
     ) -> None:
         github.issues = [_issue(1, ["release-blocker"]), _issue(2, ["backlog"])]
         github.tags = [("v1.0.1", "2026-09-02T00:00:00Z")]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.checked == 0
         assert github.endpoints("/events") == []
         assert github.endpoints("graphql") == []
@@ -216,7 +229,18 @@ class TestRepoHorizons:
     def test_unreadable_issues_raise(self, github: FakeGitHub) -> None:
         github.fail = f"repos/{REPO}/issues"
         with pytest.raises(HorizonReadError, match="HTTP 502"):
-            stale_report(REPO, DEFAULTS)
+            _stale(DEFAULTS)
+
+    def test_with_no_manifest_the_repos_org_supplies_it(
+        self, github: FakeGitHub, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_ISSUES_LABELS_PATH")
+        load_config(reload=True, report_removed=False)
+        github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
+        report = stale_report(REPO, DEFAULTS)
+        [lookup] = github.endpoints("/.github/")
+        assert lookup[0].startswith("repos/hyperi-io/.github/commits?path=")
+        assert report.programs == {}
 
 
 def _dfe_history(github: FakeGitHub, *after: tuple[str, str]) -> None:
@@ -240,7 +264,7 @@ class TestProgramHorizons:
         ]
         github.events[1] = [_event("dfe:next-patch", "2026-09-01T00:00:00Z")]
         github.events[2] = [_event("dfe:next-patch", "2026-09-15T00:00:00Z")]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.programs == {"dfe": ProgramStatus("released", "2.2.0", "")}
         assert report.checked == 2
         [item] = report.stale
@@ -256,7 +280,7 @@ class TestProgramHorizons:
         _dfe_history(github, ("2026-09-10T00:00:00Z", '"3.0.0"'))
         github.issues = [_issue(1, ["backlog", "dfe:next-major", "dfe:next-minor"])]
         github.events[1] = [_event("dfe:next-minor", "2026-09-01T00:00:00Z")]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.checked == 1
         assert report.stale == []
 
@@ -268,7 +292,7 @@ class TestProgramHorizons:
             ("2026-09-04T00:00:00Z", '"2.1.0"'),
             ("2026-09-05T00:00:00Z", '"2.2.0"'),
         )
-        found = program_releases_since("dfe", "2026-09-01T00:00:00Z")
+        found = program_releases_since("dfe", "2026-09-01T00:00:00Z", manifest=HYPERI)
         assert [(r.version, r.at, r.commit) for r in found] == [
             ("2.2.0", "2026-09-03T00:00:00Z", "c2")
         ]
@@ -278,14 +302,14 @@ class TestProgramHorizons:
             ("c0", "2026-08-01T00:00:00Z", '""'),
             ("c1", "2026-09-10T00:00:00Z", '"2.2.0"'),
         ]
-        found = program_releases_since("dfe", "2026-09-01T00:00:00Z")
+        found = program_releases_since("dfe", "2026-09-01T00:00:00Z", manifest=HYPERI)
         assert [r.version for r in found] == ["2.2.0"]
 
     def test_a_file_created_in_the_window_counts_its_first_value(
         self, github: FakeGitHub
     ) -> None:
         github.commits = [("c1", "2026-09-10T00:00:00Z", '"2.2.0"')]
-        found = program_releases_since("dfe", "2026-09-01T00:00:00Z")
+        found = program_releases_since("dfe", "2026-09-01T00:00:00Z", manifest=HYPERI)
         assert [r.commit for r in found] == ["c1"]
 
     def test_unchanged_history_reads_only_its_two_ends(
@@ -295,7 +319,9 @@ class TestProgramHorizons:
             github,
             *((f"2026-09-{day:02d}T00:00:00Z", '"2.1.0"') for day in range(2, 22)),
         )
-        assert program_releases_since("dfe", "2026-09-01T00:00:00Z") == ()
+        assert (
+            program_releases_since("dfe", "2026-09-01T00:00:00Z", manifest=HYPERI) == ()
+        )
         assert sorted(github.refs_read) == ["c0", "c20"]
 
     def test_no_ga_yet_is_a_state_and_nothing_goes_stale(
@@ -304,7 +330,7 @@ class TestProgramHorizons:
         github.latest_now = '""'
         github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
         github.events[1] = [_event("dfe:next-patch", "2026-01-01T00:00:00Z")]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.programs == {"dfe": ProgramStatus("none", "", "")}
         assert report.stale == []
         assert report.checked == 0
@@ -323,7 +349,7 @@ class TestProgramHorizons:
         github.fail = "repos/hyperi-io/dfe-infra/commits"
         github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
         github.events[1] = [_event("dfe:next-patch", "2026-09-01T00:00:00Z")]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         status = report.programs["dfe"]
         assert status.released_state == "error"
         assert "HTTP 502" in status.error
@@ -340,7 +366,7 @@ class TestTriage:
             ("v1.0.1", "2026-10-02T00:00:00Z"),
             ("v1.0.2", "2026-10-03T00:00:00Z"),
         ]
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.conflicts == [IssueRef(1, "issue 1", "next-patch, backlog")]
         assert [item.label for item in report.stale] == ["next-patch"]
         assert report_json(report)["conflicts"] == [
@@ -358,7 +384,7 @@ class TestTriage:
             dashboard,
         ]
         github.latest_now = '""'
-        report = stale_report(REPO, DEFAULTS)
+        report = _stale(DEFAULTS)
         assert report.untriaged == [IssueRef(1, "issue 1")]
         assert report.conflicts == []
 
@@ -391,16 +417,16 @@ class TestThresholds:
             ("v1.0.1", "2026-10-02T00:00:00Z"),
             ("v1.0.2", "2026-10-03T00:00:00Z"),
         ]
-        assert len(stale_report(REPO, DEFAULTS).stale) == 1
-        assert stale_report(REPO, _limits(stale_after={"next-patch": 3})).stale == []
+        assert len(_stale(DEFAULTS).stale) == 1
+        assert _stale(_limits(stale_after={"next-patch": 3})).stale == []
 
     def test_a_program_override_changes_the_verdict(self, github: FakeGitHub) -> None:
         _dfe_history(github, ("2026-09-10T00:00:00Z", '"2.2.0"'))
         github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
         github.events[1] = [_event("dfe:next-patch", "2026-09-01T00:00:00Z")]
-        assert stale_report(REPO, DEFAULTS).stale == []
+        assert _stale(DEFAULTS).stale == []
         limits = _limits(programs={"dfe": {"next-patch": 1}})
-        [item] = stale_report(REPO, limits).stale
+        [item] = _stale(limits).stale
         assert item.threshold == 1
 
     def test_the_project_config_file_is_merged(self, tmp_path: Path) -> None:
@@ -409,7 +435,7 @@ class TestThresholds:
             encoding="utf-8",
         )
         cfg = load_config(reload=True, project_dir=tmp_path)
-        limits = parse_thresholds(cfg.setting(CONFIG_KEY))
+        limits = parse_thresholds(cfg.setting(CONFIG_KEY), manifest=HYPERI)
         assert limits.of("next-patch") == 5
         assert limits.of("next-minor") == 2
 
@@ -432,7 +458,9 @@ class TestThresholds:
 
     def test_a_missing_horizon_raises(self) -> None:
         with pytest.raises(HorizonConfigError, match="no `next-major`"):
-            parse_thresholds({"stale_after": {"next-patch": 1, "next-minor": 1}})
+            parse_thresholds(
+                {"stale_after": {"next-patch": 1, "next-minor": 1}}, manifest=HYPERI
+            )
 
     def test_a_non_mapping_block_raises(self) -> None:
         with pytest.raises(HorizonConfigError, match="must be a mapping"):
@@ -440,6 +468,24 @@ class TestThresholds:
 
 
 class TestCommand:
+    def test_a_named_manifest_declares_the_programs_counted(
+        self, github: FakeGitHub
+    ) -> None:
+        _dfe_history(github, ("2026-09-10T00:00:00Z", '"2.2.0"'))
+        github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
+        github.events[1] = [_event("dfe:next-patch", "2026-09-01T00:00:00Z")]
+        result = self._run("--json", "--manifest", str(HYPERI_FILE))
+        assert result.exit_code == 0, result.output
+        doc = json.loads(result.stdout)
+        assert doc["checked"] == 1
+        assert doc["programs"]["dfe"]["released_state"] == "released"
+
+    def test_the_default_manifest_declares_none(self, github: FakeGitHub) -> None:
+        github.issues = [_issue(1, ["backlog", "dfe:next-patch"])]
+        result = self._run("--json")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["programs"] == {}
+
     def _run(self, *args: str, remote_config: str | None = None):
         with (
             patch("hyperi_ci.gh.shutil.which", return_value="/usr/bin/gh"),
