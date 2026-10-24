@@ -241,11 +241,14 @@ def rust_binary_name(
     if bin_names:
         return bin_names[0]
 
-    # Workspace-only root: prefer a member whose directory name loosely
-    # matches the workspace directory ("dfe-archiver" -> "archiver").
+    # Workspace-only root: a library member's package name is no binary, so only
+    # members that build one count. Among those, prefer a directory name that
+    # loosely matches the checkout's ("dfe-archiver" -> "archiver").
     workspace_name = project_dir.name
     ranked: list[tuple[int, str]] = []
     for member_dir in resolve_workspace_members(project_dir, text):
+        if not produces_rust_binary(member_dir, _seen):
+            continue
         leaf = member_dir.name
         rank = 0 if leaf in workspace_name or workspace_name in leaf else 1
         candidate = rust_binary_name(member_dir, _seen)

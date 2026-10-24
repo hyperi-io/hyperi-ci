@@ -435,6 +435,18 @@ class TestRustBinarySelection:
         )
         assert rust_binary_name(tmp_path) is None
 
+    def test_workspace_skips_a_library_member_listed_first(
+        self, tmp_path: Path
+    ) -> None:
+        # tmp_path's name matches no member, as in a worktree checkout.
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/core", "crates/app"]\n',
+            encoding="utf-8",
+        )
+        _write_member(tmp_path / "crates" / "core", "app-core", binary=False)
+        _write_member(tmp_path / "crates" / "app", "app", binary=True)
+        assert rust_binary_name(tmp_path) == "app"
+
 
 def _write_member(path: Path, name: str, *, binary: bool) -> None:
     """Write a workspace member crate, with or without a binary target."""
