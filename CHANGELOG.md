@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.26](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.25...v2.14.26) (2026-10-24)
+
+### Bug Fixes
+
+* **deployment:** pick a workspace member that builds a binary ([#730](https://github.com/hyperi-io/hyperi-ci/issues/730)) ([ddbace2](https://github.com/hyperi-io/hyperi-ci/commit/ddbace223f68d7289742ef734e9db7cfb85d3b9c))
+
 ## [2.14.25](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.24...v2.14.25) (2026-10-23)
 
 ### Bug Fixes
