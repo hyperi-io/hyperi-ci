@@ -793,11 +793,22 @@ def labels(
             "and untriaged issues",
         ),
     ] = False,
+    manifest_file: Annotated[
+        str | None,
+        typer.Option(
+            "--manifest",
+            help="Read the label manifest from this file instead of the org's "
+            ".github repo",
+        ),
+    ] = None,
 ) -> None:
     """Print the labels the org issue standard expects on this repo.
 
-    The manifest is `src/hyperi_ci/config/labels.yaml`, and areas come from
-    `.hyperi-ci.yaml` `issues.areas`, one `area/<name>` label each.
+    The manifest is `--manifest FILE`, else `issues.labels.path` in the org's
+    `.github` repo, else the neutral default shipped in the package. The org
+    is the `--repo` owner, else `GITHUB_REPOSITORY_OWNER`, else the owner of
+    the project's `origin` remote. Areas come from `.hyperi-ci.yaml`
+    `issues.areas`, one `area/<name>` label each.
 
     `--check` reads the repo's labels and open issues through `gh api` and
     reports missing, drifted and extra labels, and open issues with no gate
@@ -807,30 +818,35 @@ def labels(
 
     `--json` prints the whole manifest plus the repo's areas, for consumers
     that cannot import `hyperi_ci.labels`. Its shape is versioned by `schema`.
-    It includes the release horizons and each program's resolved release
-    lines, read from the program's version source through `gh api`.
+    It includes the release horizons, each program's resolved release lines,
+    read from the program's version source through `gh api`, and `source`,
+    the manifest's provenance.
 
     `--stale` reports open issues whose horizon label has waited
     `issues.horizons` releases of its own scope since it was applied, plus gate
     conflicts and untriaged issues. Report only: exit 0 whatever it finds, 2
     when GitHub could not be read. `--json` prints it as JSON.
     """
-    from hyperi_ci.common import error
+    from hyperi_ci.common import error, info
     from hyperi_ci.description_source import repo_slug
     from hyperi_ci.gh import require_gh
 
     if check and stale:
         error("--check and --stale are separate modes -- pass one")
         raise typer.Exit(2)
+    manifest_path = Path(manifest_file) if manifest_file else None
     if stale:
-        _labels_stale(Path(project_dir) if project_dir else None, repo, as_json)
+        dir_arg = Path(project_dir) if project_dir else None
+        _labels_stale(dir_arg, repo, as_json, manifest_path)
         return
     from hyperi_ci.labels import (
         AreasError,
         ManifestError,
         expected_labels,
+        load_manifest,
         manifest_json,
         parse_areas,
+        resolve_org,
     )
     from hyperi_ci.labels_check import (
         Report,
@@ -856,13 +872,14 @@ def labels(
                 reload=True, project_dir=dir_path, report_removed=not as_json
             )
             areas = parse_areas(cfg.setting("issues.areas"))
-        wanted = expected_labels(areas)
+        manifest = load_manifest(manifest_path, org=resolve_org(repo, dir_path))
+        wanted = expected_labels(areas, manifest=manifest)
     except (AreasError, ManifestError) as exc:
         error(str(exc))
         raise typer.Exit(2) from exc
 
     if as_json:
-        typer.echo(json.dumps(manifest_json(areas), indent=2))
+        typer.echo(json.dumps(manifest_json(areas, manifest=manifest), indent=2))
         raise typer.Exit(0)
 
     if not check:
@@ -883,15 +900,21 @@ def labels(
         raise typer.Exit(2)
 
     report = Report()
-    check_labels(present, areas, report)
-    check_issues(issues, areas, report)
+    check_labels(present, areas, report, manifest=manifest)
+    check_issues(issues, areas, report, manifest=manifest)
+    info(f"labels: manifest from {manifest.source.describe()}")
     print_report(target, report)
     raise typer.Exit(0 if report.clean else 1)
 
 
-def _labels_stale(dir_path: Path | None, repo: str | None, as_json: bool) -> None:
+def _labels_stale(
+    dir_path: Path | None,
+    repo: str | None,
+    as_json: bool,
+    manifest_path: Path | None,
+) -> None:
     """Run `labels --stale`: exit 0 with the report, 2 when it could not run."""
-    from hyperi_ci.common import error
+    from hyperi_ci.common import error, info
     from hyperi_ci.config import shipped_default
     from hyperi_ci.description_source import repo_slug
     from hyperi_ci.gh import require_gh
@@ -905,6 +928,7 @@ def _labels_stale(dir_path: Path | None, repo: str | None, as_json: bool) -> Non
         report_json,
         stale_report,
     )
+    from hyperi_ci.labels import ManifestError, load_manifest, resolve_org
     from hyperi_ci.labels_check import RemoteConfigError, remote_issues
 
     if not require_gh():
@@ -923,13 +947,15 @@ def _labels_stale(dir_path: Path | None, repo: str | None, as_json: bool) -> Non
                 reload=True, project_dir=dir_path, report_removed=not as_json
             )
             raw = cfg.setting(CONFIG_KEY)
-        thresholds = parse_thresholds(raw)
-    except (HorizonConfigError, RemoteConfigError) as exc:
+        manifest = load_manifest(manifest_path, org=resolve_org(target))
+        thresholds = parse_thresholds(raw, manifest=manifest)
+    except (HorizonConfigError, ManifestError, RemoteConfigError) as exc:
         error(str(exc))
         raise typer.Exit(2) from exc
 
+    info(f"labels: manifest from {manifest.source.describe()}")
     try:
-        report = stale_report(target, thresholds)
+        report = stale_report(target, thresholds, manifest=manifest)
     except HorizonReadError as exc:
         error(f"Cannot read {target} (is gh authenticated? `gh auth status`): {exc}")
         raise typer.Exit(2) from exc

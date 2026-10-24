@@ -5,10 +5,15 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# Read by `hyperi-ci labels --check`, by hyperi-infra's label reconcile and by
-# dfe-sweep, so a name, colour or description changed here changes all three.
-# Colours are hex without `#`. Descriptions are the exact text to create, and
-# GitHub caps a label description at 100 characters.
+# The neutral default: what applies when the org's `.github` repo has no
+# `issues.labels.path` file, or that file cannot be used. An org's own file
+# takes this shape and replaces it whole, programs, retired and allowed labels
+# included. Colours are hex without `#`. Descriptions are the exact text to
+# create, and GitHub caps a label description at 100 characters.
+
+# Manifest format version. A file declaring a version this reader does not
+# understand falls back to this default.
+schema: 1
 
 # Org issue types. Exactly one per issue, set natively, never as a label.
 types:
@@ -16,9 +21,7 @@ types:
     use_for: Shipped behaviour or a shipped doc is wrong
     not_for: A defect only in tests or fixtures (Task)
   - name: Feature
-    use_for: >-
-      A consumer can now do something significant at a contract boundary --
-      the `feat:` test in git-release.md
+    use_for: A consumer can now do something significant at a contract boundary
     not_for: Internal plumbing, a flag on existing behaviour
   - name: Task
     use_for: >-
@@ -26,12 +29,12 @@ types:
       dependency work, docs that add
     not_for: ""
   - name: Epic
-    use_for: Multi-week work with named sub-issues, the seam to a program project
+    use_for: Multi-week work with named sub-issues
     not_for: A big Task with no sub-issues
 
 # Release gate, exactly one per issue, STRICTEST FIRST. The order is the
 # precedence when an issue carries more than one. No gate label = untriaged.
-# These names are the one horizon vocabulary, programs below included.
+# These names are the one horizon vocabulary, programs included.
 # `set_by`: anyone, release-owner (agents never set it), or hand (a deliberate
 # `gh issue edit` with a comment, never a tool's default).
 gate:
@@ -56,35 +59,9 @@ gate:
     description: Captured future work, not scheduled now
     set_by: anyone
 
-# Release trains that span repos. Each takes the next-* horizons as
-# `<program>:<horizon>`, coloured as the horizon, because release-blocker and
-# backlog belong to each repo's own gate. `members`, `version` and `released`
-# name the one file that answers each question, read from its repo's default
-# branch.
-# A repo leaving a program keeps its labels, because the reconcile never
-# deletes one. To retire a family, move each of its labels into `retired:`
-# and delete the program here.
-programs:
-  dfe:
-    labels:
-      next-patch: Wanted in the next DFE stack patch release. Does not hold a cut
-      next-minor: Waits for the next DFE stack minor release. Placed by the release owner
-      next-major: Waits for the next DFE stack major release. Release owner only, never proposed by agents
-    # Every `nodes.<node>.repo`. No repo config repeats this list.
-    members:
-      repo: hyperi-io/dfe-infra
-      path: suite.yaml
-      key: nodes
-    # The stack version every horizon resolves from, prereleases included.
-    version:
-      repo: hyperi-io/dfe-infra
-      path: versions.yaml
-      key: current
-    # The last GA stack cut. A change of it is one program release.
-    released:
-      repo: hyperi-io/dfe-infra
-      path: versions.yaml
-      key: latest
+# Release trains that span repos, each taking the next-* horizons as
+# `<program>:<horizon>` labels. None by default: an org declares its own.
+programs: {}
 
 # At most one per issue, with the decider as assignee.
 waiting:
@@ -110,7 +87,9 @@ community:
     color: "008672"
     description: Extra attention is needed
 
-# Created and applied by bots. Never applied by hand, and the colours are the bot's.
+# Created and applied by bots: Dependabot's ecosystem labels, semantic-release's
+# released labels, and hyperi-ci's own release notifications. Never applied by
+# hand, and the colours are the bot's.
 bot_owned:
   - released
   - released on @main
@@ -120,17 +99,13 @@ bot_owned:
   - rust
   - javascript
   - github_actions
-  - upstream-sync
 
-# Declared by hyperi-ai's issue-management standard. `labels --check` accepts
-# them and the reconcile never creates them. Patterns are Python `re`,
-# matched against the whole name.
+# Labels another standard declares. `labels --check` accepts them and the
+# reconcile never creates them. Patterns are Python `re`, matched against the
+# whole name. None by default.
 allowed:
-  patterns:
-    - "initiative:[a-z0-9]+(?:-[a-z0-9]+)*"
-  literals:
-    - dfe-v1
-    - dfe-v2
+  patterns: []
+  literals: []
 
 # Per-repo areas come from `.hyperi-ci.yaml` `issues.areas`, one label each.
 area:
@@ -139,32 +114,6 @@ area:
 
 # Retired labels stay on the repo with this description, because deleting a
 # label strips it from closed issues too. `{replacement}` is the map's value.
+# None by default: an org lists the ones it retired.
 retired_description: "RETIRED: use {replacement}"
-retired:
-  bug: type Bug
-  enhancement: type Feature or Task
-  epic: type Epic
-  "type: feat": type Feature
-  "type: fix": type Bug
-  "type: perf": type Task
-  "type: refactor": type Task
-  "type: chore": type Task
-  "type: docs": type Task
-  "type: ci": type Task
-  "type: test": type Task
-  "type: build": type Task
-  breaking-change: no label, a major is the owner's call
-  spike: "type Task, title spike:"
-  post-ga: backlog or next-patch
-  rc14: a gate label
-  ga-candidate: release-blocker or next-patch
-  ga-prep: release-blocker or next-patch
-  blocked: needs-decision or blocked-by
-  question: needs-decision or Discussions
-  In progress: project Status
-  duplicate: close as duplicate
-  invalid: close as not planned
-  wontfix: close as not planned
-  documentation: area/docs
-  docker: area/docker
-  terraform: area/opentofu
+retired: {}

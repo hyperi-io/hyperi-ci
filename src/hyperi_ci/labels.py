@@ -4,12 +4,22 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Read the org issue label manifest shipped in ``config/labels.yaml``.
+"""Read the org issue label manifest.
+
+The manifest comes from the first of these that exists: a file the caller
+names, the file at ``issues.labels.path`` on the default branch of the org's
+``.github`` repo, or the neutral default shipped in ``config/labels.yaml``.
+:attr:`Manifest.source` records which, and the ``.github`` commit it was read
+at.
 
 Other repos import this module rather than copying names: hyperi-infra's label
 reconcile creates what :func:`expected_labels` returns, and dfe-sweep reads the
 gate through :func:`gate_of`. Importing it loads stdlib and ``yaml`` only. The
-program functions that read GitHub load :mod:`hyperi_ci.gh` when called.
+functions that read GitHub or the config load :mod:`hyperi_ci.gh` and
+:mod:`hyperi_ci.config` when called.
+
+Every function that reads the manifest takes an optional ``manifest``. Without
+one it loads the manifest for the org of the environment or the cwd's repo.
 
 Label names compare case-insensitively, as GitHub treats them.
 
@@ -28,17 +38,34 @@ What counts as a release, for counting how many an item has waited:
   GA yet, which :class:`NoReleaseYetError` reports.
 """
 
+import os
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
-from functools import lru_cache
+from dataclasses import dataclass, field
+from functools import cache, lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 
 MANIFEST_FILE = Path(__file__).resolve().parent / "config" / "labels.yaml"
+
+# The packaged default as the wheel lays it out, for provenance.
+_PACKAGED_PATH = MANIFEST_FILE.relative_to(MANIFEST_FILE.parents[2]).as_posix()
+
+# Major version of the manifest file format this reader understands.
+MANIFEST_SCHEMA = 1
+
+# Config key naming the manifest's path in an org's `.github` repo. Empty
+# turns the org lookup off.
+PATH_KEY = "issues.labels.path"
+
+# Values of ManifestSource.kind.
+SOURCE_ORG = "org-dotgithub"
+SOURCE_FILE = "file"
+SOURCE_PACKAGED = "packaged-default"
 
 # GitHub refuses a longer label description.
 MAX_DESCRIPTION = 100
@@ -185,6 +212,37 @@ class ProgramRelease:
 
 
 @dataclass(frozen=True, slots=True)
+class ManifestSource:
+    """Where a manifest was read from.
+
+    Attributes:
+        kind: ``org-dotgithub``, ``file`` or ``packaged-default``.
+        org: The org whose ``.github`` repo held it, empty for the other kinds.
+        path: The file's path, in that repo for ``org-dotgithub``.
+        sha: The ``<org>/.github`` commit the file was read at, empty for the
+            other kinds.
+
+    """
+
+    kind: str
+    org: str = ""
+    path: str = ""
+    sha: str = ""
+
+    def describe(self) -> str:
+        """Return a one-line description for a log line."""
+        if self.kind == SOURCE_ORG:
+            return f"{self.org}/.github:{self.path} at {self.sha}"
+        if self.kind == SOURCE_FILE:
+            return f"file {self.path}"
+        return f"the packaged default {self.path}"
+
+    def as_json(self) -> dict[str, str]:
+        """Return the ``source`` object of ``labels --json``."""
+        return {"kind": self.kind, "org": self.org, "path": self.path, "sha": self.sha}
+
+
+@dataclass(frozen=True, slots=True)
 class Manifest:
     """The parsed manifest.
 
@@ -205,6 +263,8 @@ class Manifest:
         allowed_patterns: Regexes, matched against the whole name, of labels
             other standards declare. Accepted, never created.
         allowed_literals: Exact names of the same kind.
+        source: Where it was read from. Two manifests with the same content
+            compare equal whatever their source.
 
     """
 
@@ -222,6 +282,7 @@ class Manifest:
     retired_template: str
     allowed_patterns: tuple[str, ...]
     allowed_literals: tuple[str, ...]
+    source: ManifestSource = field(compare=False)
 
 
 def _text(entry: Mapping[str, Any], key: str, where: str) -> str:
@@ -361,9 +422,14 @@ def _programs(raw: Mapping[str, Any], gate: tuple[Label, ...]) -> Mapping[str, P
     return MappingProxyType(programs)
 
 
-def _parse(raw: object) -> Manifest:
+def _parse(raw: object, source: ManifestSource) -> Manifest:
     if not isinstance(raw, Mapping):
         raise ManifestError("the manifest must be a mapping")
+    schema = raw.get("schema", MANIFEST_SCHEMA)
+    if isinstance(schema, bool) or schema != MANIFEST_SCHEMA:
+        raise ManifestError(
+            f"`schema` is {schema!r}, and this reader understands {MANIFEST_SCHEMA}"
+        )
     bot_owned = raw.get("bot_owned")
     if not isinstance(bot_owned, list) or not all(
         isinstance(name, str) and name for name in bot_owned
@@ -404,6 +470,7 @@ def _parse(raw: object) -> Manifest:
         retired_template=template,
         allowed_patterns=patterns,
         allowed_literals=literals,
+        source=source,
     )
     _check_unique(manifest)
     return manifest
@@ -431,78 +498,198 @@ def _check_unique(manifest: Manifest) -> None:
         seen.add(key)
 
 
-def load_manifest(path: Path | None = None) -> Manifest:
-    """Load and validate a label manifest.
+def resolve_org(repo: str | None = None, cwd: Path | None = None) -> str:
+    """Return the GitHub org whose ``.github`` repo supplies the manifest.
 
     Args:
-        path: Manifest file. Defaults to the one shipped in the package, which
-            is parsed once per process.
+        repo: ``owner/name`` the caller is working on. Its owner wins.
+        cwd: Directory whose ``origin`` remote names the repo, read when
+            neither ``repo`` nor ``GITHUB_REPOSITORY_OWNER`` is set.
 
     Returns:
-        The parsed :class:`Manifest`.
-
-    Raises:
-        ManifestError: The file is unreadable, not YAML, or malformed.
+        The org, or ``""`` when nothing names one.
 
     """
-    if path is None or path == MANIFEST_FILE:
-        return _shipped()
-    return _read(path)
+    if repo:
+        return repo.partition("/")[0]
+    owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "").strip()
+    if owner:
+        return owner
+    from hyperi_ci.description_source import repo_slug
+
+    try:
+        slug = repo_slug(cwd)
+    except OSError:
+        return ""
+    return slug.partition("/")[0] if slug else ""
+
+
+def load_manifest(path: Path | None = None, *, org: str | None = None) -> Manifest:
+    """Load and validate the label manifest.
+
+    Resolution order: ``path`` when given, else the file at config
+    ``issues.labels.path`` on the default branch of ``<org>/.github``, else
+    the neutral default shipped in the package. The org file is read once per
+    process. Its absence falls to the default silently, and any other failure
+    to read or validate it falls to the default with one warning.
+
+    Args:
+        path: Manifest file, read as given.
+        org: Org whose ``.github`` repo to read. None resolves it with
+            :func:`resolve_org` from the environment and the cwd's repo.
+
+    Returns:
+        The parsed :class:`Manifest`, its ``source`` saying which it was.
+
+    Raises:
+        ManifestError: ``path`` is unreadable, not YAML, or malformed, or the
+            project config cannot be read for ``issues.labels.path``.
+
+    """
+    if path is not None:
+        if path == MANIFEST_FILE:
+            return _packaged()
+        return _read(path, ManifestSource(SOURCE_FILE, path=str(path)))
+    where = _org_path()
+    owner = _default_org() if org is None else org
+    if where and owner:
+        found = _from_org(owner, where)
+        if found is not None:
+            return found
+    return _packaged()
+
+
+def _given(manifest: Manifest | None) -> Manifest:
+    return load_manifest() if manifest is None else manifest
+
+
+def _org_path() -> str:
+    """Return ``issues.labels.path`` from the config cascade, empty when off."""
+    from hyperi_ci.config import ConfigError, load_config
+
+    try:
+        value = load_config(report_removed=False).setting(PATH_KEY)
+    except ConfigError as exc:
+        raise ManifestError(f"cannot read `{PATH_KEY}`: {exc}") from exc
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ManifestError(f"`{PATH_KEY}` must be a path, not {value!r}")
+    return value.strip()
 
 
 @lru_cache(maxsize=1)
-def _shipped() -> Manifest:
-    return _read(MANIFEST_FILE)
+def _default_org() -> str:
+    return resolve_org()
 
 
-def _read(path: Path) -> Manifest:
+@lru_cache(maxsize=1)
+def _packaged() -> Manifest:
+    return _read(MANIFEST_FILE, ManifestSource(SOURCE_PACKAGED, path=_PACKAGED_PATH))
+
+
+def _read(path: Path, source: ManifestSource) -> Manifest:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ManifestError(f"{path}: {exc}") from exc
     try:
-        return _parse(raw)
+        return _parse(raw, source)
     except ManifestError as exc:
         raise ManifestError(f"{path}: {exc}") from exc
 
 
-def gate_labels() -> tuple[str, ...]:
+def _org_commit(repo: str, path: str) -> str | None:
+    """Return the last default-branch commit touching ``path``, None for none.
+
+    Raises:
+        ManifestError: The commit list could not be read, other than a 404.
+
+    """
+    from hyperi_ci import gh
+
+    result = gh.gh_api([f"repos/{repo}/commits?path={quote(path)}&per_page=1"])
+    if result.data is None:
+        if "HTTP 404" in (result.stderr or ""):
+            return None
+        raise ManifestError(result.reason)
+    if not isinstance(result.data, list):
+        raise ManifestError(f"the commit list of {repo}:{path} was not a JSON array")
+    if not result.data:
+        return None
+    head = result.data[0]
+    sha = head.get("sha") if isinstance(head, Mapping) else None
+    if not isinstance(sha, str) or not sha:
+        raise ManifestError(f"the commit list of {repo}:{path} carries no sha")
+    return sha
+
+
+@cache
+def _from_org(org: str, path: str) -> Manifest | None:
+    """Read ``path`` from ``<org>/.github``, None when the packaged default applies.
+
+    The file is read at the commit the sha names, so the two always agree.
+    """
+    from hyperi_ci import gh
+    from hyperi_ci.common import warn
+
+    repo = f"{org}/.github"
+    try:
+        sha = _org_commit(repo, path)
+        text = None if sha is None else gh.read_repo_file(repo, path, ref=sha)
+        if sha is None or text is None:
+            return None
+        return _parse(yaml.safe_load(text), ManifestSource(SOURCE_ORG, org, path, sha))
+    except (ManifestError, yaml.YAMLError, gh.RepoFileError, OSError) as exc:
+        reason = " ".join(str(exc).split())
+        warn(
+            f"labels: {repo}:{path} is unusable, so the packaged default applies: {reason}"
+        )
+        return None
+
+
+def gate_labels(*, manifest: Manifest | None = None) -> tuple[str, ...]:
     """Return the gate label names, strictest first."""
-    return tuple(label.name for label in load_manifest().gate)
+    return tuple(label.name for label in _given(manifest).gate)
 
 
-def _gates_present(labels: Iterable[str]) -> tuple[str, ...]:
+def _gates_present(labels: Iterable[str], manifest: Manifest | None) -> tuple[str, ...]:
     present = {name.casefold() for name in labels}
-    return tuple(name for name in gate_labels() if name.casefold() in present)
+    names = gate_labels(manifest=manifest)
+    return tuple(name for name in names if name.casefold() in present)
 
 
-def gate_of(labels: Iterable[str]) -> str | None:
+def gate_of(labels: Iterable[str], *, manifest: Manifest | None = None) -> str | None:
     """Return the issue's gate: the strictest gate label it carries.
 
     Args:
         labels: The issue's label names.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         The manifest's spelling of the strictest gate label, or None when the
         issue carries none, which means untriaged.
 
     """
-    found = _gates_present(labels)
+    found = _gates_present(labels, manifest)
     return found[0] if found else None
 
 
-def conflicts(labels: Iterable[str]) -> tuple[str, ...]:
+def conflicts(
+    labels: Iterable[str], *, manifest: Manifest | None = None
+) -> tuple[str, ...]:
     """Return the gate labels an issue carries when it carries more than one.
 
     Args:
         labels: The issue's label names.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         Every gate label present, strictest first, or an empty tuple when
         there is one or none.
 
     """
-    found = _gates_present(labels)
+    found = _gates_present(labels, manifest)
     return found if len(found) > 1 else ()
 
 
@@ -544,9 +731,9 @@ def parse_areas(raw: object) -> dict[str, tuple[str, ...]]:
     return areas
 
 
-def area_label(name: str) -> str:
+def area_label(name: str, *, manifest: Manifest | None = None) -> str:
     """Return the label name for area ``name``, e.g. ``area/auth``."""
-    return f"{load_manifest().area_prefix}{name}"
+    return f"{_given(manifest).area_prefix}{name}"
 
 
 def area_description(paths: Iterable[str]) -> str:
@@ -560,6 +747,8 @@ def area_description(paths: Iterable[str]) -> str:
 def expected_labels(
     areas: Mapping[str, Iterable[str]] | None = None,
     programs: Iterable[str] = (),
+    *,
+    manifest: Manifest | None = None,
 ) -> tuple[Label, ...]:
     """Return every label a repo must carry.
 
@@ -572,6 +761,7 @@ def expected_labels(
         programs: Programs the repo belongs to, as :func:`program_members`
             answers. A repo that left one is simply not listed: its labels
             stay, since nothing deletes them.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         The labels, each with its exact colour and description.
@@ -580,36 +770,35 @@ def expected_labels(
         ProgramError: A listed program is not in the manifest.
 
     """
-    manifest = load_manifest()
+    manifest = _given(manifest)
     labels = [*manifest.gate, *manifest.waiting, *manifest.flags]
     for program in programs:
-        labels.extend(program_info(program).labels)
+        labels.extend(program_info(program, manifest=manifest).labels)
     for name, paths in (areas or {}).items():
-        labels.append(
-            Label(area_label(name), manifest.area_color, area_description(paths))
-        )
+        label = area_label(name, manifest=manifest)
+        labels.append(Label(label, manifest.area_color, area_description(paths)))
     return tuple(labels)
 
 
-def is_allowed(name: str) -> bool:
+def is_allowed(name: str, *, manifest: Manifest | None = None) -> bool:
     """Return True when another standard declares label ``name``.
 
     Such a label is accepted on a repo but never created by the reconcile.
     """
-    manifest = load_manifest()
+    manifest = _given(manifest)
     if name.casefold() in {lit.casefold() for lit in manifest.allowed_literals}:
         return True
     return any(re.fullmatch(p, name) for p in manifest.allowed_patterns)
 
 
-def program_info(name: str) -> Program:
+def program_info(name: str, *, manifest: Manifest | None = None) -> Program:
     """Return program ``name`` from the manifest.
 
     Raises:
         ProgramError: The manifest declares no such program.
 
     """
-    program = load_manifest().programs.get(name)
+    program = _given(manifest).programs.get(name)
     if program is None:
         raise ProgramError(f"no program {name!r} in the label manifest")
     return program
@@ -644,7 +833,7 @@ def _at_key(doc: object, source: Source) -> object:
     return value
 
 
-def program_members(name: str) -> set[str]:
+def program_members(name: str, *, manifest: Manifest | None = None) -> set[str]:
     """Return the repos in program ``name``, read from its membership source.
 
     One ``gh api`` read per call, so a caller labelling many repos reads it
@@ -652,6 +841,7 @@ def program_members(name: str) -> set[str]:
 
     Args:
         name: Program name, e.g. ``dfe``.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         Every member as ``owner/name``, the ``repo`` of each entry under the
@@ -663,7 +853,7 @@ def program_members(name: str) -> set[str]:
             missing, not YAML, or an entry carries no ``owner/name`` repo.
 
     """
-    source = program_info(name).members
+    source = program_info(name, manifest=manifest).members
     entries = _at_key(_read_source(source), source)
     where = f"{source.repo}:{source.path} `{source.key}`"
     if not isinstance(entries, Mapping) or not entries:
@@ -687,7 +877,7 @@ def _semver_at(source: Source, doc: object) -> str:
     return value
 
 
-def program_version(name: str) -> str:
+def program_version(name: str, *, manifest: Manifest | None = None) -> str:
     """Return the train version program ``name``'s horizon lines resolve from.
 
     For dfe it is ``current`` in dfe-infra ``versions.yaml``, the stack being
@@ -698,7 +888,7 @@ def program_version(name: str) -> str:
             missing, not YAML, or holds no semver string at its key.
 
     """
-    source = program_info(name).version
+    source = program_info(name, manifest=manifest).version
     return _semver_at(source, _read_source(source))
 
 
@@ -712,7 +902,7 @@ def _released_at(program: Program, doc: object) -> str:
     return _semver_at(source, doc)
 
 
-def program_released(name: str) -> str:
+def program_released(name: str, *, manifest: Manifest | None = None) -> str:
     """Return program ``name``'s last released version.
 
     A change of this value is one program release, for counting how many
@@ -725,7 +915,7 @@ def program_released(name: str) -> str:
             missing, not YAML, or holds no semver string at its key.
 
     """
-    program = program_info(name)
+    program = program_info(name, manifest=manifest)
     return _released_at(program, _read_source(program.released))
 
 
@@ -761,7 +951,9 @@ def _commits(source: Source, query: str, *, paginate: bool) -> list[tuple[str, s
     return found
 
 
-def program_releases_since(name: str, since: str) -> tuple[ProgramRelease, ...]:
+def program_releases_since(
+    name: str, since: str, *, manifest: Manifest | None = None
+) -> tuple[ProgramRelease, ...]:
     """Return program ``name``'s releases after ``since``, oldest first.
 
     A release is a commit on the ``released`` source's default branch that
@@ -776,6 +968,7 @@ def program_releases_since(name: str, since: str) -> tuple[ProgramRelease, ...]:
     Args:
         name: Program name, e.g. ``dfe``.
         since: ISO 8601 timestamp. Only commits after it count.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         The releases, each with the version, commit date and SHA.
@@ -787,7 +980,7 @@ def program_releases_since(name: str, since: str) -> tuple[ProgramRelease, ...]:
     """
     from hyperi_ci import gh
 
-    source = program_info(name).released
+    source = program_info(name, manifest=manifest).released
     before = _commits(source, f"until={since}&per_page=1", paginate=False)[:1]
     after = _commits(source, f"since={since}&per_page=100", paginate=True)
     seen = {sha for sha, _ in before}
@@ -882,7 +1075,9 @@ def horizon_line(version: str, horizon: str) -> str:
     )
 
 
-def resolve_program_horizon(name: str, horizon: str) -> str:
+def resolve_program_horizon(
+    name: str, horizon: str, *, manifest: Manifest | None = None
+) -> str:
     """Return the concrete release line ``<name>:<horizon>`` means right now.
 
     Resolve once per program and horizon, not once per item: every item with
@@ -891,6 +1086,7 @@ def resolve_program_horizon(name: str, horizon: str) -> str:
     Args:
         name: Program name, e.g. ``dfe``.
         horizon: One of the program's horizons.
+        manifest: The manifest to read, :func:`load_manifest` when None.
 
     Returns:
         The line, e.g. ``2.2.1`` for dfe next-patch while ``current`` is
@@ -901,9 +1097,10 @@ def resolve_program_horizon(name: str, horizon: str) -> str:
             its version source is unusable.
 
     """
-    if horizon not in program_info(name).horizons:
+    manifest = _given(manifest)
+    if horizon not in program_info(name, manifest=manifest).horizons:
         raise ProgramError(f"program {name!r} has no {horizon!r} horizon")
-    return horizon_line(program_version(name), horizon)
+    return horizon_line(program_version(name, manifest=manifest), horizon)
 
 
 def _program_json(program: Program) -> dict[str, Any]:
@@ -956,7 +1153,11 @@ def _source_json(source: Source) -> dict[str, str]:
     return {"repo": source.repo, "path": source.path, "key": source.key}
 
 
-def manifest_json(areas: Mapping[str, Iterable[str]] | None = None) -> dict[str, Any]:
+def manifest_json(
+    areas: Mapping[str, Iterable[str]] | None = None,
+    *,
+    manifest: Manifest | None = None,
+) -> dict[str, Any]:
     """Return the manifest, plus a repo's areas, as a JSON-ready dict.
 
     The shape is a contract for consumers that cannot import this module.
@@ -969,14 +1170,18 @@ def manifest_json(areas: Mapping[str, Iterable[str]] | None = None) -> dict[str,
     says why in ``error``. ``released_state`` is ``released``, ``none`` where
     the released value is empty (no GA yet, not an error), or ``error``.
 
+    ``source`` is :meth:`ManifestSource.as_json`: which manifest this is, and
+    the ``.github`` commit it was read at.
+
     Args:
         areas: The repo's validated areas, empty when it declares none.
+        manifest: The manifest to render, :func:`load_manifest` when None.
 
     Returns:
         A dict of plain lists, dicts and strings.
 
     """
-    manifest = load_manifest()
+    manifest = _given(manifest)
 
     def labels(section: tuple[Label, ...]) -> list[dict[str, str]]:
         return [
@@ -1015,14 +1220,15 @@ def manifest_json(areas: Mapping[str, Iterable[str]] | None = None) -> dict[str,
         "programs": {
             name: _program_json(program) for name, program in manifest.programs.items()
         },
+        "source": manifest.source.as_json(),
     }
 
 
-def retired_labels() -> dict[str, str]:
+def retired_labels(*, manifest: Manifest | None = None) -> dict[str, str]:
     """Return retired label name -> what replaces it."""
-    return dict(load_manifest().retired)
+    return dict(_given(manifest).retired)
 
 
-def retired_description(replacement: str) -> str:
+def retired_description(replacement: str, *, manifest: Manifest | None = None) -> str:
     """Return the description a retired label carries, ``RETIRED: use <new>``."""
-    return load_manifest().retired_template.format(replacement=replacement)
+    return _given(manifest).retired_template.format(replacement=replacement)
