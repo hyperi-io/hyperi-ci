@@ -1195,6 +1195,131 @@ class TestOrgSource:
         assert source in said
 
 
+_BAD_502 = ApiResult(None, "gh api failed: HTTP 502", "HTTP 502")
+_ONE_COMMIT = ApiResult([{"sha": _SHA}], "", None)
+
+
+class TestStrictOrgSource:
+    """``strict`` refuses an org file that exists but is unusable, and keeps a 404 silent."""
+
+    @pytest.mark.parametrize(
+        ("commits", "file", "reason"),
+        [
+            (_BAD_502, "", "HTTP 502"),
+            (
+                _ONE_COMMIT,
+                RepoFileError("could not read hyperi-io/.github: HTTP 401"),
+                "HTTP 401",
+            ),
+            (_ONE_COMMIT, "gate: [", "while parsing a flow node"),
+            (_ONE_COMMIT, "gate: []\n", "`bot_owned`"),
+            (_ONE_COMMIT, "schema: 2\n", "`schema` is 2"),
+        ],
+        ids=[
+            "commits-502",
+            "file-401",
+            "not-yaml",
+            "invalid-manifest",
+            "unknown-schema",
+        ],
+    )
+    def test_any_non_404_failure_raises_naming_the_source(
+        self,
+        dotgithub: FakeDotGithub,
+        warnings: list[str],
+        commits: ApiResult,
+        file: str | Exception,
+        reason: str,
+    ) -> None:
+        dotgithub.commits = commits
+        dotgithub.file = file
+        with pytest.raises(ManifestError) as caught:
+            load_manifest(org="hyperi-io", strict=True)
+        assert "hyperi-io/.github:labels/labels.yaml" in str(caught.value)
+        assert reason in str(caught.value)
+        assert warnings == []
+
+    def test_a_404_still_falls_to_the_default_silently(
+        self, dotgithub: FakeDotGithub, warnings: list[str]
+    ) -> None:
+        dotgithub.commits = ApiResult(None, f"gh api failed: {_NOT_FOUND}", _NOT_FOUND)
+        manifest = load_manifest(org="hyperi-io", strict=True)
+        assert manifest.source.kind == "packaged-default"
+        assert warnings == []
+
+    def test_a_cached_fallback_does_not_satisfy_a_strict_call(
+        self, dotgithub: FakeDotGithub, warnings: list[str]
+    ) -> None:
+        dotgithub.commits = _BAD_502
+        assert load_manifest(org="hyperi-io").source.kind == "packaged-default"
+        with pytest.raises(ManifestError):
+            load_manifest(org="hyperi-io", strict=True)
+        assert len(dotgithub.calls) == 1
+        assert len(warnings) == 1
+
+    def test_a_good_org_file_is_returned_under_strict(
+        self, dotgithub: FakeDotGithub
+    ) -> None:
+        assert load_manifest(org="hyperi-io", strict=True) == HYPERI
+
+
+class TestStrictCommand:
+    """`labels --check` and `--stale` exit 2 on an unusable org file, the listing does not."""
+
+    @staticmethod
+    def _invoke(*args: str, answers: list[ApiResult] | None = None):
+        with (
+            patch("hyperi_ci.gh.shutil.which", return_value="/usr/bin/gh"),
+            patch.object(labels_check, "gh_api", side_effect=answers or []),
+            patch.object(labels_check, "read_repo_file", return_value=None),
+        ):
+            return CliRunner().invoke(app, ["labels", *args, "--repo", "hyperi-io/x"])
+
+    @pytest.fixture
+    def errors(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        said: list[str] = []
+        monkeypatch.setattr(common, "error", said.append)
+        return said
+
+    def test_check_exits_two_naming_the_source_and_the_error(
+        self, dotgithub: FakeDotGithub, errors: list[str]
+    ) -> None:
+        dotgithub.commits = _BAD_502
+        result = self._invoke("--check")
+        assert result.exit_code == 2, result.output
+        [line] = errors
+        assert "hyperi-io/.github:labels/labels.yaml" in line
+        assert "HTTP 502" in line
+
+    def test_stale_exits_two(self, dotgithub: FakeDotGithub, errors: list[str]) -> None:
+        dotgithub.file = "schema: 2\n"
+        result = self._invoke("--stale")
+        assert result.exit_code == 2, result.output
+        assert any("`schema` is 2" in line for line in errors)
+
+    def test_check_after_a_404_checks_against_the_neutral_default(
+        self, dotgithub: FakeDotGithub, warnings: list[str]
+    ) -> None:
+        dotgithub.commits = ApiResult(None, f"gh api failed: {_NOT_FOUND}", _NOT_FOUND)
+        answers = [
+            ApiResult(_all_expected(), "", None),
+            ApiResult([_issue(1, ["next-patch"])], "", None),
+        ]
+        result = self._invoke("--check", answers=answers)
+        assert result.exit_code == 0, result.output
+        assert warnings == []
+
+    @pytest.mark.parametrize("mode", [(), ("--json",)], ids=["listing", "json"])
+    def test_the_listing_and_json_still_warn_and_fall_back(
+        self, dotgithub: FakeDotGithub, warnings: list[str], mode: tuple[str, ...]
+    ) -> None:
+        dotgithub.commits = _BAD_502
+        result = self._invoke(*mode)
+        assert result.exit_code == 0, result.output
+        [line] = warnings
+        assert "packaged default applies" in line
+
+
 class TestResolveOrg:
     @pytest.fixture(autouse=True)
     def _outside_actions(self, monkeypatch: pytest.MonkeyPatch) -> None:
