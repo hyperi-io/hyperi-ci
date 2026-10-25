@@ -43,6 +43,38 @@ _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
 
 _LICENSE_MARKERS = licenses.LICENSE_MARKERS
 
+# The caller passes exactly the secrets each reusable workflow declares in
+# `workflow_call`. test_init pins these to the workflow files.
+_SHARED_SECRETS = (
+    "GITLEAKS_GH_ACTIONS_KEY",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "DOCKERHUB_USERNAME",
+    "DOCKERHUB_TOKEN",
+    "CONTAINER_MGT_APP_PRIVATE_KEY",
+    "GH_APP_PRIVATE_KEY",
+)
+_LANGUAGE_SECRETS: dict[str, tuple[str, ...]] = {
+    "python-ci.yml": ("PYPI_TOKEN",),
+    "rust-ci.yml": ("CARGO_REGISTRY_TOKEN",),
+    "ts-ci.yml": ("NPM_TOKEN",),
+    "go-ci.yml": (),
+}
+
+# A called workflow is capped by its caller's grant, and the release tail
+# needs all four.
+_CALLER_PERMISSIONS = (
+    "contents: write",
+    "packages: write",
+    "issues: write",
+    "pull-requests: write",
+)
+
+
+def caller_secrets(workflow_file: str) -> tuple[str, ...]:
+    """Return the secrets a caller of ``workflow_file`` passes by name."""
+    return (*_LANGUAGE_SECRETS.get(workflow_file, ()), *_SHARED_SECRETS)
+
 
 def detect_license(project_dir: Path) -> str:
     """Resolve the project licence: explicit declaration, else scan, else default.
@@ -304,6 +336,8 @@ def _render_workflow(
             '        default: ""\n'
             '        description: "Debug only: llvm-bolt flags replacing the BOLT optimise defaults, for a bisect. Needs optimize-tier=release; refused on a run that ships."\n'
         )
+    base += "\npermissions:\n"
+    base += "".join(f"  {grant}\n" for grant in _CALLER_PERMISSIONS)
     base += (
         "\n"
         "jobs:\n"
@@ -325,7 +359,11 @@ def _render_workflow(
     if submodules:
         base += f"      submodules: {submodules}\n"
 
-    base += "    secrets: inherit\n"
+    base += "    secrets:\n"
+    base += "".join(
+        f"      {name}: ${{{{ secrets.{name} }}}}\n"
+        for name in caller_secrets(workflow_file)
+    )
     return base
 
 
