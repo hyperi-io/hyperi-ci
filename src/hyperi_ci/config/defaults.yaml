@@ -309,11 +309,12 @@ test:
       - "-v"
       - "--tb=short"
     coverage_format: xml
-    # false | true | auto | a worker count. Opt in with `true` and the count
-    # comes from the host CPU budget, so it is right on a runner and on a
-    # developer box alike. Off by default because a suite with a shared
-    # fixed port or file is not parallel-safe and would turn red on upgrade.
-    parallel: false
+    # Unset | false | true | auto | a worker count. Unset runs `auto` when
+    # pytest-xdist is installed and serial with one warning when it is not.
+    # `auto` sizes by the CPUs and free memory (see hyperi_ci/workers.py).
+    parallel: null
+    # Memory planned per pytest worker when hyperi-ci picks the count.
+    worker_mem_mb: 1024
 
   # No `args` and no `e2e` block: the handler runs a package script, and
   # nothing ran Playwright or Cypress. A `test:full` script is the way in.
@@ -344,6 +345,10 @@ test:
     # local `hyperi-ci check`, and warns loudly when it degrades. Set `true`
     # in a repo whose suite depends on process isolation.
     nextest: auto
+    # Memory planned per nextest test thread when hyperi-ci sets
+    # NEXTEST_TEST_THREADS. A nextest config `test-threads`,
+    # NEXTEST_TEST_THREADS or HYPERCI_TEST_WORKERS beats the computed count.
+    thread_mem_mb: 2048
 
 # Build
 build:

@@ -376,6 +376,11 @@ def _inert(msg: str) -> str:
     )
 
 
+def debug(msg: str) -> None:
+    """Debug message -- delegates to scalo logger."""
+    logger.debug(_inert(msg))
+
+
 def info(msg: str) -> None:
     """Info message -- delegates to scalo logger."""
     logger.info(_inert(msg))

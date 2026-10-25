@@ -16,8 +16,10 @@ from pathlib import Path
 
 import pytest
 
+from hyperi_ci import workers
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python import parallel
+from hyperi_ci.workers import WorkerBudget
 
 
 def _config(value: object) -> CIConfig:
@@ -25,25 +27,35 @@ def _config(value: object) -> CIConfig:
     return CIConfig(_raw={"test": {"python": {"parallel": value}}})
 
 
+def _fix_budget(monkeypatch: pytest.MonkeyPatch, workers: int) -> None:
+    """Pin the host-derived worker budget so no case reads the real host."""
+    budget = WorkerBudget(workers, workers, None, None, 1024)
+    monkeypatch.setattr(parallel, "worker_budget", lambda _mb: budget)
+
+
 @pytest.fixture(autouse=True)
 def _no_ambient_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the developer's own environment out of every case."""
+    """Keep the developer's own environment and host out of every case."""
     monkeypatch.delenv("HYPERCI_TEST_WORKERS", raising=False)
     monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
+    _fix_budget(monkeypatch, 6)
 
 
 class TestRequestedWorkers:
-    def test_the_default_is_serial(self) -> None:
-        assert parallel.requested_workers(CIConfig(_raw={})) is None
+    def test_unset_derives_from_the_host(self) -> None:
+        assert parallel.requested_workers(CIConfig(_raw={})) == 6
+
+    def test_an_explicit_null_is_unset(self) -> None:
+        assert parallel.requested_workers(_config(None)) == 6
 
     def test_false_is_serial(self) -> None:
         assert parallel.requested_workers(_config(False)) is None
 
     def test_true_derives_from_the_host(self) -> None:
-        assert parallel.requested_workers(_config(True)) == parallel.auto_workers()
+        assert parallel.requested_workers(_config(True)) == 6
 
     def test_auto_derives_from_the_host(self) -> None:
-        assert parallel.requested_workers(_config("auto")) == parallel.auto_workers()
+        assert parallel.requested_workers(_config("auto")) == 6
 
     def test_an_explicit_count_is_honoured(self) -> None:
         assert parallel.requested_workers(_config(3)) == 3
@@ -66,16 +78,26 @@ class TestRequestedWorkers:
 
 class TestAutoWorkers:
     def test_it_never_exceeds_the_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 96)
-        assert parallel.auto_workers() == parallel._MAX_AUTO_WORKERS
+        _fix_budget(monkeypatch, 96)
+        assert parallel.auto_workers(CIConfig(_raw={})) == parallel._MAX_AUTO_WORKERS
 
     def test_it_tracks_a_small_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 4)
-        assert parallel.auto_workers() == 4
+        _fix_budget(monkeypatch, 4)
+        assert parallel.auto_workers(CIConfig(_raw={})) == 4
 
-    def test_it_never_returns_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 0)
-        assert parallel.auto_workers() == 1
+    def test_it_sizes_by_the_python_worker_memory(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[int] = []
+
+        def _budget(mb: int) -> WorkerBudget:
+            seen.append(mb)
+            return WorkerBudget(2, 2, None, None, mb)
+
+        monkeypatch.setattr(parallel, "worker_budget", _budget)
+        config = CIConfig(_raw={"test": {"python": {"worker_mem_mb": 3072}}})
+        assert parallel.auto_workers(config) == 2
+        assert seen == [3072]
 
 
 class TestEnvOverride:
@@ -93,7 +115,7 @@ class TestEnvOverride:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         warnings: list[str] = []
-        monkeypatch.setattr(parallel, "warn", warnings.append)
+        monkeypatch.setattr(workers, "warn", warnings.append)
         monkeypatch.setenv("HYPERCI_TEST_WORKERS", "lots")
         assert parallel.requested_workers(_config(False)) is None
         assert any("HYPERCI_TEST_WORKERS" in m for m in warnings)
@@ -219,14 +241,54 @@ class TestParallelArgs:
     ) -> None:
         monkeypatch.chdir(tmp_path)
 
-    def test_serial_by_default_adds_nothing(self) -> None:
+    def test_unset_with_xdist_runs_parallel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: (3, 8))
+        assert parallel.parallel_args(CIConfig(_raw={}), ["-v"], ["pytest"]) == [
+            "-n",
+            "6",
+            "--dist",
+            "worksteal",
+        ]
+
+    def test_unset_without_xdist_warns_once_and_runs_serial(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings: list[str] = []
+        monkeypatch.setattr(parallel, "warn", warnings.append)
+        monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: None)
         assert parallel.parallel_args(CIConfig(_raw={}), ["-v"], ["pytest"]) == []
+        assert len(warnings) == 1
+        assert "pytest-xdist" in warnings[0]
+        assert "parallel: auto" in warnings[0]
+
+    def test_explicit_false_stays_serial_without_a_warning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings: list[str] = []
+        monkeypatch.setattr(parallel, "warn", warnings.append)
+        monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: (3, 8))
+        assert parallel.parallel_args(_config(False), ["-v"], ["pytest"]) == []
+        assert warnings == []
+
+    def test_the_env_override_is_not_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A forced count missing xdist gets the opt-in warning, not the default one."""
+        warnings: list[str] = []
+        monkeypatch.setattr(parallel, "warn", warnings.append)
+        monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: None)
+        monkeypatch.setenv("HYPERCI_TEST_WORKERS", "3")
+        assert parallel.parallel_args(CIConfig(_raw={}), ["-v"], ["pytest"]) == []
+        assert len(warnings) == 1
+        assert "parallel: auto" not in warnings[0]
 
     def test_an_opt_in_adds_the_worker_flag(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: (3, 8))
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 8)
+        _fix_budget(monkeypatch, 8)
         assert parallel.parallel_args(_config(True), ["-v"], ["pytest"]) == [
             "-n",
             "8",
@@ -328,7 +390,7 @@ class TestWorksteal:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 4)
+        _fix_budget(monkeypatch, 4)
         monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: (3, 8))
 
     def test_an_auto_n_brings_worksteal(self) -> None:
@@ -443,6 +505,6 @@ class TestNativeTomlConfig:
     ) -> None:
         self._write(tmp_path, "pytest.toml", '[pytest]\naddopts = ["--dist", "load"]\n')
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(parallel, "cpu_budget", lambda: 4)
+        _fix_budget(monkeypatch, 4)
         monkeypatch.setattr(parallel, "xdist_version", lambda _cmd: (3, 8))
         assert parallel.parallel_args(_config(True), ["-v"], ["pytest"]) == ["-n", "4"]
