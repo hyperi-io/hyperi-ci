@@ -19,7 +19,7 @@ The first of these that exists wins:
 2. The file at `issues.labels.path` (default `labels/labels.yaml`) on the default branch of the org's `.github` repo, read through `gh api` with the ambient token. In CI that is the `GITHUB_TOKEN` the job already has.
 3. The neutral default shipped in the wheel at `src/hyperi_ci/config/labels.yaml`.
 
-The org is the `--repo` owner, else `GITHUB_REPOSITORY_OWNER`, else the owner of the project's `origin` remote. The org file is read once per process. No `.github` repo or no file there falls to the default silently. Any other failure (auth, network, bad YAML, an invalid manifest, a `schema` other than 1) falls to the default with one warning. An empty `issues.labels.path` turns the org lookup off.
+The org is the `--repo` owner, else `GITHUB_REPOSITORY_OWNER`, else the owner of the project's `origin` remote. The org file is read once per process. No `.github` repo or no file there falls to the default silently. Any other failure (auth, network, bad YAML, an invalid manifest, a `schema` other than 1) falls to the default with one warning for the plain listing and `--json`. `--check` and `--stale` exit 2 instead, naming the file and the error, so a check never passes against the wrong set. An empty `issues.labels.path` turns the org lookup off.
 
 For HyperI the org file is `hyperi-io/.github:labels/labels.yaml`, the only copy anyone edits. `config/labels-hyperi.yaml` in this repo holds HyperI's set to seed it, and is not shipped. <!-- doc-paths: ignore -->
 
@@ -64,7 +64,7 @@ When counting how many releases an item has waited, a repo release is a `v*` git
 - prerelease tags, an rc in `latest` and a reverted cut never count
 - `release-blocker` and `backlog` never go stale, and a program with no GA yet has no stale horizons
 
-It also lists gate conflicts and untriaged issues, by the same rule as `--check` and `pm backlog groom`. It is a report for a release or stack cut, and exits 0 whatever it finds. Exit 2 means GitHub could not be read or `issues.horizons` is malformed.
+It also lists gate conflicts and untriaged issues, by the same rule as `--check` and `pm backlog groom`. It is a report for a release or stack cut, and exits 0 whatever it finds. Exit 2 means GitHub could not be read, `issues.horizons` is malformed, or the org manifest exists but is unusable.
 
 The limits live in `.hyperi-ci.yaml`. These are the shipped values:
 
@@ -116,7 +116,7 @@ hyperi-ci labels --check --manifest FILE  # any mode, against this manifest file
 - open issues with no gate label, more than one, no issue type, or no area label where the repo declares areas
 - open issues still carrying a retired label, with its replacement
 
-Pull requests and Renovate's Dependency Dashboard are skipped. Exit 0 when clean, 1 on any finding, 2 when it could not run: no `gh`, an unreadable repo, a malformed `issues.areas`, or an unreadable `--manifest` file.
+Pull requests and Renovate's Dependency Dashboard are skipped. Exit 0 when clean, 1 on any finding, 2 when it could not run: no `gh`, an unreadable repo, a malformed `issues.areas`, an unreadable `--manifest` file, or an org manifest that exists but is unusable.
 
 ## `--json` -- the contract
 
