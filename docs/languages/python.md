@@ -60,31 +60,36 @@ own to follow.
 
 ## Test parallelism
 
-A hardcoded worker count is right on exactly one machine. `test.python.parallel`
-opts a project into a count hyperi-ci derives from the host instead:
+A hardcoded worker count is right on exactly one machine. hyperi-ci derives it from the host:
 
 ```yaml
 test:
   python:
-    parallel: true      # false (default) | true | auto | a worker count
+    parallel: auto        # unset (default) | false | true | auto | a count
+    worker_mem_mb: 1024   # memory planned per worker
 ```
 
-`true` takes the smaller of the process affinity mask and the cgroup CPU quota, capped at 16. The quota matters in CI. A 4-CPU ARC pod on a 32-core node reports 32 cores to `os.cpu_count()`, and pytest-xdist's own `-n auto` reads that number, not the limit. On hyperi-ci's own 2598-test suite this is 23.6s against 74.2s serial.
+Unset runs `auto` when pytest-xdist is installed. Without it the suite runs serial with one warning: add pytest-xdist and set `parallel: auto`.
 
-Off by default. A suite that binds a fixed port or writes a shared file is not
-parallel-safe, and a CLI upgrade must not turn one red without a repo saying so.
+`auto` and `true` size by what is free when the stage starts, capped at 16:
 
-- **Opt in:** `parallel: true`.
-- **Opt back out:** `parallel: false` - the way a project with a parallel-unsafe
-  suite records that it stays serial.
-- **This run only:** `HYPERCI_TEST_WORKERS=4`, or `0` to force serial.
-- **Already parallel:** a project that passes its own `-n` (in
-  `test.python.args`, in `addopts` in `pytest.toml` / `.pytest.toml` /
-  `pyproject.toml` (`[tool.pytest]` or `[tool.pytest.ini_options]`) /
-  `pytest.ini` / `tox.ini` / `setup.cfg`, or in `PYTEST_ADDOPTS`) keeps its own
-  number, and so does one that sets `-p no:xdist`.
+- `cpus` is the smaller of the affinity mask and the cgroup CPU quota.
+- On CI: `min(cpus, floor(available * 0.8 / worker_mem_mb))`.
+- Elsewhere: `min(cpus / 2, cpus - loadavg, floor(available * 0.5 / worker_mem_mb))`, with the 1-minute load average.
+- `available` is `MemAvailable`, or cgroup v2 `memory.max` minus `memory.current` when lower. Unreadable (macOS) drops the memory bound. Never below 1.
 
-pytest-xdist must be in the project's dev dependencies. hyperi-ci probes the resolved pytest for it (`pytest -VV`). It runs serial with a warning when the plugin is absent.
+A 4-CPU ARC pod on a 32-core node reports 32 to `os.cpu_count()`, which is what xdist's own `-n auto` reads. On hyperi-ci's 2598-test suite 16 workers take 23.6s against 74.2s serial.
+
+Rust sizes nextest's threads the same way, with `test.rust.thread_mem_mb` (default 2048), through `NEXTEST_TEST_THREADS`. A value already in the environment or a `test-threads` in `.config/nextest.toml` wins.
+
+An explicit number always wins:
+
+- `parallel: false` stays serial, for a suite that binds a fixed port or writes a shared file.
+- `parallel: 4` fixes the count.
+- `HYPERCI_TEST_WORKERS=4` sets it for one run, `0` for serial. nextest takes it too.
+- A project that passes its own `-n` keeps it, and so does one that sets `-p no:xdist`. hyperi-ci reads `test.python.args`, `addopts` in `pytest.toml` / `.pytest.toml` / `pyproject.toml` (`[tool.pytest]` or `[tool.pytest.ini_options]`) / `pytest.ini` / `tox.ini` / `setup.cfg`, and `PYTEST_ADDOPTS`.
+
+hyperi-ci probes the resolved pytest for pytest-xdist (`pytest -VV`).
 
 When hyperi-ci supplies the `-n` it adds `--dist worksteal` too. xdist's default `load` mode queues a batch on each worker up front. One worker can sit on slow tests while the rest go idle. Worksteal moves queued tests from a busy worker to one that has run dry.
 

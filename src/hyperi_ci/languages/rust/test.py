@@ -14,6 +14,7 @@ command takes ``--workspace``, or cargo would test the root package alone.
 
 import re
 import shutil
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from hyperi_ci.languages.rust._manifest import (
     is_root_package_workspace,
     split_feature_sets,
 )
+from hyperi_ci.languages.rust._threads import capped_nextest_threads
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
     KeptLines,
@@ -504,6 +506,44 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     feature_sets = split_feature_sets(features)
     coverage = config.setting("test.coverage") and rust_tier == "all"
 
+    threads = capped_nextest_threads(config) if runner == "nextest" else nullcontext()
+    with threads:
+        return _run_feature_sets(
+            feature_sets,
+            rust_tier=rust_tier,
+            coverage=bool(coverage),
+            runner=runner,
+            test_tier=test_tier,
+            selection=selection,
+            workspace=workspace,
+        )
+
+
+def _run_feature_sets(
+    feature_sets: list[str],
+    *,
+    rust_tier: str,
+    coverage: bool,
+    runner: str,
+    test_tier: SuiteTier,
+    selection: FullSelection,
+    workspace: bool,
+) -> int:
+    """Run the tests once per feature set, stopping at the first failure.
+
+    Args:
+        feature_sets: The feature sets to test.
+        rust_tier: ``test.rust.tier``.
+        coverage: Run the first set under a coverage tool.
+        runner: ``nextest`` or ``cargo``.
+        test_tier: The test tier.
+        selection: What full leaves out.
+        workspace: Pass ``--workspace``.
+
+    Returns:
+        Exit code (0 = success).
+
+    """
     for index, feature_set in enumerate(feature_sets):
         label = f" ({feature_set})" if len(feature_sets) > 1 else ""
         what = f"features {feature_set}" if len(feature_sets) > 1 else ""

@@ -6,8 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """pytest worker-count resolution.
 
-When a project opts in with ``test.python.parallel``, the worker count comes
-from the host CPU budget. A project that passes its own ``-n`` is left alone.
+Unless ``test.python.parallel`` says otherwise, the worker count comes from the
+host's idle CPUs and free memory (:mod:`hyperi_ci.workers`). A project that
+passes its own ``-n`` is left alone.
 
 When hyperi-ci supplies ``-n`` it also supplies ``--dist worksteal`` unless the
 project chose its own distribution mode.
@@ -19,15 +20,15 @@ from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.cpu import cpu_budget
 from hyperi_ci.languages.python.pytest_args import project_args
+from hyperi_ci.workers import WORKERS_ENV, forced_workers, per_worker_mb, worker_budget
 
 # Past 16 workers collection cost cancels the gain: hyperi-ci's own 2598-test
 # suite takes 23.6s at 8, 23.4s at 16 and 23.8s at 32. An explicit number
 # overrides it.
 _MAX_AUTO_WORKERS = 16
 
-_WORKERS_ENV = "HYPERCI_TEST_WORKERS"
+_WORKER_MEM_KEY = "test.python.worker_mem_mb"
 
 # In a project's own pytest arguments these mean it already chose, including
 # turning xdist off.
@@ -119,32 +120,51 @@ def project_sets_own_dist(args: list[str], root: Path | None = None) -> bool:
     return _tokens_claim_dist(project_args(args, root))
 
 
-def _workers_from_env() -> int | None:
-    """Read a worker count forced for this run only.
+def _resolve(config: CIConfig) -> tuple[int | None, str]:
+    """Resolve the worker count and say where it came from.
 
-    ``HYPERCI_TEST_WORKERS`` overrides the config in both directions. 0 means
-    serial.
+    Args:
+        config: Merged CI configuration.
 
     Returns:
-        The requested worker count, 0 for serial, or None when unset or
-        unparseable.
+        A worker count of at least 1, or None for serial, and the source for
+        the log line.
 
     """
-    raw = os.environ.get(_WORKERS_ENV, "").strip()
-    if not raw:
-        return None
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        warn(f"{_WORKERS_ENV}: '{raw}' is not a number - ignoring it")
-        return None
+    forced = forced_workers()
+    if forced is not None:
+        return (forced or None), WORKERS_ENV
+
+    raw = config.setting("test.python.parallel")
+    if raw is None or raw is True:
+        return _auto(config)
+    if raw is False:
+        return None, "test.python.parallel"
+    if isinstance(raw, int):
+        return (raw if raw >= 1 else None), "test.python.parallel"
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in {"true", "auto"}:
+            return _auto(config)
+        if lowered in {"false", "off", ""}:
+            return None, "test.python.parallel"
+        try:
+            return max(1, int(lowered)), "test.python.parallel"
+        except ValueError:
+            pass
+    warn(
+        f"test.python.parallel: unknown value {raw!r} - expected "
+        f"true / false / auto / a worker count; running serial"
+    )
+    return None, "test.python.parallel"
 
 
 def requested_workers(config: CIConfig) -> int | None:
     """Resolve how many pytest workers the project has asked for.
 
-    ``test.python.parallel`` takes ``false`` (the default, serial), ``true``
-    or ``auto`` (derive from the host), or an explicit worker count.
+    ``test.python.parallel`` takes ``false`` (serial), ``true`` or ``auto``
+    (derive from the host), or an explicit worker count. Unset means ``auto``,
+    and :func:`parallel_args` runs serial instead when pytest-xdist is absent.
 
     Args:
         config: Merged CI configuration.
@@ -153,42 +173,42 @@ def requested_workers(config: CIConfig) -> int | None:
         A worker count of at least 1, or None for a serial run.
 
     """
-    forced = _workers_from_env()
-    if forced is not None:
-        return forced or None
-
-    raw = config.setting("test.python.parallel")
-    if raw is True:
-        return auto_workers()
-    if raw is False or raw is None:
-        return None
-    if isinstance(raw, int):
-        return raw if raw >= 1 else None
-    if isinstance(raw, str):
-        lowered = raw.strip().lower()
-        if lowered in {"true", "auto"}:
-            return auto_workers()
-        if lowered in {"false", "off", ""}:
-            return None
-        try:
-            return max(1, int(lowered))
-        except ValueError:
-            pass
-    warn(
-        f"test.python.parallel: unknown value {raw!r} - expected "
-        f"true / false / auto / a worker count; running serial"
-    )
-    return None
+    return _resolve(config)[0]
 
 
-def auto_workers() -> int:
+def parallel_unset(config: CIConfig) -> bool:
+    """Report whether neither the config nor the environment chose a mode.
+
+    Args:
+        config: Merged CI configuration.
+
+    Returns:
+        True when ``test.python.parallel`` is unset and ``HYPERCI_TEST_WORKERS``
+        is not set.
+
+    """
+    if os.environ.get(WORKERS_ENV, "").strip():
+        return False
+    return config.setting("test.python.parallel") is None
+
+
+def _auto(config: CIConfig) -> tuple[int, str]:
+    """Return the host-derived worker count and its bounds."""
+    budget = worker_budget(per_worker_mb(config, _WORKER_MEM_KEY))
+    return min(budget.workers, _MAX_AUTO_WORKERS), budget.describe()
+
+
+def auto_workers(config: CIConfig) -> int:
     """Worker count derived from the host, capped at a useful width.
+
+    Args:
+        config: Merged CI configuration, for ``test.python.worker_mem_mb``.
 
     Returns:
         A worker count of at least 1.
 
     """
-    return max(1, min(cpu_budget(), _MAX_AUTO_WORKERS))
+    return _auto(config)[0]
 
 
 def xdist_version(pytest_cmd: list[str]) -> tuple[int, int] | None:
@@ -263,7 +283,7 @@ def parallel_args(
         the project sets its own mode, or an empty list to run serial.
 
     """
-    workers = requested_workers(config)
+    workers, source = _resolve(config)
     if workers is None:
         return []
     if project_sets_own_workers(args):
@@ -271,14 +291,19 @@ def parallel_args(
         return []
     xdist = xdist_version(pytest_cmd)
     if xdist is None:
-        warn(
-            "  Test parallelism requested but pytest-xdist is not installed - "
-            "running serial; add pytest-xdist to the project's dev dependencies"
-        )
+        if parallel_unset(config):
+            warn(
+                "  Test parallelism: pytest-xdist is not installed, so the suite "
+                "runs serial - add pytest-xdist to the dev dependencies and set "
+                "`test.python.parallel: auto`"
+            )
+        else:
+            warn(
+                "  Test parallelism requested but pytest-xdist is not installed - "
+                "running serial; add pytest-xdist to the project's dev dependencies"
+            )
         return []
     dist = _dist_args(args, xdist)
     mode = f", --dist {_DIST_MODE}" if dist else ""
-    info(
-        f"  Test parallelism: {workers} workers{mode} (host CPU budget {cpu_budget()})"
-    )
+    info(f"  Test parallelism: {workers} workers{mode} ({source})")
     return ["-n", str(workers), *dist]

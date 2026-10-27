@@ -144,6 +144,85 @@ def total_ram(meminfo: Path = MEMINFO) -> MemoryLimit | None:
     return MemoryLimit(pages * page_size, "sysconf SC_PHYS_PAGES")
 
 
+def mem_available(meminfo: Path = MEMINFO) -> MemoryLimit | None:
+    """Memory the kernel can hand out without swapping, from ``MemAvailable``.
+
+    Args:
+        meminfo: The meminfo file to read.
+
+    Returns:
+        The available memory, or None where the file is absent or lacks the
+        field, as on macOS.
+
+    """
+    for line in (_read_text(meminfo) or "").splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] == "MemAvailable:" and fields[1].isdigit():
+            return MemoryLimit(int(fields[1]) * 1024, f"MemAvailable in {meminfo}")
+    return None
+
+
+def cgroup_v2_headroom(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> MemoryLimit | None:
+    """Tightest ``memory.max`` minus ``memory.current`` over this cgroup's levels.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The smallest headroom, floored at 0, or None when no level sets a
+        limit.
+
+    """
+    relative = own_cgroup_path(proc_self_cgroup).strip("/")
+    directory = root / relative if relative else root
+    found: list[MemoryLimit] = []
+    while True:
+        limit = _read_text(directory / "memory.max")
+        current = _read_text(directory / "memory.current")
+        if (
+            limit
+            and limit != _V2_NO_LIMIT
+            and limit.isdigit()
+            and current
+            and current.isdigit()
+        ):
+            headroom = max(0, int(limit) - int(current))
+            found.append(MemoryLimit(headroom, f"cgroup v2 headroom in {directory}"))
+        if directory == root or root not in directory.parents:
+            break
+        directory = directory.parent
+    return min(found, key=lambda m: m.limit_bytes) if found else None
+
+
+def available_memory(
+    *,
+    cgroup_root: Path = CGROUP_ROOT,
+    proc_self_cgroup: Path = PROC_SELF_CGROUP,
+    meminfo: Path = MEMINFO,
+) -> MemoryLimit | None:
+    """Memory free for new work right now, the tighter of host and cgroup.
+
+    Args:
+        cgroup_root: The cgroup mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+        meminfo: The meminfo file.
+
+    Returns:
+        The smaller of ``MemAvailable`` and the cgroup v2 headroom, or None
+        when neither can be read.
+
+    """
+    candidates = [
+        mem_available(meminfo),
+        cgroup_v2_headroom(cgroup_root, proc_self_cgroup),
+    ]
+    present = [c for c in candidates if c is not None]
+    return min(present, key=lambda m: m.limit_bytes) if present else None
+
+
 def memory_limit(
     *,
     cgroup_root: Path = CGROUP_ROOT,
