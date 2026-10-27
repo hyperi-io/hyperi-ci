@@ -60,8 +60,19 @@ class TestCpuBound:
     def test_an_unknown_load_counts_as_idle(self) -> None:
         assert _budget(1024, cpus=16, ci=False, load=None).workers == 8
 
-    def test_a_saturated_host_still_gets_one(self) -> None:
-        assert _budget(1024, cpus=8, ci=False, load=40.0).workers == 1
+    @pytest.mark.parametrize(
+        ("cpus", "load", "expected"),
+        [(8, 40.0, 1), (4, 40.0, 1), (32, 31.0, 4), (32, 27.0, 5), (64, 80.0, 8)],
+    )
+    def test_a_saturated_host_keeps_an_eighth_of_its_cpus(
+        self, cpus: int, load: float, expected: int
+    ) -> None:
+        assert _budget(1024, cpus=cpus, ci=False, load=load).workers == expected
+
+    def test_the_memory_bound_still_caps_the_floor(self) -> None:
+        # 2 GiB * 0.5 / 1 GiB = 1, under the floor of 4
+        budget = _budget(1024, cpus=32, ci=False, load=40.0, free=_free(2))
+        assert budget.workers == 1
 
     def test_a_single_cpu_box_gets_one(self) -> None:
         assert _budget(1024, cpus=1, ci=False, load=0.0).workers == 1
