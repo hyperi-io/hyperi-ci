@@ -524,26 +524,32 @@ def resolve_org(repo: str | None = None, cwd: Path | None = None) -> str:
     return slug.partition("/")[0] if slug else ""
 
 
-def load_manifest(path: Path | None = None, *, org: str | None = None) -> Manifest:
+def load_manifest(
+    path: Path | None = None, *, org: str | None = None, strict: bool = False
+) -> Manifest:
     """Load and validate the label manifest.
 
     Resolution order: ``path`` when given, else the file at config
     ``issues.labels.path`` on the default branch of ``<org>/.github``, else
     the neutral default shipped in the package. The org file is read once per
-    process. Its absence falls to the default silently, and any other failure
-    to read or validate it falls to the default with one warning.
+    process. Its absence falls to the default silently. Any other failure to
+    read or validate it falls to the default with one warning, or raises under
+    ``strict``.
 
     Args:
         path: Manifest file, read as given.
         org: Org whose ``.github`` repo to read. None resolves it with
             :func:`resolve_org` from the environment and the cwd's repo.
+        strict: Raise rather than fall back when the org file exists but is
+            unusable, for a check that must not pass against the wrong set.
 
     Returns:
         The parsed :class:`Manifest`, its ``source`` saying which it was.
 
     Raises:
-        ManifestError: ``path`` is unreadable, not YAML, or malformed, or the
-            project config cannot be read for ``issues.labels.path``.
+        ManifestError: ``path`` is unreadable, not YAML, or malformed, the
+            project config cannot be read for ``issues.labels.path``, or
+            ``strict`` and the org file is unusable.
 
     """
     if path is not None:
@@ -553,7 +559,7 @@ def load_manifest(path: Path | None = None, *, org: str | None = None) -> Manife
     where = _org_path()
     owner = _default_org() if org is None else org
     if where and owner:
-        found = _from_org(owner, where)
+        found = _from_org(owner, where, strict=strict)
         if found is not None:
             return found
     return _packaged()
@@ -624,28 +630,64 @@ def _org_commit(repo: str, path: str) -> str | None:
     return sha
 
 
+@dataclass(frozen=True, slots=True)
+class _OrgRead:
+    """One read of the org manifest: the manifest, or why there is none.
+
+    Attributes:
+        manifest: The parsed manifest, None when absent or unusable.
+        failure: Why it is unusable, empty when it is absent or was read.
+
+    """
+
+    manifest: Manifest | None
+    failure: str = ""
+
+
 @cache
-def _from_org(org: str, path: str) -> Manifest | None:
-    """Read ``path`` from ``<org>/.github``, None when the packaged default applies.
+def _read_org(org: str, path: str) -> _OrgRead:
+    """Read ``path`` from ``<org>/.github`` at the commit that last touched it.
 
     The file is read at the commit the sha names, so the two always agree.
     """
     from hyperi_ci import gh
-    from hyperi_ci.common import warn
 
     repo = f"{org}/.github"
     try:
         sha = _org_commit(repo, path)
         text = None if sha is None else gh.read_repo_file(repo, path, ref=sha)
         if sha is None or text is None:
-            return None
-        return _parse(yaml.safe_load(text), ManifestSource(SOURCE_ORG, org, path, sha))
+            return _OrgRead(None)
+        source = ManifestSource(SOURCE_ORG, org, path, sha)
+        return _OrgRead(_parse(yaml.safe_load(text), source))
     except (ManifestError, yaml.YAMLError, gh.RepoFileError, OSError) as exc:
-        reason = " ".join(str(exc).split())
-        warn(
-            f"labels: {repo}:{path} is unusable, so the packaged default applies: {reason}"
-        )
-        return None
+        return _OrgRead(None, " ".join(str(exc).split()))
+
+
+@cache
+def _warn_unusable(repo: str, path: str, reason: str) -> None:
+    from hyperi_ci.common import warn
+
+    warn(
+        f"labels: {repo}:{path} is unusable, so the packaged default applies: {reason}"
+    )
+
+
+def _from_org(org: str, path: str, *, strict: bool) -> Manifest | None:
+    """Return the org manifest, None when the packaged default applies.
+
+    Raises:
+        ManifestError: ``strict`` and the file exists but could not be read
+            or validated.
+
+    """
+    read = _read_org(org, path)
+    if read.failure:
+        repo = f"{org}/.github"
+        if strict:
+            raise ManifestError(f"labels: {repo}:{path} is unusable: {read.failure}")
+        _warn_unusable(repo, path, read.failure)
+    return read.manifest
 
 
 def gate_labels(*, manifest: Manifest | None = None) -> tuple[str, ...]:

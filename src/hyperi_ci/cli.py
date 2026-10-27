@@ -814,7 +814,8 @@ def labels(
     reports missing, drifted and extra labels, and open issues with no gate
     label, more than one, no issue type, or no area label where areas are
     declared. It never writes. Exit 0 when clean, 1 on any finding, 2 when the
-    check could not run.
+    check could not run, which includes an org manifest that exists but cannot
+    be read or validated. `--stale` exits 2 on that too.
 
     `--json` prints the whole manifest plus the repo's areas, for consumers
     that cannot import `hyperi_ci.labels`. Its shape is versioned by `schema`.
@@ -872,7 +873,9 @@ def labels(
                 reload=True, project_dir=dir_path, report_removed=not as_json
             )
             areas = parse_areas(cfg.setting("issues.areas"))
-        manifest = load_manifest(manifest_path, org=resolve_org(repo, dir_path))
+        manifest = load_manifest(
+            manifest_path, org=resolve_org(repo, dir_path), strict=check
+        )
         wanted = expected_labels(areas, manifest=manifest)
     except (AreasError, ManifestError) as exc:
         error(str(exc))
@@ -947,7 +950,7 @@ def _labels_stale(
                 reload=True, project_dir=dir_path, report_removed=not as_json
             )
             raw = cfg.setting(CONFIG_KEY)
-        manifest = load_manifest(manifest_path, org=resolve_org(target))
+        manifest = load_manifest(manifest_path, org=resolve_org(target), strict=True)
         thresholds = parse_thresholds(raw, manifest=manifest)
     except (HorizonConfigError, ManifestError, RemoteConfigError) as exc:
         error(str(exc))

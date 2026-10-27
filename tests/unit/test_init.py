@@ -8,6 +8,7 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 from hyperi_ci.init import (
@@ -96,9 +97,29 @@ class TestRenderTemplates:
         assert "python-ci.yml@" in content
         assert "hyperi-io/hyperi-ci" in content
 
-    def test_workflow_inherits_secrets(self) -> None:
-        content = _render_workflow("my-project", "rust-ci.yml")
-        assert "secrets: inherit" in content
+    @pytest.mark.parametrize(
+        "workflow_file", ["python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"]
+    )
+    def test_workflow_passes_exactly_the_declared_secrets(
+        self, workflow_file: str
+    ) -> None:
+        workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+        reusable = yaml.safe_load((workflows / workflow_file).read_text("utf-8"))
+        declared = set(reusable[True]["workflow_call"]["secrets"])
+        caller = yaml.safe_load(_render_workflow("my-project", workflow_file))
+        passed = caller["jobs"]["ci"]["secrets"]
+        assert set(passed) == declared
+        assert all(v == f"${{{{ secrets.{k} }}}}" for k, v in passed.items())
+
+    def test_workflow_grants_what_the_release_tail_needs(self) -> None:
+        caller = yaml.safe_load(_render_workflow("my-project", "rust-ci.yml"))
+        assert caller["permissions"] == {
+            "contents": "write",
+            "packages": "write",
+            "issues": "write",
+            "pull-requests": "write",
+        }
+        assert "inherit" not in _render_workflow("my-project", "rust-ci.yml")
 
     def test_workflow_scaffolds_dispatch_inputs(self) -> None:
         # `hyperi-ci publish` dispatches from-head + bump (issue #35) and the

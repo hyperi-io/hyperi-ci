@@ -3,6 +3,18 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.29](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.28...v2.14.29) (2026-10-25)
+
+### Bug Fixes
+
+* **init:** caller passes named secrets and declares permissions ([#737](https://github.com/hyperi-io/hyperi-ci/issues/737)) ([fb09903](https://github.com/hyperi-io/hyperi-ci/commit/fb09903061b26fcd7ba8485d0950c23211c54031)), closes [#734](https://github.com/hyperi-io/hyperi-ci/issues/734)
+
+## [2.14.28](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.27...v2.14.28) (2026-10-25)
+
+### Bug Fixes
+
+* **labels:** labels --check exits 2 when the org .github manifest can't be read ([#735](https://github.com/hyperi-io/hyperi-ci/issues/735)) ([9d70e48](https://github.com/hyperi-io/hyperi-ci/commit/9d70e48c77dc8e23ed5cdf50680d19c913ac474b)), closes [#733](https://github.com/hyperi-io/hyperi-ci/issues/733)
+
 ## [2.14.27](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.26...v2.14.27) (2026-10-24)
 
 ### Bug Fixes

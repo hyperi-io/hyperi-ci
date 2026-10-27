@@ -297,7 +297,8 @@ def packaged_label_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HYPERCI_ISSUES_LABELS_PATH", "")
     # A config cached by an earlier test predates the variable.
     monkeypatch.setattr(config, "_config_cache", None)
-    labels._from_org.cache_clear()
+    labels._read_org.cache_clear()
+    labels._warn_unusable.cache_clear()
     labels._default_org.cache_clear()
 
 
