@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.31](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.30...v2.14.31) (2026-10-27)
+
+### Bug Fixes
+
+* **test:** floor local worker count at an eighth of the CPUs ([#740](https://github.com/hyperi-io/hyperi-ci/issues/740)) ([f5ec0c8](https://github.com/hyperi-io/hyperi-ci/commit/f5ec0c84d9c13c130b300bdf84619237572d872c))
+
 ## [2.14.30](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.29...v2.14.30) (2026-10-27)
 
 ### Bug Fixes
