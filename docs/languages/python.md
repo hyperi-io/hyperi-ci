@@ -75,7 +75,7 @@ Unset runs `auto` when pytest-xdist is installed. Without it the suite runs seri
 
 - `cpus` is the smaller of the affinity mask and the cgroup CPU quota.
 - On CI: `min(cpus, floor(available * 0.8 / worker_mem_mb))`.
-- Elsewhere: `min(cpus / 2, cpus - loadavg, floor(available * 0.5 / worker_mem_mb))`, with the 1-minute load average.
+- Elsewhere: `min(max(cpus / 8, min(cpus / 2, cpus - loadavg)), floor(available * 0.5 / worker_mem_mb))`, with the 1-minute load average. The `cpus / 8` floor keeps a busy 32-core box at 4 workers rather than 1.
 - `available` is `MemAvailable`, or cgroup v2 `memory.max` minus `memory.current` when lower. Unreadable (macOS) drops the memory bound. Never below 1.
 
 A 4-CPU ARC pod on a 32-core node reports 32 to `os.cpu_count()`, which is what xdist's own `-n auto` reads. On hyperi-ci's 2598-test suite 16 workers take 23.6s against 74.2s serial.

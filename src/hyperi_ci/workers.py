@@ -11,7 +11,7 @@ count is ``max(1, min(cpu_bound, memory_bound))``:
 
 - On CI: ``cpu_bound = cpus`` and ``memory_bound = floor(available * 0.8 /
   per_worker)``.
-- Elsewhere: ``cpu_bound = min(cpus / 2, cpus - loadavg)`` and
+- Elsewhere: ``cpu_bound = max(cpus / 8, min(cpus / 2, cpus - loadavg))`` and
   ``memory_bound = floor(available * 0.5 / per_worker)``.
 
 ``available`` is ``MemAvailable`` or the cgroup v2 headroom, whichever is lower.
@@ -38,6 +38,8 @@ _CI_MEMORY_SHARE = 0.8
 _LOCAL_MEMORY_SHARE = 0.5
 
 _LOCAL_CPU_DIVISOR = 2
+# A spike in the 1-minute load must not drop a 32-core box to one worker.
+_LOCAL_CPU_FLOOR_DIVISOR = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,13 +127,15 @@ def cpu_bound(cpus: int, load: float | None, *, ci: bool) -> int:
 
     Returns:
         ``cpus`` on CI. Elsewhere the smaller of half the CPUs and the idle
-        CPUs, which may be 0.
+        CPUs, but never below an eighth of the CPUs. Under 8 CPUs that floor
+        is 0.
 
     """
     if ci:
         return cpus
     idle = cpus if load is None else max(0, math.floor(cpus - load))
-    return min(cpus // _LOCAL_CPU_DIVISOR, idle)
+    floor = cpus // _LOCAL_CPU_FLOOR_DIVISOR
+    return max(floor, min(cpus // _LOCAL_CPU_DIVISOR, idle))
 
 
 def memory_bound(available: MemoryLimit, mb_per_worker: int, *, ci: bool) -> int:
