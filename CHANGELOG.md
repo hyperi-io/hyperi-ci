@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.30](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.29...v2.14.30) (2026-10-27)
+
+### Bug Fixes
+
+* **test:** size parallel test workers from free CPU and memory, on by default ([#736](https://github.com/hyperi-io/hyperi-ci/issues/736)) ([947eb15](https://github.com/hyperi-io/hyperi-ci/commit/947eb1504c907f9730d99fca5f36e9a4af90baf3)), closes [#732](https://github.com/hyperi-io/hyperi-ci/issues/732)
+
 ## [2.14.29](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.28...v2.14.29) (2026-10-25)
 
 ### Bug Fixes
