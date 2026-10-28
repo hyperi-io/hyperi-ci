@@ -159,13 +159,25 @@ def _fake_npm(
 class TestInstall:
     """The install mechanics, with npm faked."""
 
-    def test_off_ci_nothing_is_installed(
+    def test_off_ci_the_pinned_set_installs_too(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         calls = _fake_npm(monkeypatch, tmp_path)
         monkeypatch.setattr(node_tools, "is_ci", lambda: False)
+        assert node_tools.install() is not None
+        assert len(calls) == 1
+
+    def test_off_ci_no_npm_is_none_and_quiet(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        calls = _fake_npm(monkeypatch, tmp_path)
+        warnings: list[str] = []
+        monkeypatch.setattr(node_tools, "is_ci", lambda: False)
+        monkeypatch.setattr(node_tools, "warn", warnings.append)
+        monkeypatch.setattr(node_tools.shutil, "which", lambda _n: None)
         assert node_tools.install() is None
         assert calls == []
+        assert warnings == []
 
     def test_no_npm_on_path_is_none(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

@@ -11,8 +11,10 @@ shipped ``config/node-tools/package-lock.json``. ``npm ci`` checks every
 tarball's sha512 and refuses a ``package.json`` that disagrees with the lock,
 so a version bumped without a relock fails the install.
 
-Installs on CI only, into the user cache keyed by lock and versions. Node is
-not installed: the GitHub-hosted and ARC images carry ``node`` and ``npm``.
+Installs into the user cache keyed by lock and versions, wherever ``node`` and
+``npm`` are on PATH, so a local check runs the same grammar check as CI after
+one ``npm ci``. Node is not installed: the GitHub-hosted and ARC images carry
+``node`` and ``npm``.
 """
 
 import functools
@@ -64,16 +66,18 @@ def _install_dir() -> Path:
 
 @functools.cache
 def install() -> Path | None:
-    """Return the ``node_modules`` holding the pinned set, installing it on CI.
+    """Return the ``node_modules`` holding the pinned set, installing it on first use.
 
-    Cached, so the docs checks share one ``npm ci`` per run. Returns None off
-    CI, without node or npm, or when ``npm ci`` fails.
+    Cached, so the docs checks share one ``npm ci`` per run. Returns None
+    without node or npm, or when ``npm ci`` fails.
     """
-    if not is_ci():
-        return None
     npm = shutil.which("npm")
     if npm is None or shutil.which("node") is None:
-        warn("  node-tools: node or npm is not on PATH - cannot install the docs tools")
+        # Locally the caller's missing-tool notice already names the fix.
+        if is_ci():
+            warn(
+                "  node-tools: node or npm is not on PATH - cannot install the docs tools"
+            )
         return None
 
     final = _install_dir()
