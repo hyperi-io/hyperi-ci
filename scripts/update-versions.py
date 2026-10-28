@@ -960,7 +960,7 @@ def _runtime_drift(versions: dict, today: date) -> list[tuple[str, str]]:
     return out
 
 
-def _report_runtime_drift(versions: dict) -> int:
+def _report_runtime_drift(versions: dict, today: date | None = None) -> int:
     """Log the runtime drift report. Returns the lines that were not clean.
 
     Report only: a drifted or unreachable runtime is a warning, never a
@@ -968,7 +968,7 @@ def _report_runtime_drift(versions: dict) -> int:
     """
     info("Runtime drift (report only):")
     flagged = 0
-    for level, message in _runtime_drift(versions, datetime.now(UTC).date()):
+    for level, message in _runtime_drift(versions, today or datetime.now(UTC).date()):
         if level in ("drift", "unchecked"):
             warn(f"runtime {message}")
             flagged += 1
