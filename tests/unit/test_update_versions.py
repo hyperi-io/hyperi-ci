@@ -1640,7 +1640,7 @@ class TestRuntimeDrift:
         monkeypatch.setattr(update_versions, "warn", warned.append)
         monkeypatch.setattr(update_versions, "info", lambda _m: None)
         monkeypatch.chdir(tmp_path)
-        assert update_versions._report_runtime_drift(self.SSOT) == 1
+        assert update_versions._report_runtime_drift(self.SSOT, self.TODAY) == 1
         assert warned == ["runtime llvm: 23 but latest llvm-project release is 24"]
         assert list(tmp_path.iterdir()) == []
 
