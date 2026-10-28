@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.32](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.31...v2.14.32) (2026-10-28)
+
+### Bug Fixes
+
+* **docs:** install the pinned mermaid tree locally when node is present ([#741](https://github.com/hyperi-io/hyperi-ci/issues/741)) ([78af2ce](https://github.com/hyperi-io/hyperi-ci/commit/78af2cee37ea937157da2be77aef1705748b8f65))
+
 ## [2.14.31](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.30...v2.14.31) (2026-10-27)
 
 ### Bug Fixes
