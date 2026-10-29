@@ -639,6 +639,18 @@ jobs:
           # Keeps the job token away from the code this job runs (issue #402).
           persist-credentials: false
 
+      # Namespace keeps a cache volume per repo and profile. Downloads only: a
+      # PGO+BOLT build recompiles everything, so target/ would only grow it.
+      - name: Cache downloads on the Namespace volume
+        if: startsWith(matrix.runner, 'namespace-profile-')
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          cache: apt
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+
       - name: Setup runtime (uv + Python + native deps)
         uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
