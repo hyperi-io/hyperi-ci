@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import os
 from pathlib import Path
 
 import pytest
@@ -243,3 +244,25 @@ class TestLocalGatesCloseTheCiOnlyHole:
             "version SSOT",
             "workflow interfaces",
         }
+
+
+class TestGitleaksKeyStaysAwayFromBuildScripts:
+    @pytest.mark.parametrize("scan_rc", [0, 1])
+    def test_key_is_gone_after_the_scan(
+        self, monkeypatch: pytest.MonkeyPatch, scan_rc: int
+    ) -> None:
+        """Gitleaks reads the key, then clippy and cargo build scripts must not."""
+        monkeypatch.setenv("GITLEAKS_GH_ACTIONS_KEY", "licence-value")
+        seen: list[str | None] = []
+
+        def scan(_config: CIConfig) -> int:
+            seen.append(os.environ.get("GITLEAKS_GH_ACTIONS_KEY"))
+            return scan_rc
+
+        monkeypatch.setattr(dispatch.gitleaks, "run", scan)
+        monkeypatch.setattr(dispatch.repo_advisor, "run", lambda *a, **k: 0)
+        monkeypatch.setattr(dispatch.charset, "run", lambda _config: 1)
+
+        assert dispatch.stage_quality("python", CIConfig(_raw={})) == 1
+        assert seen == ["licence-value"]
+        assert "GITLEAKS_GH_ACTIONS_KEY" not in os.environ
