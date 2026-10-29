@@ -18,6 +18,7 @@ from hyperi_ci.memory import own_cgroup_path
 
 _CGROUP_ROOT = Path("/sys/fs/cgroup")
 _PROC_SELF_CGROUP = Path("/proc/self/cgroup")
+_PROC_CPUINFO = Path("/proc/cpuinfo")
 
 # "No quota": a sentinel in cgroup v1, the string "max" in v2.
 _V1_NO_QUOTA = -1
@@ -149,3 +150,32 @@ def cpu_budget() -> int:
     if quota is not None:
         budget = min(budget, int(quota))
     return max(1, budget)
+
+
+def cpu_model(cpuinfo: Path = _PROC_CPUINFO) -> str | None:
+    """Name the host CPU, so a slow build can be traced to the machine it ran on.
+
+    Args:
+        cpuinfo: The ``/proc/cpuinfo`` to read.
+
+    Returns:
+        x86's ``model name``, else arm64's implementer and part ids, or None
+        where the file is unreadable or carries neither.
+
+    """
+    try:
+        text = cpuinfo.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            fields.setdefault(key.strip(), value.strip())
+    if model := fields.get("model name"):
+        return model
+    implementer = fields.get("CPU implementer")
+    part = fields.get("CPU part")
+    if implementer and part:
+        return f"implementer {implementer} part {part}"
+    return None

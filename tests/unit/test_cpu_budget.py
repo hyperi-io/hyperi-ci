@@ -172,6 +172,37 @@ class TestOwnCgroupPath:
         assert cpu.own_cgroup_path(cpu._PROC_SELF_CGROUP) == "/"
 
 
+class TestCpuModel:
+    @pytest.mark.parametrize(
+        ("cpuinfo", "want"),
+        [
+            pytest.param(
+                "processor\t: 0\nmodel name\t: AMD EPYC 9R14\nprocessor\t: 1\n"
+                "model name\t: AMD EPYC 9R14\n",
+                "AMD EPYC 9R14",
+                id="x86_model_name",
+            ),
+            pytest.param(
+                "processor\t: 0\nBogoMIPS\t: 2000.00\nCPU implementer\t: 0xc0\n"
+                "CPU part\t: 0xac4\n",
+                "implementer 0xc0 part 0xac4",
+                id="arm64_ids",
+            ),
+            pytest.param("processor\t: 0\nCPU part\t: 0xac4\n", None, id="arm64_half"),
+            pytest.param("", None, id="empty"),
+        ],
+    )
+    def test_reads_the_model(
+        self, tmp_path: Path, cpuinfo: str, want: str | None
+    ) -> None:
+        path = tmp_path / "cpuinfo"
+        path.write_text(cpuinfo, encoding="utf-8", newline="\n")
+        assert cpu.cpu_model(path) == want
+
+    def test_a_missing_file_is_none(self, tmp_path: Path) -> None:
+        assert cpu.cpu_model(tmp_path / "absent") is None
+
+
 class TestThisHost:
     def test_the_budget_is_a_usable_number_here(self) -> None:
         """No fabrication: the real host must still answer sanely."""

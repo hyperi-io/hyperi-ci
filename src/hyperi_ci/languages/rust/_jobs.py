@@ -23,7 +23,7 @@ from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
-from hyperi_ci.cpu import cpu_budget
+from hyperi_ci.cpu import cpu_budget, cpu_model
 from hyperi_ci.memory import GIB, MemoryLimit, memory_limit
 
 JOBS_ENV = "CARGO_BUILD_JOBS"
@@ -155,7 +155,8 @@ def cargo_jobs_env(
         else "no memory limit found"
     )
     info(
-        f"cargo jobs: {jobs} ({memory}, {gib_per_job:g} GiB per job, CPU budget {cpus})"
+        f"cargo jobs: {jobs} ({memory}, {gib_per_job:g} GiB per job, CPU budget {cpus},"
+        f" CPU {cpu_model() or 'unknown'})"
     )
     return {JOBS_ENV: str(jobs)}
 
