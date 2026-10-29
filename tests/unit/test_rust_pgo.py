@@ -2474,3 +2474,97 @@ class TestDesignatedLlvmWins:
         assert len(errors) == 1
         assert "HYPERCI_LLVM_VERSION" in errors[0]
         assert "'latest'" in errors[0]
+
+
+class TestDirectBolt:
+    """BOLT rewrites the PGO-optimised binary, so a PGO+BOLT build compiles twice."""
+
+    _TARGET = "x86_64-unknown-linux-gnu"
+
+    def _run(self, tmp_path, monkeypatch, make_elf, *, bins, fail_tool=None):
+        release = tmp_path / "target" / self._TARGET / "release"
+        release.mkdir(parents=True)
+        for name in bins:
+            (release / name).write_bytes(b"pgo")
+        tools: list[list[str]] = []
+
+        def fake_tool(cmd, _cwd):
+            tools.append(cmd)
+            if cmd[0] == fail_tool:
+                return False
+            out = Path(cmd[cmd.index("-o") + 1])
+            if "-instrument" in cmd:
+                out.touch()
+            elif cmd[0] == "merge-fdata":
+                out.write_text("merged", encoding="utf-8")
+            else:
+                make_elf(out, [".text", BOLT_NOTE_SECTION])
+            return True
+
+        def fake_workload(_cmd, _secs, binary, cwd):
+            if binary.name.endswith("-bolt-instrumented"):
+                fdata = pgo._bolt_profile_dir(cwd, self._TARGET, bins[0])
+                (fdata / f"{bins[0]}.fdata.123").write_text("p", encoding="utf-8")
+            return 0
+
+        cargo: list[list[str]] = []
+        envs: list[dict] = []
+
+        def fake_cargo(args, cwd, extra_env):
+            cargo.append(args)
+            envs.append(extra_env or {})
+            return 0
+
+        monkeypatch.setattr(pgo, "_run_tool", fake_tool)
+        monkeypatch.setattr(pgo, "_run_workload", fake_workload)
+        monkeypatch.setattr(pgo, "_run_cargo_pgo", fake_cargo)
+        monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
+        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda _cwd=None: True)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        rc = run_pgo_build(
+            target=self._TARGET,
+            profile=_make_profile(bolt_enabled=True),
+            binary_name=bins[0],
+            cwd=tmp_path,
+            outcome=outcome,
+            shipped_binaries=list(bins),
+        )
+        return rc, cargo, envs, tools, outcome, release
+
+    def test_two_compiles_and_the_bolt_binary_ships(
+        self, tmp_path, monkeypatch, make_elf
+    ) -> None:
+        rc, cargo, envs, tools, outcome, release = self._run(
+            tmp_path, monkeypatch, make_elf, bins=["app"]
+        )
+        assert rc == 0
+        assert [a[0] for a in cargo] == ["build", "optimize"]
+        assert "--emit-relocs" in envs[1][pgo._target_rustflags_key(self._TARGET)]
+        assert [t[0] for t in tools] == ["llvm-bolt", "merge-fdata", "llvm-bolt"]
+        assert outcome.bolt_applied
+        assert BOLT_NOTE_SECTION.encode() in (release / "app").read_bytes()
+
+    def test_a_second_binary_without_a_profile_ships_pgo_only(
+        self, tmp_path, monkeypatch, make_elf
+    ) -> None:
+        rc, cargo, _envs, _tools, outcome, release = self._run(
+            tmp_path, monkeypatch, make_elf, bins=["app", "helper"]
+        )
+        assert rc == 0
+        assert len(cargo) == 2
+        assert outcome.bolt_applied
+        assert (release / "helper").read_bytes() == b"pgo"
+
+    @pytest.mark.parametrize("tool", ["llvm-bolt", "merge-fdata"])
+    def test_a_failed_tool_falls_back_to_cargo_pgos_bolt_builds(
+        self, tmp_path, monkeypatch, make_elf, tool
+    ) -> None:
+        rc, cargo, *_ = self._run(
+            tmp_path, monkeypatch, make_elf, bins=["app"], fail_tool=tool
+        )
+        assert rc == 0
+        assert [a[:2] for a in cargo[2:]][0] == ["bolt", "build"]
+
+    def test_the_pipeline_builds_unstripped_for_packaging_to_strip(self) -> None:
+        # lld refuses --strip-all beside --emit-relocs, so build.py strips after BOLT.
+        assert pgo._bolt_profile_env() == {"CARGO_PROFILE_RELEASE_STRIP": "none"}

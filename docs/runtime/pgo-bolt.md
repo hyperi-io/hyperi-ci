@@ -37,11 +37,13 @@ The workload runs twice, once per instrumented binary. It must stop by `PGO_WORK
 flowchart TD
     S["workload_setup_cmd (optional)"] --> I1["cargo pgo build: PGO-instrumented binary"]
     I1 --> W1["workload run 1"]
-    W1 --> O1["cargo pgo optimize build: PGO binary"]
-    O1 --> I2["cargo pgo bolt build: BOLT-instrumented binary"]
+    W1 --> O1["cargo pgo optimize build: PGO binary, linked with --emit-relocs"]
+    O1 --> I2["llvm-bolt -instrument on that binary"]
     I2 --> W2["workload run 2"]
-    W2 --> O2["cargo pgo bolt optimize: shipped binary"]
+    W2 --> O2["merge-fdata + llvm-bolt: shipped binary"]
 ```
+
+BOLT rewrites the PGO binary in place, so the build compiles twice. If `llvm-bolt` or `merge-fdata` fails, it falls back to `cargo pgo bolt build` and `bolt optimize`, which compile twice more.
 
 - `skip-optimize` drops PGO and BOLT for one run: [`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.
 - `optimize-tier: release` runs them on a run that publishes nothing: *Testing it in CI without a release* below.
