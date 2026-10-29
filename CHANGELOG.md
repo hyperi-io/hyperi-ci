@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.35](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.34...v2.14.35) (2026-10-29)
+
+### Bug Fixes
+
+* **security:** keep the gitleaks key away from build scripts ([#753](https://github.com/hyperi-io/hyperi-ci/issues/753)) ([24f3362](https://github.com/hyperi-io/hyperi-ci/commit/24f3362d075801bcec470a3b398099ff1297730f))
+
 ## [2.14.34](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.33...v2.14.34) (2026-10-29)
 
 ### Bug Fixes
