@@ -49,9 +49,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # ARC images bake uv in. Other self-hosted runners (Namespace) do not.
+    - name: Check for uv
+      id: uv_probe
+      shell: bash
+      run: |
+        if command -v uv >/dev/null; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
     - name: Install uv
       id: uv_try1
-      if: ${{ runner.environment != 'self-hosted' }}
+      if: ${{ runner.environment != 'self-hosted' || steps.uv_probe.outputs.found != 'true' }}
       continue-on-error: true
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
@@ -78,13 +84,13 @@ runs:
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
         FORCE_PYTHON_INSTALL: ${{ inputs.force-python-install }}
-      # A self-hosted runner skips setup-uv, so its image must provide uv; an
-      # unpinned install script is never piped to a shell here.
+      # setup-uv runs wherever uv is missing, so this only fires when every
+      # attempt failed. An unpinned install script is never piped to a shell.
       # --no-bin: the bin links land in ~/.local/bin, which is not on PATH, and
       # uv finds its own interpreters without them.
       run: |
         if ! command -v uv >/dev/null; then
-          echo "::error::uv is not on PATH: setup-uv did not run or failed, and a self-hosted runner image must provide uv"
+          echo "::error::uv is not on PATH: every setup-uv attempt failed"
           exit 1
         fi
         if [ "$FORCE_PYTHON_INSTALL" = "true" ]; then
