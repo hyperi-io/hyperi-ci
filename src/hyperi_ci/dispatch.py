@@ -268,10 +268,14 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     with group("Repo hygiene advisory (alint)"):
         repo_advisor.run(config, language=language)
 
-    with group("Gitleaks secret scanning"):
-        rc = gitleaks.run(config)
-        if rc != 0:
-            return rc
+    try:
+        with group("Gitleaks secret scanning"):
+            rc = gitleaks.run(config)
+    finally:
+        # Dependency build scripts run later in this environment.
+        os.environ.pop("GITLEAKS_GH_ACTIONS_KEY", None)
+    if rc != 0:
+        return rc
 
     # The ASCII-only rule covers every language, so it runs once here (#169).
     with group("Character policy"):
