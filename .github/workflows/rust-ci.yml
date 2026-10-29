@@ -569,6 +569,22 @@ jobs:
               "../$(basename "$repo")"
           done
 
+      - name: Use the Docker Hub mirror where it is reachable
+        # Harbor is reachable from ARC only, so a cloud runner keeps pulling from Docker Hub.
+        if: vars.HYPERCI_DOCKERHUB_MIRROR != '' && runner.environment == 'self-hosted'
+        env:
+          MIRROR: ${{ vars.HYPERCI_DOCKERHUB_MIRROR }}
+        run: |
+          hostport="${MIRROR%%/*}"
+          host="${hostport%:*}"
+          port=443
+          [[ "$hostport" == *:* ]] && port="${hostport##*:}"
+          if timeout 3 bash -c ": </dev/tcp/$host/$port" 2>/dev/null; then
+            echo "HYPERCI_DOCKERHUB_MIRROR=$MIRROR" >> "$GITHUB_ENV"
+          else
+            echo "::notice::$hostport is unreachable from this runner, so tests pull from Docker Hub"
+          fi
+
       - name: Run tests
         # --tier full only on a full run: a CLI without the flag fails loudly rather
         # than running core under a full name. A core run passes nothing, so the
