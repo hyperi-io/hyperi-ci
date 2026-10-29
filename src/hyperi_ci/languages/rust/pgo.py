@@ -189,11 +189,16 @@ def run_pgo_build(
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
 
+    # With BOLT on, this compile is also the one BOLT rewrites, so it links
+    # through lld with relocations kept and no second compile is needed.
+    optimize_env = {**(build_env or {}), **_PROFILE_USE_ENV}
+    if bolt:
+        optimize_env.update(_direct_bolt_link_env(target, extra_env))
     info(f"PGO: building optimised binary for {target}")
     rc = _run_cargo_pgo(
         ["optimize", "--", "--target", target, *cargo_args],
         cwd=cwd,
-        extra_env={**(build_env or {}), **_PROFILE_USE_ENV},
+        extra_env=optimize_env,
     )
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
@@ -201,7 +206,10 @@ def run_pgo_build(
     if outcome:
         outcome.pgo_applied = True
 
-    if bolt:
+    if bolt and not _direct_bolt(
+        target, shipped_binaries or [binary_name], binary_name, profile, cwd, outcome
+    ):
+        warn("BOLT on the PGO binary failed -- falling back to cargo-pgo's BOLT builds")
         rc = _run_bolt(
             target, cargo_args, binary_name, profile, cwd, build_env, outcome
         )
@@ -951,6 +959,112 @@ def _attempt_bolt(
     if rc == 0 and _install_bolt_output(cwd, target, binary_name) and outcome:
         outcome.bolt_applied = True
     return rc
+
+
+def _direct_bolt_link_env(
+    target: str, extra_env: dict[str, str] | None
+) -> dict[str, str]:
+    """Return the link env that lets llvm-bolt rewrite the PGO-optimised binary.
+
+    The same lld (and aarch64 A53 wrapper) as cargo-pgo's BOLT builds, plus
+    ``--emit-relocs``, which llvm-bolt's relocation mode needs.
+    """
+    env = _bolt_build_env(target, extra_env=extra_env)
+    key = _target_rustflags_key(target)
+    env[key] = f"{env[key]} -C link-arg=-Wl,--emit-relocs"
+    return env
+
+
+def _bolt_profile_dir(cwd: Path, target: str, binary: str) -> Path:
+    """Return the per-binary directory the instrumented binary writes fdata into."""
+    return _release_dir(cwd, target).parents[1] / "bolt-profiles" / binary
+
+
+def _run_tool(cmd: list[str], cwd: Path) -> bool:
+    """Run one llvm-bolt or merge-fdata command. Returns True on exit 0."""
+    info(f"  $ {' '.join(cmd)}")
+    try:
+        return run_cmd(cmd, check=False, cwd=cwd).returncode == 0
+    except OSError as exc:
+        warn(f"  {cmd[0]}: {exc}")
+        return False
+
+
+def _direct_bolt(
+    target: str,
+    binaries: list[str],
+    workload_binary: str,
+    profile: OptimizationProfile,
+    cwd: Path,
+    outcome: OptimizationOutcome | None = None,
+) -> bool:
+    """BOLT the PGO-optimised binaries in place: instrument, profile, optimise.
+
+    Only ``workload_binary`` is instrumented and driven, so another binary is
+    optimised only when a profile for it exists. Returns False when no binary
+    was BOLT-optimised, which sends the caller to cargo-pgo's rebuild path.
+    """
+    release = _release_dir(cwd, target)
+    profile_dir = _bolt_profile_dir(cwd, target, workload_binary)
+    shutil.rmtree(profile_dir, ignore_errors=True)
+    profile_dir.mkdir(parents=True)
+
+    info(f"BOLT: instrumenting the PGO-optimised {workload_binary} for {target}")
+    instrumented = release / f"{workload_binary}-bolt-instrumented"
+    if not _run_tool(
+        [
+            "llvm-bolt",
+            str(release / workload_binary),
+            "-instrument",
+            f"--instrumentation-file={profile_dir / workload_binary}.fdata",
+            "--instrumentation-file-append-pid",
+            "-o",
+            str(instrumented),
+        ],
+        cwd,
+    ):
+        return False
+    if (
+        _run_workload(
+            profile.pgo_workload_cmd or "",
+            profile.pgo_duration_secs,
+            instrumented,
+            cwd=cwd,
+        )
+        != 0
+    ):
+        warn("BOLT workload failed")
+        return False
+
+    flags = list(bolt_optimize_args_override() or _CARGO_PGO_OPTIMIZE_BOLT_ARGS)
+    applied = False
+    for binary in binaries:
+        fdata = sorted(_bolt_profile_dir(cwd, target, binary).glob("*.fdata*"))
+        if not fdata:
+            info(f"BOLT: no profile for {binary} -- it ships PGO-only")
+            continue
+        merged = fdata[0].parent / "merged.fdata"
+        optimized = release / f"{binary}-bolt-optimized"
+        if not (
+            _run_tool(["merge-fdata", *map(str, fdata), "-o", str(merged)], cwd)
+            and _run_tool(
+                [
+                    "llvm-bolt",
+                    str(release / binary),
+                    "-o",
+                    str(optimized),
+                    f"-data={merged}",
+                    *flags,
+                ],
+                cwd,
+            )
+            and _install_bolt_output(cwd, target, binary)
+        ):
+            return False
+        applied = True
+    if applied and outcome:
+        outcome.bolt_applied = True
+    return applied
 
 
 def _run_bolt(

@@ -277,6 +277,8 @@ class TestCargoLaunchesKeepTheirShape:
         ):
             monkeypatch.setattr(pgo, name, lambda *_a, **_k: True)
         monkeypatch.setattr(pgo, "_run_workload", lambda *_a, **_k: 0)
+        # Direct llvm-bolt failing sends BOLT to cargo-pgo's builds, all four compiles.
+        monkeypatch.setattr(pgo, "_direct_bolt", lambda *_a, **_k: False)
         monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
         monkeypatch.delenv("HYPERCI_BOLT_OPTIMIZE_ARGS", raising=False)
 
@@ -299,10 +301,14 @@ class TestCargoLaunchesKeepTheirShape:
         shared = _expect(**self._PROJECT_ENV, CARGO_PROFILE_RELEASE_STRIP="none")
         profile_use = {**shared, "RUSTC_WRAPPER": ""}
         bolt = {**profile_use, _RUSTFLAGS: "-C link-arg=-fuse-ld=lld"}
+        relocs = {
+            **profile_use,
+            _RUSTFLAGS: "-C link-arg=-fuse-ld=lld -C link-arg=-Wl,--emit-relocs",
+        }
         scope = ["--target", _NATIVE, "--bin", "app"]
         expected = [
             (["cargo", "pgo", "build", "--", *scope], shared),
-            (["cargo", "pgo", "optimize", "--", *scope], profile_use),
+            (["cargo", "pgo", "optimize", "--", *scope], relocs),
             (["cargo", "pgo", "bolt", "build", "--with-pgo", "--", *scope], bolt),
             (["cargo", "pgo", "bolt", "optimize", "--with-pgo", "--", *scope], bolt),
         ]
