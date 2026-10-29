@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.34](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.33...v2.14.34) (2026-10-29)
+
+### Bug Fixes
+
+* **ci:** pass the Docker Hub mirror to tests on runners that reach it ([#750](https://github.com/hyperi-io/hyperi-ci/issues/750)) ([1e22bbe](https://github.com/hyperi-io/hyperi-ci/commit/1e22bbe453d912e2ea2c380438f220eceab4e910))
+* **rust:** let a caller pick the arm64 build runner ([#748](https://github.com/hyperi-io/hyperi-ci/issues/748)) ([c4425cc](https://github.com/hyperi-io/hyperi-ci/commit/c4425cc61c03741ac17b89802826f5672fc4e757))
+* **rust:** log the host CPU model beside the cargo job count ([#752](https://github.com/hyperi-io/hyperi-ci/issues/752)) ([427ce1e](https://github.com/hyperi-io/hyperi-ci/commit/427ce1e9c33749a23ba358cd07c87dd3187f5392))
+
 ## [2.14.33](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.32...v2.14.33) (2026-10-29)
 
 ### Bug Fixes
