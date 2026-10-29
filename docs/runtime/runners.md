@@ -38,7 +38,7 @@ gh variable list --org hyperi-io          # what is set now
 gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16cpu
 ```
 
-A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-build` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
+A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-build` / `runner-build-arm64` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
 
 There is no C++ reusable workflow. The org `GH_RUNNER_CPP` variable is read by nothing, and #517 covers deleting it.
 
@@ -49,7 +49,7 @@ There is no C++ reusable workflow. The org `GH_RUNNER_CPP` variable is read by n
 | Quality, Test, Build | renovate carve-out -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
 | Plan, Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git, python3 and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
 | Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
-| arm64 build leg | `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |
+| arm64 build leg | `runner-build-arm64` input -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |
 
 Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml` (version: `tools.pyyaml` in `versions.yaml`). No image needs PyYAML or yq. A config that exists and cannot be read raises a `::warning::` naming the file, and its settings take their defaults.
 
