@@ -714,3 +714,39 @@ class TestVerifyBoltShipped:
 
     def test_no_bolt_targets_checks_nothing(self, tmp_path: Path) -> None:
         assert build._verify_bolt_shipped([], "app", tmp_path) == 0
+
+
+class TestGlibcGate:
+    """A binary needing newer glibc than the runtime image fails packaging."""
+
+    _READELF = (
+        "  0x0010:   Name: GLIBC_2.17  Flags: none  Version: 9\n"
+        "  0x0020:   Name: GLIBC_2.34  Flags: none  Version: 3\n"
+        "  0x0030:   Name: GLIBC_2.2.5  Flags: none  Version: 2\n"
+    )
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [(_READELF, (2, 34)), ("", None), ("GCC_3.0 only", None)],
+    )
+    def test_floor_is_the_newest_glibc_version(self, text, expected) -> None:
+        assert build.glibc_floor(text) == expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("2.41", (2, 41)), (" 2.39 ", (2, 39)), (None, None), ("trixie", None)],
+    )
+    def test_glibc_max_parses_major_minor(self, value, expected) -> None:
+        assert build._parse_glibc_max(value) == expected
+
+    @pytest.mark.parametrize(
+        ("limit", "passes"),
+        [((2, 41), True), ((2, 34), True), ((2, 33), False), (None, True)],
+    )
+    def test_the_limit_decides(self, monkeypatch, tmp_path, limit, passes) -> None:
+        monkeypatch.setattr(
+            build,
+            "run_cmd",
+            lambda *_a, **_k: subprocess.CompletedProcess([], 0, self._READELF, ""),
+        )
+        assert build._check_glibc(tmp_path / "app", limit) is passes
