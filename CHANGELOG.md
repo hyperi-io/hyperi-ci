@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.33](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.32...v2.14.33) (2026-10-29)
+
+### Bug Fixes
+
+* **ci:** install uv on any runner that lacks it, not only GitHub-hosted ([#746](https://github.com/hyperi-io/hyperi-ci/issues/746)) ([5325533](https://github.com/hyperi-io/hyperi-ci/commit/5325533307edaba56ce946e28261e456e0be9ffd))
+* **rust:** bolt the PGO binary in place, two compiles instead of four ([#745](https://github.com/hyperi-io/hyperi-ci/issues/745)) ([bba79d1](https://github.com/hyperi-io/hyperi-ci/commit/bba79d13fe000dfd6ef4146cf60e75e3992fe250)), closes [#743](https://github.com/hyperi-io/hyperi-ci/issues/743)
+* **rust:** fail a binary that needs newer glibc than its runtime image ([#747](https://github.com/hyperi-io/hyperi-ci/issues/747)) ([e269a55](https://github.com/hyperi-io/hyperi-ci/commit/e269a553201c528c51c41395787933bf92415ef3))
+
 ## [2.14.32](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.31...v2.14.32) (2026-10-28)
 
 ### Bug Fixes
