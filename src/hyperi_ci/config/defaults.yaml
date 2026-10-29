@@ -382,6 +382,10 @@ build:
     # own unversioned ld.lld and clang. HYPERCI_LLVM_VERSION beats this key, and
     # versions.yaml `runtimes.llvm` is the default, so no value is set here.
     # llvm_version: 23
+    # Newest glibc the runtime image provides, as MAJOR.MINOR ("2.41" for
+    # debian:trixie). Packaging fails a binary needing newer GLIBC_ symbols.
+    # Unset reports the binary's need without failing.
+    # glibc_max: "2.41"
 
   golang:
     targets:

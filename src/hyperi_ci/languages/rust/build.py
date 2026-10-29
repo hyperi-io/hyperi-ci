@@ -11,6 +11,7 @@ and a target for another arch is skipped locally and fails in CI.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -103,8 +104,63 @@ def _target_to_elf_machine(target: str) -> str | None:
     return None
 
 
-def _verify_binary(binary: Path, target: str) -> bool:
-    """Check a binary's size and ELF machine type, then smoke-test it."""
+_GLIBC_SYMBOL_RE = re.compile(r"\bGLIBC_(\d+)\.(\d+)(?:\.\d+)?\b")
+
+
+def glibc_floor(readelf_versions: str) -> tuple[int, int] | None:
+    """Return the newest GLIBC_x.y a binary's version-needs section names.
+
+    Args:
+        readelf_versions: ``readelf -V`` output for the binary.
+
+    Returns:
+        The highest (major, minor), or None for a binary that needs no glibc.
+
+    """
+    found = [
+        (int(m[1]), int(m[2])) for m in _GLIBC_SYMBOL_RE.finditer(readelf_versions)
+    ]
+    return max(found) if found else None
+
+
+def _parse_glibc_max(value: object) -> tuple[int, int] | None:
+    """Parse ``build.rust.glibc_max`` ("2.41"), None when unset or malformed."""
+    match = re.fullmatch(r"\s*(\d+)\.(\d+)\s*", str(value or ""))
+    if not match:
+        if value:
+            warn(
+                f"    build.rust.glibc_max: {value!r} is not MAJOR.MINOR -- ignoring it"
+            )
+        return None
+    return int(match[1]), int(match[2])
+
+
+def _check_glibc(binary: Path, glibc_max: tuple[int, int] | None) -> bool:
+    """Report the glibc a binary needs, failing when it exceeds ``glibc_max``."""
+    result = run_cmd(["readelf", "-V", "-W", str(binary)], check=False, capture=True)
+    floor = glibc_floor(result.stdout)
+    if floor is None:
+        info("    OK: Needs no glibc symbol versions")
+        return True
+    needs = f"{floor[0]}.{floor[1]}"
+    if glibc_max is None:
+        info(f"    INFO: Needs glibc >= {needs} (no build.rust.glibc_max set)")
+        return True
+    limit = f"{glibc_max[0]}.{glibc_max[1]}"
+    if floor > glibc_max:
+        error(
+            f"    Needs glibc >= {needs}, above build.rust.glibc_max {limit} -- "
+            "it would fail to start on the runtime image"
+        )
+        return False
+    info(f"    OK: Needs glibc >= {needs} (limit {limit})")
+    return True
+
+
+def _verify_binary(
+    binary: Path, target: str, glibc_max: tuple[int, int] | None = None
+) -> bool:
+    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it."""
     errors = 0
     info("    --- Post-build verification ---")
 
@@ -154,6 +210,11 @@ def _verify_binary(binary: Path, target: str) -> bool:
             info(f"    OK: Dynamic deps ({len(deps)}): {' '.join(deps)}")
         else:
             info("    INFO: Statically linked (no dynamic deps)")
+        if not _check_glibc(binary, glibc_max):
+            errors += 1
+    elif glibc_max is not None:
+        error("    readelf is not on PATH, so build.rust.glibc_max cannot be checked")
+        errors += 1
 
     for flag in ("--version", "--help"):
         try:
@@ -403,6 +464,7 @@ def _package_binaries(
     targets: list[str],
     binary_names: list[str],
     version: str,
+    glibc_max: tuple[int, int] | None = None,
 ) -> int:
     """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
@@ -439,7 +501,7 @@ def _package_binaries(
                 f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
             )
 
-            if not _verify_binary(output_path, target):
+            if not _verify_binary(output_path, target, glibc_max):
                 error(f"Post-build verification failed for {output_path}")
                 return 1
 
@@ -706,7 +768,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             info("Library-only crate -- skipping binary packaging")
         else:
             version = _detect_version()
-            rc = _package_binaries(targets, binary_names, version)
+            rc = _package_binaries(
+                targets,
+                binary_names,
+                version,
+                _parse_glibc_max(config.get("build.rust.glibc_max")),
+            )
             if rc != 0:
                 return rc
             rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
