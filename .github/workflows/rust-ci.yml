@@ -38,6 +38,10 @@ on:
         type: string
         default: ""
         description: "Runner for build job (default: ubuntu-latest)"
+      runner-build-arm64:
+        type: string
+        default: ""
+        description: "Runner for the arm64 build leg (default: GH_RUNNER_ARM64, else ubuntu-24.04-arm)"
       test-matrix:
         type: string
         default: ""
@@ -320,7 +324,7 @@ jobs:
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
           AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          ARM64_RUNNER: ${{ inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
         run: |
           set -euo pipefail
           run_build="$RUN_BUILD"
