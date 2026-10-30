@@ -190,11 +190,24 @@ class TestRunCmdMemoryLimit:
             "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
             f"open({str(pidfile)!r}, 'w').write(str(p.pid)); time.sleep(60)"
         )
-        with pytest.raises(subprocess.TimeoutExpired):
-            common.run_cmd(
-                [sys.executable, "-c", script], capture=True, timeout=2, own_group=True
-            )
-        pid = int(pidfile.read_text(encoding="utf-8"))
+        # The timeout also covers interpreter start, so on a loaded host it can
+        # fire before the grandchild exists: lengthen it until one was spawned.
+        text = ""
+        for timeout in (2, 8, 30):
+            pidfile.unlink(missing_ok=True)
+            with pytest.raises(subprocess.TimeoutExpired):
+                common.run_cmd(
+                    [sys.executable, "-c", script],
+                    capture=True,
+                    timeout=timeout,
+                    own_group=True,
+                )
+            text = pidfile.read_text(encoding="utf-8") if pidfile.exists() else ""
+            if text:
+                break
+        if not text:
+            pytest.fail("no grandchild was spawned within a 30s timeout")
+        pid = int(text)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and _alive(pid):
             time.sleep(0.05)
