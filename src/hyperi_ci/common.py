@@ -394,6 +394,21 @@ def error(msg: str) -> None:
     logger.error(_inert(msg))
 
 
+def append_step_summary(markdown: str) -> None:
+    """Append ``markdown`` to ``$GITHUB_STEP_SUMMARY``, or do nothing where unset.
+
+    A write failure warns and never fails the stage.
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with Path(path).open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(markdown)
+    except OSError as exc:
+        warn(f"  could not write the job summary: {exc}")
+
+
 @contextmanager
 def group(title: str) -> Iterator[None]:
     """Collapsible group in GH Actions logs. No-op elsewhere."""

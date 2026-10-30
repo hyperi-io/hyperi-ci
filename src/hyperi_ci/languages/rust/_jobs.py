@@ -24,6 +24,7 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
+from hyperi_ci.languages.rust.runner_fit import record_phase
 from hyperi_ci.memory import (
     CGROUP_ROOT,
     GIB,
@@ -207,7 +208,10 @@ def log_peak_memory(
     root: Path = CGROUP_ROOT,
     proc_self_cgroup: Path = PROC_SELF_CGROUP,
 ) -> None:
-    """Log the job's peak memory so far, or nothing where the host reports none.
+    """Log the job's peak memory so far and mark the phase in the runner-fit record.
+
+    Nothing is logged where the host reports no peak. The phase is still marked,
+    with no peak, so its length reaches the record.
 
     Args:
         phase: The build phase that just finished.
@@ -216,6 +220,7 @@ def log_peak_memory(
 
     """
     peak = cgroup_v2_peak(root, proc_self_cgroup)
+    record_phase(phase, peak)
     if peak is None:
         return
     source = cgroup_v2_peak_file(root, proc_self_cgroup)

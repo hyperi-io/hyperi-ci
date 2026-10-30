@@ -378,6 +378,26 @@ build:
     # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
     # workspace whose big crates each take several GiB.
     memory_per_job_gib: 2
+    # Advice in runner-fit.json on which runner profile holds the Build. It
+    # never changes a runner. `profiles` run cheapest first: x64 under 32 cores
+    # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when
+    # `min_jobs` concurrent rustc at the measured per-job peak fit its memory
+    # with `min_headroom` free. `per_job_drift` is the relative gap to
+    # `memory_per_job_gib` that earns a note.
+    runner_fit:
+      min_headroom: 0.2
+      min_jobs: 2
+      per_job_drift: 0.25
+      # Cheapest first, as the live runner sets size them.
+      profiles:
+        - {label: arc-native-4x8, arch: amd64, cpus: 4, memory_gib: 8}
+        - {label: arc-native-8x16, arch: amd64, cpus: 8, memory_gib: 16}
+        - {label: arc-native-16x32, arch: amd64, cpus: 16, memory_gib: 32}
+        - {label: namespace-profile-hyperi-amd64-32x64, arch: amd64, cpus: 32, memory_gib: 64}
+        - {label: namespace-profile-hyperi-arm64-4x8, arch: arm64, cpus: 4, memory_gib: 8}
+        - {label: namespace-profile-hyperi-arm64-8x16, arch: arm64, cpus: 8, memory_gib: 16}
+        - {label: namespace-profile-hyperi-arm64-16x32, arch: arm64, cpus: 16, memory_gib: 32}
+        - {label: namespace-profile-hyperi-arm64-32x64, arch: arm64, cpus: 32, memory_gib: 64}
     # LLVM major for bolt-NN / lld-NN / clang-NN, shimmed ahead of the runner's
     # own unversioned ld.lld and clang. HYPERCI_LLVM_VERSION beats this key, and
     # versions.yaml `runtimes.llvm` is the default, so no value is set here.

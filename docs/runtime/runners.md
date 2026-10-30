@@ -100,6 +100,24 @@ cargo starts one rustc per CPU whatever the memory, and 16cpu has 1.5Gi per CPU.
 
 The limit comes from cgroup v2 `memory.max`, then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
 
+Every Rust Build writes `runner-fit.json` at the project root and a table to the job summary. `rust-ci.yml` uploads it as `runner-fit-<os_arch>`, 30 days, apart from `dist/`. It is written only when the workflow names the runner through `HYPERCI_RUNNER_LABEL`, so a local build leaves no file. A failed Build writes one too.
+
+It holds the arch, runner label, CPU model, CPU budget, memory limit and its source, the cargo jobs, the phases (name, seconds, memory peak) and the total. Per-job peak is the highest memory peak divided by the cargo jobs.
+
+The verdict advises and never changes a runner or fails a Build. The `build.rust.runner_fit` tunables set it:
+
+- `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing.
+- `recommended` is the first profile in `profiles` order, for this arch, that holds `min_jobs` jobs at the per-job peak with `min_headroom` free. Order the profiles cheapest first.
+- `move` is true when that differs from the runner used, and `move_reason` says how.
+- A per-job peak further than `per_job_drift` from `build.rust.memory_per_job_gib` adds a note naming both.
+
+One command tables a fleet round, newest run with a record per repo:
+
+```bash
+hyperi-ci runner report dfe-loader dfe-receiver   # bare names are hyperi-io/
+hyperi-ci runner report hyperi-io/dfe-loader --run 123 --json
+```
+
 ## Split-runner multi-arch
 
 Multi-arch builds use a native runner per architecture:

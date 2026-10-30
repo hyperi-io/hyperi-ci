@@ -22,6 +22,7 @@ Usage:
     hyperi-ci check-commit              Validate commit message format
     hyperi-ci labels [--check|--json]   Expected issue labels, drift, or the manifest
     hyperi-ci labels --stale [--json]   Horizon labels past their release limit
+    hyperi-ci runner report REPO...     Runner-fit records of each repo's latest Rust Build
     hyperi-ci --version                 Show version
 
 Conventions (all commands):
@@ -1508,6 +1509,39 @@ def chart_assemble_cmd(
     )
     if chart is not None:
         typer.echo(str(chart))
+    raise typer.Exit(rc)
+
+
+runner_app = typer.Typer(help="Runner-fit records from Rust Builds")
+app.add_typer(runner_app, name="runner")
+
+
+@runner_app.command(name="report")
+def runner_report_cmd(
+    repos: Annotated[
+        list[str],
+        typer.Argument(help="owner/name, or a bare name for hyperi-io"),
+    ],
+    run: Annotated[
+        int | None,
+        typer.Option("--run", help="Read this run only. Needs a single repo"),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the records as JSON"),
+    ] = False,
+) -> None:
+    """Table each repo's latest Rust Build runner-fit records, one row per arch."""
+    from hyperi_ci.gh import require_gh
+    from hyperi_ci.runner_report import report
+
+    if run is not None and len(repos) != 1:
+        typer.echo("--run needs exactly one repo", err=True)
+        raise typer.Exit(2)
+    if not require_gh():
+        raise typer.Exit(1)
+    text, rc = report(repos, run_id=run, as_json=as_json)
+    typer.echo(text)
     raise typer.Exit(rc)
 
 
