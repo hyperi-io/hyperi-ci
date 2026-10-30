@@ -12,7 +12,8 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import _threads
-from hyperi_ci.workers import WORKERS_ENV, WorkerBudget
+from hyperi_ci.sizing import WorkerBudget
+from hyperi_ci.workers import WORKERS_ENV
 
 
 @pytest.fixture(autouse=True)

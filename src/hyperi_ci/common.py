@@ -40,6 +40,7 @@ from scalo.logger import logger
 from scalo.logger import setup as _setup_logger
 from scalo.logger.scrub import ScrubConfig, SecretsConfig
 
+from hyperi_ci.ci_env import is_ci as is_ci
 from hyperi_ci.repo_path import RepoPathError, confine
 
 if TYPE_CHECKING:
@@ -203,14 +204,6 @@ def explicit_version(value: str | None) -> str | None:
     """
     candidate = value.strip().removeprefix("v") if value else ""
     return candidate if _SEMVER_RE.match(candidate) else None
-
-
-def is_ci() -> bool:
-    """Detect if running in a CI/runner environment."""
-    return any(
-        os.environ.get(v)
-        for v in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "BUILDKITE")
-    )
 
 
 def is_github_actions() -> bool:

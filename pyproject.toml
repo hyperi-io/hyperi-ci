@@ -55,6 +55,9 @@ dependencies = [
 [project.scripts]
 hyperi-ci = "hyperi_ci.cli:main"
 
+[project.entry-points.pytest11]
+hyperi_ci = "hyperi_ci.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/hyperi-io/hyperi-ci"
 Repository = "https://github.com/hyperi-io/hyperi-ci"
