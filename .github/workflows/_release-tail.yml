@@ -767,13 +767,13 @@ jobs:
         # Once the first tag exists this branch never fires again.
         if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' }}
         env:
+          # One token variable: with two, semantic-release vets each auth URL with a push dry-run that a stale checkout fails. tag-head gets GH_TOKEN on its own command line.
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
           if [ -z "$(git tag --list 'v[0-9]*')" ]; then
             echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
-            ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
+            GH_TOKEN="$GITHUB_TOKEN" ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
             semantic-release --repository-url "https://github.com/${GITHUB_REPOSITORY}"
           fi
