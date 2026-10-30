@@ -42,6 +42,10 @@ on:
         type: string
         default: ""
         description: "Runner for the arm64 build leg (default: GH_RUNNER_ARM64, else ubuntu-24.04-arm)"
+      runner-arm64-check:
+        type: string
+        default: ""
+        description: "Runner for the arm64 parity build on a release-worthy main push that does not release, which skips PGO and BOLT (default: GH_RUNNER_ARM64_CHECK, else the arm64 build leg's runner)"
       test-matrix:
         type: string
         default: ""
@@ -325,6 +329,8 @@ jobs:
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
           AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
           ARM64_RUNNER: ${{ inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          # Its own runner, so a parity build does not take a release-sized slot.
+          ARM64_CHECK_RUNNER: ${{ inputs.runner-arm64-check || vars.GH_RUNNER_ARM64_CHECK || inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
         run: |
           set -euo pipefail
           run_build="$RUN_BUILD"
@@ -340,7 +346,7 @@ jobs:
             # A targets list naming neither still builds amd64 rather than nothing.
             if [[ ${#legs[@]} -eq 0 ]]; then legs=("$amd64"); fi
           elif [[ "$arm64_check" == "true" ]]; then
-            legs=("$arm64")
+            legs=('{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_CHECK_RUNNER"'","os_arch":"linux-arm64"}')
           else
             # Nothing builds here; the Build job is gated off and never reads this.
             legs=("$amd64")
