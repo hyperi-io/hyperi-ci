@@ -1,15 +1,16 @@
 # Runners and the build environment
 
-CI runs on self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster) or on GitHub-hosted runners. What the runner image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
+CI runs on self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster), Namespace cloud runners (namespace.so) or GitHub-hosted runners. What the runner image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
 
 ## Runner policy
 
-- x64 jobs run on ARC.
-- arm64 jobs run on GitHub-hosted runners. ARC has no arm64 nodes.
+- x64 jobs under 32 CPUs run on ARC, the cheapest place to run them.
+- x64 jobs that need 32 CPUs, the heaviest Rust release builds, run on Namespace 32x64.
+- arm64 jobs run on Namespace. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner.
 - Anything else is a project-specific exception, set as a repo-level variable on that repo only.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception too.
 
-The GitHub-hosted x64 larger runners exist so x64 can move off ARC with a variable change: [hosted-larger-runners.md](hosted-larger-runners.md). They are not the fix for a failing ARC job. Fix the ARC runner.
+Namespace profiles are named `namespace-profile-hyperi-<arch>-<CPU>x<GiB>`. Namespace runners cannot reach Harbor or the devex services, so Quality and Test stay on ARC. A failing ARC job is fixed on ARC, not moved off it. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
 
 ## Runner modes
 
@@ -35,7 +36,7 @@ flowchart TD
 
 ```bash
 gh variable list --org hyperi-io          # what is set now
-gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16cpu
+gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16x32
 ```
 
 A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-build` / `runner-build-arm64` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
@@ -65,38 +66,38 @@ The self-hosted fleet is ARC scale sets on two axes:
 | type | `vanilla` | stock runner + internal CA + docker CLI + uv. Fast start. |
 | type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM, the distro gcc, and the shared sccache/crate cache. |
 | type | `debian` | vanilla on Debian Trixie, for .deb builds, which have to happen on the distro they target. No toolchain. |
-| size | `4cpu` | matches the stock GitHub ubuntu runner |
-| size | `8cpu`, `16cpu` | the steps up |
+| size | `4x8` | 4 CPUs and 8 GiB, the stock GitHub ubuntu runner |
+| size | `8x16`, `16x32` | the steps up, 2 GiB a CPU |
 
-**A job addresses a scale set by NAME, `arc-<type>-<size>`**, for example:
+**A job addresses a scale set as `arc-<type>-<CPU>x<GiB>`**, for example:
 
-| Name | Use |
+| Label | Use |
 |---|---|
-| `arc-vanilla-4cpu` | what a repo gets when it asks for nothing |
-| `arc-vanilla-16cpu` | grunt without the compiler estate |
-| `arc-native-4cpu` | a hyperi-ci project that is not Rust: it wants the toolchain, not sixteen cores to run ruff |
-| `arc-native-16cpu` | Rust |
-| `arc-debian-4cpu` | .deb packaging |
+| `arc-vanilla-4x8` | what a repo gets when it asks for nothing |
+| `arc-vanilla-16x32` | grunt without the compiler estate |
+| `arc-native-4x8` | a hyperi-ci project that is not Rust: it wants the toolchain, not sixteen cores to run ruff |
+| `arc-native-16x32` | Rust |
+| `arc-debian-4x8` | .deb packaging |
 
-All nine type and size pairs exist. The full deployed matrix, including legacy `arc-runner-*` names, is in hyperi-infra `ansible/playbooks/k8s-arc-runners.yml`.
+All nine type and size pairs exist. Each set also answers its `arc-<type>-<N>cpu` name. The deployed matrix is in hyperi-infra `ansible/playbooks/k8s-arc-runners.yml`.
 
-A `runs-on` naming a LABEL queues forever with the listener reporting `assigned job=0`, because GitHub matches the scale-set registration, not the Kubernetes labels. **Any value that is not a set name queues SILENTLY.** It does not fail, it waits.
+ARC registers a set's labels with GitHub only when it creates the set. A label added to a set that is then upgraded in place never routes, so a label change means recreating the set, then running one job on the label before any variable points at it. **A `runs-on` value that no set answers to queues SILENTLY**, with the listener reporting `assigned job=0`. It does not fail, it waits.
 
 The native image is about 21 GB, so prefer a vanilla set when nothing in the compiler estate is needed.
 
 ## Self-hosted runner tiers
 
-The hyperi-infra manifests are the SSoT, including each set's `maxRunners`. Sizing as read from the live AutoscalingRunnerSets on 2026-10-03:
+The hyperi-infra manifests are the SSoT, including each set's `maxRunners`. Sizing as read from the live AutoscalingRunnerSets on 2026-10-31:
 
 | Tier | CPUs | RAM | Typical use |
 |---|---|---|---|
-| 4cpu | 4 | 8Gi | lint, test, publish, tag; Python / Node.js builds, small Rust crates |
-| 8cpu | 8 | 16Gi | medium Rust builds, integration tests |
-| 16cpu | 16 | 24Gi | large Rust release builds, ClickHouse |
+| 4x8 | 4 | 8Gi | lint, test, publish, tag; Python / Node.js builds, small Rust crates |
+| 8x16 | 8 | 16Gi | medium Rust builds, integration tests |
+| 16x32 | 16 | 32Gi | large Rust release builds, ClickHouse |
 
-There is no 2cpu tier. GitHub-hosted equivalents: [hosted-larger-runners.md](hosted-larger-runners.md).
+There is no 2-CPU tier. Each runner also requests `hyperi.io/arc-mem-gi` equal to its memory, against a 96 per node, so at most three 16x32 runners fit on one node.
 
-cargo starts one rustc per CPU whatever the memory, and 16cpu has 1.5Gi per CPU. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 12 jobs on 16cpu, 8 on 8cpu and 4 on 4cpu. A workspace with multi-GiB crates raises it (6 gives 4 jobs).
+cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it (6 gives 5 jobs on 16x32).
 
 The limit comes from cgroup v2 `memory.max`, then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
 
@@ -124,8 +125,8 @@ Multi-arch builds use a native runner per architecture:
 
 | Arch | Runner | Source var |
 |---|---|---|
-| x86_64 (amd64) | ARC self-hosted | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT` |
-| aarch64 (arm64) | GitHub `ubuntu-24.04-arm` | `GH_RUNNER_ARM64` |
+| x86_64 (amd64) | ARC, or Namespace 32x64 for the heaviest builds | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
+| aarch64 (arm64) | Namespace `namespace-profile-hyperi-arm64-<CPU>x<GiB>`, else GitHub `ubuntu-24.04-arm` | `GH_RUNNER_ARM64`, `runner-build-arm64` input |
 
 Each leg builds its own arch, so no build cross-compiles (see [No cross-compilation](#no-cross-compilation)).
 
@@ -140,7 +141,7 @@ The arm64 leg is added on every run that builds at all, when `run-build` is true
 
 The arm64-only row is the parity check (`run-arm64-check`). A merge that WILL ship gets its arm64 leg compiled while a regression is still attributable, and nothing is published. `build.rust.arm64_on_main: false` opts out.
 
-`build.rust.targets` in `.hyperi-ci.yaml` narrows the matrix to the listed targets. A project whose release build does not fit `ubuntu-24.04-arm` lists `x86_64-unknown-linux-gnu` alone and ships amd64. The legs do not fail fast, so one dying leaves the other's artefact in place.
+`build.rust.targets` in `.hyperi-ci.yaml` narrows the matrix to the listed targets. A project whose release build fits no arm64 runner lists `x86_64-unknown-linux-gnu` alone and ships amd64. The legs do not fail fast, so one dying leaves the other's artefact in place.
 
 Go builds native per arch too. Python wheels and TypeScript are arch-independent and use one runner.
 
