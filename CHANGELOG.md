@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.36](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.35...v2.14.36) (2026-10-30)
+
+### Bug Fixes
+
+* **rust:** compile Rust tests under each feature alone ([#763](https://github.com/hyperi-io/hyperi-ci/issues/763)) ([cbbe66e](https://github.com/hyperi-io/hyperi-ci/commit/cbbe66e32311d4522d2c0f0cccd1a050772b2070))
+* **rust:** give the arm64 parity build its own runner ([#756](https://github.com/hyperi-io/hyperi-ci/issues/756)) ([0013cbd](https://github.com/hyperi-io/hyperi-ci/commit/0013cbd9f02500841d39d396a89a246d5e761beb))
+* **rust:** keep target/ out of the Build cargo cache ([#755](https://github.com/hyperi-io/hyperi-ci/issues/755)) ([37df000](https://github.com/hyperi-io/hyperi-ci/commit/37df00032e13481ff2cdba47a5d255e059670d06))
+* **rust:** log the Build's peak memory after each heavy phase ([#765](https://github.com/hyperi-io/hyperi-ci/issues/765)) ([16917e2](https://github.com/hyperi-io/hyperi-ci/commit/16917e21ccec75bd08827bfebc8bc5a60ac5e997))
+* **rust:** warn when the PGO workload builds its driver on the clock ([#754](https://github.com/hyperi-io/hyperi-ci/issues/754)) ([1ee47d6](https://github.com/hyperi-io/hyperi-ci/commit/1ee47d68f6199b6a62a1dd68d51e0ff3ebb7a1cc))
+* **test:** size a bare pytest -n auto by free CPU and memory ([#757](https://github.com/hyperi-io/hyperi-ci/issues/757)) ([0993232](https://github.com/hyperi-io/hyperi-ci/commit/09932326146570532072530774f329c71ada1ee7))
+
 ## [2.14.35](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.34...v2.14.35) (2026-10-29)
 
 ### Bug Fixes
