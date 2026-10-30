@@ -16,6 +16,7 @@ from hyperi_ci.languages.rust.quality import (
     _deny_warnings,
     _feature_set_findings,
     _run_feature_matrix,
+    _run_feature_matrix_tests,
     _run_matrix_pass,
     _run_rustdoc_hint,
 )
@@ -1286,3 +1287,177 @@ class TestAdvisoryDbUnreachable:
         stderr = "error[vulnerability]: Use-after-free in foo\nadvisories FAILED\n"
         result = subprocess.CompletedProcess(["cargo", "deny"], 1, "", stderr)
         assert quality._advisory_db_unreachable(result) is False
+
+
+_QUALITY = "hyperi_ci.languages.rust.quality"
+_TESTS_HACK = [
+    "cargo",
+    "hack",
+    "--keep-going",
+    "--each-feature",
+    "check",
+    "--tests",
+]
+
+
+def _tests_config(mode: object = None, fm: dict[str, Any] | None = None) -> CIConfig:
+    rust: dict[str, Any] = {}
+    if mode is not None:
+        rust["feature_matrix_tests"] = mode
+    if fm is not None:
+        rust["feature_matrix"] = fm
+    return CIConfig(_raw={"quality": {"rust": rust}})
+
+
+class _GateCalls:
+    """Records every command the tests pass hands to ``run_gate_tool``."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str], str]] = []
+
+    def run(self, name: str, cmd: list[str], mode: str, **_kw: Any) -> bool:
+        self.calls.append((name, cmd, mode))
+        return True
+
+
+@pytest.fixture
+def gate(monkeypatch: pytest.MonkeyPatch) -> _GateCalls:
+    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+    rec = _GateCalls()
+    monkeypatch.setattr(f"{_QUALITY}.run_gate_tool", rec.run)
+    monkeypatch.setattr(f"{_QUALITY}._package_lib_map", lambda *_a: {})
+    monkeypatch.setattr(f"{_QUALITY}._has_lib_target", lambda *_a: True)
+    return rec
+
+
+class TestFeatureMatrixTestsPass:
+    """``cargo hack --each-feature check --tests`` under its own mode key."""
+
+    @pytest.mark.parametrize(
+        ("fm", "workspace", "lib_map", "expected"),
+        [
+            pytest.param(None, False, {}, [[]], id="default"),
+            pytest.param(None, True, {}, [["--workspace"]], id="root-workspace"),
+            pytest.param(
+                {"extra_args": ["-p", "one"]},
+                True,
+                {},
+                [[]],
+                id="repo-scope-is-not-widened",
+            ),
+            pytest.param(
+                None,
+                True,
+                {"lib": True, "tool": False},
+                [["-p", "lib"], ["-p", "tool"]],
+                id="mixed-workspace-scopes-each-member",
+            ),
+        ],
+    )
+    def test_command_per_scope(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        gate: _GateCalls,
+        fm: dict[str, Any] | None,
+        workspace: bool,
+        lib_map: dict[str, bool],
+        expected: list[list[str]],
+    ) -> None:
+        monkeypatch.setattr(f"{_QUALITY}._package_lib_map", lambda *_a: lib_map)
+        tail = list(fm["extra_args"]) if fm else []
+
+        assert _run_feature_matrix_tests(_tests_config(fm=fm), workspace=workspace)
+        assert [cmd for _n, cmd, _m in gate.calls] == [
+            [*_TESTS_HACK, *scope, *tail] for scope in expected
+        ]
+        assert {name for name, _c, _m in gate.calls} == {"feature_matrix (tests)"}
+
+    def test_exclude_mutex_and_extra_args_reach_cargo_hack(
+        self, gate: _GateCalls
+    ) -> None:
+        fm = {
+            "exclude": ["internal"],
+            "mutually_exclusive": [["native-tls", "rustls"]],
+            "extra_args": ["--verbose"],
+        }
+
+        assert _run_feature_matrix_tests(_tests_config(fm=fm))
+
+        assert gate.calls[0][1] == [
+            *_TESTS_HACK,
+            "--exclude-features",
+            "internal",
+            "--mutually-exclusive-features",
+            "native-tls,rustls",
+            "--verbose",
+        ]
+
+    @pytest.mark.parametrize(
+        ("configured", "strict", "expected"),
+        [
+            pytest.param(None, False, "warn", id="unset-ships-warn"),
+            pytest.param("warn", False, "warn", id="warn"),
+            pytest.param("blocking", False, "blocking", id="blocking"),
+            pytest.param({"mode": "warn", "reason": "x"}, False, "warn", id="mapping"),
+            pytest.param("warn", True, "blocking", id="strict-upgrades-warn"),
+            pytest.param("disabled", False, None, id="disabled-runs-nothing"),
+        ],
+    )
+    def test_mode_resolves_like_every_quality_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        gate: _GateCalls,
+        configured: object,
+        strict: bool,
+        expected: str | None,
+    ) -> None:
+        if strict:
+            monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
+
+        assert _run_feature_matrix_tests(_tests_config(configured)) is True
+
+        assert [mode for _n, _c, mode in gate.calls] == ([expected] if expected else [])
+
+    def test_the_matrix_opt_out_skips_the_pass(self, gate: _GateCalls) -> None:
+        fm = {"enabled": False, "reason": "tracked in #42"}
+
+        assert _run_feature_matrix_tests(_tests_config("blocking", fm)) is True
+
+        assert gate.calls == []
+
+    def test_the_shipped_default_is_warn(self) -> None:
+        from hyperi_ci.config import packaged_default
+
+        assert packaged_default("quality.rust.feature_matrix_tests", None) == "warn"
+
+    @pytest.mark.parametrize(("mode", "passes"), [("warn", True), ("blocking", False)])
+    def test_a_failing_set_fails_only_under_blocking(
+        self, monkeypatch: pytest.MonkeyPatch, mode: str, passes: bool
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+        monkeypatch.setattr(f"{_QUALITY}._package_lib_map", lambda *_a: {})
+        monkeypatch.setattr(f"{_QUALITY}._has_lib_target", lambda *_a: True)
+        monkeypatch.setattr(
+            "hyperi_ci.languages.quality_common.shutil.which",
+            lambda n: f"/usr/bin/{n}",
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.quality_common.run_cmd",
+            lambda cmd, **_kw: subprocess.CompletedProcess(
+                cmd, 101, stdout="", stderr="error[E0432]: unresolved import\n"
+            ),
+        )
+
+        assert _run_feature_matrix_tests(_tests_config(mode)) is passes
+
+    @pytest.mark.parametrize(("mode", "passes"), [("warn", True), ("blocking", False)])
+    def test_an_uninstallable_cargo_hack_follows_the_mode(
+        self, monkeypatch: pytest.MonkeyPatch, gate: _GateCalls, mode: str, passes: bool
+    ) -> None:
+        monkeypatch.setattr(f"{_QUALITY}._ensure_cargo_hack", lambda: False)
+
+        assert _run_feature_matrix_tests(_tests_config(mode)) is passes
+
+        assert gate.calls == []

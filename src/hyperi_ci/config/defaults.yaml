@@ -241,6 +241,10 @@ quality:
       mutually_exclusive: []           # pairs that must not coexist (e.g., [["native-tls", "rustls"]])
       extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
       warnings: warn                   # a feature set with warnings or lints: blocking / warn / disabled
+    # Test targets under each feature alone (`cargo hack --each-feature check
+    # --tests`). Finds a #[cfg(test)] module that needs a feature but has no gate.
+    # Ships `warn` per the ratchet, and goes blocking once the fleet is clean.
+    feature_matrix_tests: warn
     # Rustdoc compliance hint -- single concise warning if doc warnings are
     # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
     # gate). Set enabled=false to silence entirely. References:

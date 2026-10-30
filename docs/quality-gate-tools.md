@@ -154,6 +154,8 @@ The matrix never edits `Cargo.toml` while it runs. Under feature resolver 1 (edi
 
 `warn` and `blocking` run cargo with `CARGO_TERM_COLOR=never` and strip any escapes that still arrive, since coloured output hides the lines the report is read from.
 
+Tests get their own pass. The main clippy pass builds them with `--all-features`, so a `#[cfg(test)]` module that needs a feature but has no `#[cfg(feature = ...)]` gate compiles there and breaks every other feature set. `quality.rust.feature_matrix_tests` runs `cargo hack --keep-going --each-feature check --tests` to find it. It ships `warn`, which reports a failing set and passes the stage, and `blocking` fails the stage. It shares the matrix's opt-out, scope, `exclude`, `mutually_exclusive` and `extra_args`.
+
 The deny is its own `target.'cfg(all())'` rustflags entry, passed with `--config`. Cargo joins all matching target entries, so the repo's `[target.*]` flags and the ARC runner's `CARGO_TARGET_*_RUSTFLAGS` survive. `RUSTFLAGS` would discard both, `--cfg` flags included. Where `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` is already set, cargo reads only that, so the deny is appended there.
 
 A repo with only `[build] rustflags`, on a machine with no target entry, loses them for these two passes. They are not copied into the deny, because cargo ignores `[build]` whenever any target entry matches, and a copy would add flags wherever one does.
