@@ -51,8 +51,8 @@ on:
         description: "Restrict to one language (go, python, rust, typescript)."
       timeout-minutes:
         type: string
-        default: "60"
-        description: "How long to wait for the fixture runs."
+        default: "50"
+        description: "How long to wait for the fixture runs. Keep it under 60: the App token the sweep reads runs with expires then."
 
 concurrency:
   group: fleet-sweep
@@ -88,20 +88,6 @@ jobs:
         id: fleet
         run: uv run --no-sources python scripts/fixture_fleet.py >> "$GITHUB_OUTPUT"
 
-      - name: Mint a fleet dispatch token
-        # GITHUB_TOKEN is scoped to this repo, so it can neither start a run on
-        # a fixture nor read one. No fallback to it either: a repo-scoped token
-        # would sweep nothing and the sweep hard-fails on nothing having run.
-        id: bot
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ steps.fleet.outputs.repos }}
-          permission-actions: write
-          permission-contents: read
-
       - name: Mint a runner-image canary read token
         # The sweep waits for hyperi-infra's arc-runner-images canary, whose
         # fixture runs it would otherwise cancel. A failed mint leaves the token
@@ -116,18 +102,46 @@ jobs:
           repositories: hyperi-infra
           permission-actions: read
 
-      - name: Run the fleet against main
+      - name: Wait for the runner-image canary
+        # Before the dispatch token is minted: an App token lives 60 minutes, and
+        # a canary wait inside its life left the sweep unable to read its runs.
         env:
-          GH_TOKEN: ${{ steps.bot.outputs.token }}
           CANARY_GH_TOKEN: ${{ steps.canary.outputs.token }}
           ONLY: ${{ inputs.only }}
           LANGUAGE: ${{ inputs.language }}
-          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '60' }}
         run: |
           uv run --no-sources python scripts/sweep-fleet.py \
             --only "$ONLY" \
             --language "$LANGUAGE" \
-            --timeout-minutes "$TIMEOUT_MINUTES"
+            --canary-only
+
+      - name: Mint a fleet dispatch token
+        # GITHUB_TOKEN is scoped to this repo, so it can neither start a run on
+        # a fixture nor read one. No fallback to it either: a repo-scoped token
+        # would sweep nothing and the sweep hard-fails on nothing having run.
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.fleet.outputs.repos }}
+          permission-actions: write
+          permission-contents: read
+
+      - name: Run the fleet against main
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          ONLY: ${{ inputs.only }}
+          LANGUAGE: ${{ inputs.language }}
+          # Under the dispatch token's 60-minute life.
+          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '50' }}
+        run: |
+          uv run --no-sources python scripts/sweep-fleet.py \
+            --only "$ONLY" \
+            --language "$LANGUAGE" \
+            --timeout-minutes "$TIMEOUT_MINUTES" \
+            --skip-canary
 
   # ---------------------------------------------------------------------------
   # negative-cases - the half the sweep above cannot prove.
