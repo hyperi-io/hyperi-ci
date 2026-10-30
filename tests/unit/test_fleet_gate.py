@@ -429,6 +429,27 @@ class TestPollingOneFixtureRun:
         # A green run needs no job read, so none can disagree with it.
         assert job_reads == []
 
+    @pytest.mark.parametrize(
+        ("states", "verdict"),
+        [
+            pytest.param([None, ("completed", "success")], sweep.PASS, id="one-miss"),
+            pytest.param(
+                [None, None, ("completed", "success")], sweep.PASS, id="two-misses"
+            ),
+            pytest.param(
+                [None, ("in_progress", ""), None, None, ("completed", "success")],
+                sweep.PASS,
+                id="a-good-read-resets-the-count",
+            ),
+            pytest.param([None, None, None], sweep.UNREACHABLE, id="three-in-a-row"),
+        ],
+    )
+    def test_a_failed_read_is_retried_before_the_run_is_unreachable(
+        self, monkeypatch, states: list, verdict: str
+    ) -> None:
+        results, _ = self._sweep(monkeypatch, states, [])
+        assert [r.state for r in results] == [verdict]
+
     def test_completed_with_no_conclusion_is_still_going(self, monkeypatch) -> None:
         results, _ = self._sweep(
             monkeypatch,
@@ -684,6 +705,36 @@ class TestTheSweepWaitsForTheImageCanary:
         assert args[args.index("-R") + 1] == "hyperi-io/hyperi-infra"
         assert args[args.index("--workflow") + 1] == "arc-runner-images.yml"
         assert str(_CANARY_RUN) in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        ("extra", "answers", "code", "canary_reads", "swept"),
+        [
+            # The wait runs in its own step, so the dispatch token is minted after it.
+            pytest.param(
+                ("--canary-only",), ["completed"], 0, 1, False, id="wait-only"
+            ),
+            pytest.param(
+                ("--canary-only",), ["in_progress"], 2, None, False, id="wait-only-held"
+            ),
+            pytest.param(
+                ("--skip-canary",), ["in_progress"], 0, 0, True, id="dispatch-only"
+            ),
+        ],
+    )
+    def test_the_canary_wait_splits_from_the_dispatch(
+        self,
+        monkeypatch,
+        extra: tuple[str, ...],
+        answers: list,
+        code: int,
+        canary_reads: int | None,
+        swept: bool,
+    ) -> None:
+        got, swept_at, calls = self._main(monkeypatch, answers, *extra)
+        assert got == code
+        assert (swept_at is not None) is swept
+        if canary_reads is not None:
+            assert len(calls) == canary_reads
 
     def test_a_canary_outlasting_the_wait_fails_with_nothing_dispatched(
         self, monkeypatch, capsys

@@ -76,6 +76,8 @@ INCONCLUSIVE = (UNREACHABLE, PENDING_RELEASE, HELD)
 
 _WORKFLOW = "ci.yml"
 _POLL_SECONDS = 20
+# Failed reads of one run, back to back, before it counts as unreachable.
+_READ_ATTEMPTS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +381,8 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
     # Not yet dispatched -> the branches holding it, "" until its first read.
     waiting: dict[str, str] = {entry["name"]: "" for entry in targets}
     pending: dict[str, int] = {}
+    # Consecutive failed reads per pending run, so one gh error is not a verdict.
+    misses: dict[str, int] = {}
     results: list[Result] = []
 
     while True:
@@ -409,9 +413,18 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
             repo = f"{fixture_fleet.ORG}/{name}"
             state = _run_state(repo, run_id)
             if state is None:
-                results.append(Result(name, UNREACHABLE, f"cannot read run {run_id}"))
-                del pending[name]
+                misses[name] = misses.get(name, 0) + 1
+                if misses[name] >= _READ_ATTEMPTS:
+                    results.append(
+                        Result(
+                            name,
+                            UNREACHABLE,
+                            f"cannot read run {run_id} ({misses[name]} reads in a row)",
+                        )
+                    )
+                    del pending[name]
                 continue
+            misses.pop(name, None)
             status, conclusion = state
             # Finished means a conclusion to read, not only a completed status.
             if status != "completed" or not conclusion:
@@ -446,12 +459,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Full-fleet E2E sweep")
     parser.add_argument("--only", default="", help="comma-separated fixture names")
     parser.add_argument("--language", default="", help="restrict to one language")
-    parser.add_argument("--timeout-minutes", type=int, default=60)
+    # Under the 60-minute life of the GitHub App token the sweep reads runs with.
+    parser.add_argument("--timeout-minutes", type=int, default=50)
     parser.add_argument(
         "--canary-timeout-minutes",
         type=int,
         default=90,
         help="how long to wait for a running runner-image canary before failing",
+    )
+    parser.add_argument(
+        "--canary-only",
+        action="store_true",
+        help="wait for the runner-image canary, then exit without dispatching",
+    )
+    parser.add_argument(
+        "--skip-canary",
+        action="store_true",
+        help="dispatch without waiting, after a --canary-only step has waited",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="name the targets, dispatch nothing"
@@ -485,17 +509,22 @@ def main() -> int:
         print("--dry-run: nothing dispatched")
         return 0 if names else 2
 
-    canary = wait_for_image_canary(
-        args.canary_timeout_minutes, os.environ.get(CANARY_TOKEN_ENV) or None
-    )
-    if canary == CANARY_RUNNING:
-        repo, workflow = rehearse_branch.IMAGE_CANARY
-        print(
-            f"::error::SWEEP NOT RUN: {workflow} on {repo} was still running after "
-            f"{args.canary_timeout_minutes} min, and dispatching would cancel it. "
-            "Nothing was dispatched - re-run the sweep once the canary finishes."
+    if not args.skip_canary:
+        canary = wait_for_image_canary(
+            args.canary_timeout_minutes, os.environ.get(CANARY_TOKEN_ENV) or None
         )
-        return 2
+        if canary == CANARY_RUNNING:
+            repo, workflow = rehearse_branch.IMAGE_CANARY
+            print(
+                f"::error::SWEEP NOT RUN: {workflow} on {repo} was still running "
+                f"after {args.canary_timeout_minutes} min, and dispatching would "
+                "cancel it. Nothing was dispatched - re-run the sweep once the "
+                "canary finishes."
+            )
+            return 2
+    if args.canary_only:
+        print("Runner-image canary clear: the sweep may dispatch.")
+        return 0
 
     results = _sweep(targets, args.timeout_minutes)
     code, lines = sweep_verdict(names, results)
