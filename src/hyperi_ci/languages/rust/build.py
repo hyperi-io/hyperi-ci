@@ -43,6 +43,7 @@ from hyperi_ci.languages._build_common import (
 from hyperi_ci.languages._build_common import (
     human_size as _human_size,
 )
+from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -593,7 +594,9 @@ def _build_for_target(
 
     env = dict(extra_env or {})
     info(f"  Building for {target}...")
-    return run_cmd(cmd, check=False, env=env).returncode
+    rc = run_cmd(cmd, check=False, env=env).returncode
+    log_peak_memory("release build")
+    return rc
 
 
 def _host_targets(targets: list[str], native: str) -> list[str] | None:

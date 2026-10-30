@@ -24,7 +24,15 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
-from hyperi_ci.memory import GIB, MemoryLimit, memory_limit
+from hyperi_ci.memory import (
+    CGROUP_ROOT,
+    GIB,
+    PROC_SELF_CGROUP,
+    MemoryLimit,
+    cgroup_v2_peak,
+    cgroup_v2_peak_file,
+    memory_limit,
+)
 
 JOBS_ENV = "CARGO_BUILD_JOBS"
 
@@ -191,3 +199,24 @@ def capped_cargo_jobs(
     finally:
         for key in updates:
             target.pop(key, None)
+
+
+def log_peak_memory(
+    phase: str,
+    *,
+    root: Path = CGROUP_ROOT,
+    proc_self_cgroup: Path = PROC_SELF_CGROUP,
+) -> None:
+    """Log the job's peak memory so far, or nothing where the host reports none.
+
+    Args:
+        phase: The build phase that just finished.
+        root: The unified cgroup hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    """
+    peak = cgroup_v2_peak(root, proc_self_cgroup)
+    if peak is None:
+        return
+    source = cgroup_v2_peak_file(root, proc_self_cgroup)
+    info(f"memory peak after {phase}: {peak / GIB:.1f} GiB (cgroup v2 {source})")

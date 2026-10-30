@@ -197,6 +197,45 @@ def cgroup_v2_headroom(
     return min(found, key=lambda m: m.limit_bytes) if found else None
 
 
+def cgroup_v2_peak_file(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> Path:
+    """Return the ``memory.peak`` file of this process's cgroup v2 level.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The path, which may not exist.
+
+    """
+    relative = own_cgroup_path(proc_self_cgroup).strip("/")
+    directory = root / relative if relative else root
+    return directory / "memory.peak"
+
+
+def cgroup_v2_peak(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> int | None:
+    """Return the highest memory this process's cgroup has held, in bytes.
+
+    The figure covers the whole cgroup since it started, so a call mid-job
+    reads as "peak so far" and never goes down.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The peak, or None where the file is missing, unreadable or not a number,
+        as on macOS, cgroup v1 and kernels before 5.19.
+
+    """
+    raw = _read_text(cgroup_v2_peak_file(root, proc_self_cgroup))
+    return int(raw) if raw and raw.isdigit() else None
+
+
 def available_memory(
     *,
     cgroup_root: Path = CGROUP_ROOT,
