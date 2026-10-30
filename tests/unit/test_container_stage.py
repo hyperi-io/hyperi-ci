@@ -5,13 +5,17 @@
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import json
+import re
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.container import stage as stage_module
+from hyperi_ci.container.build import PublishedImage
 from hyperi_ci.container.detect import Decision
 from hyperi_ci.container.stage import (
     _read_version,
@@ -584,3 +588,395 @@ def test_run_legacy_target_both_routes_to_ghcr_only(
     tags = fake_build.call_args.kwargs["tags"]
     assert tags
     assert all(t.startswith("ghcr.io/hyperi-io/") for t in tags)
+
+
+# --- HYPERCI_CONTAINER_MODE: plan, leg, merge ---------------------------------
+
+_REV = "feedfacecafebeef0123456789abcdef01234567"
+_AMD = "sha256:" + "a" * 64
+_ARM = "sha256:" + "b" * 64
+_INDEX = "sha256:" + "c" * 64
+_CREATED = "2026-10-31T01:02:03Z"
+_BOTH = ["linux/amd64", "linux/arm64"]
+_MODE_ENV = (
+    "HYPERCI_CONTAINER_MODE",
+    "HYPERCI_CONTAINER_PLATFORM",
+    "HYPERCI_CONTAINER_CREATED",
+    "HYPERCI_CONTAINER_DIGEST_DIR",
+    "HYPERCI_CONTAINER_PLATFORMS",
+    "HYPERCI_CONTAINER_REUSE",
+    "HYPERCI_CONTAINER_RESOLVE_ONLY",
+)
+
+
+class _Seams:
+    """Records what a mode asked docker and the registry to do."""
+
+    def __init__(self) -> None:
+        self.builds: list[dict] = []
+        self.writes: list[list[str]] = []
+        self.outputs: dict[str, str] = {}
+        self.published: dict[str, PublishedImage | None] = {}
+        self.leg_digest: str | None = None
+
+
+@pytest.fixture
+def seams(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Seams:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "thing"\ndescription = "Ships the thing"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
+    monkeypatch.setenv("GITHUB_SHA", _REV)
+    for name in _MODE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    seen = _Seams()
+
+    def build_and_push(**kwargs) -> int:
+        seen.builds.append(kwargs)
+        if seen.leg_digest and kwargs["metadata_file"] is not None:
+            kwargs["metadata_file"].write_text(
+                json.dumps({"containerimage.digest": seen.leg_digest}),
+                encoding="utf-8",
+            )
+        return 0
+
+    def registry_write(cmd: list[str], **_kwargs) -> subprocess.CompletedProcess:
+        seen.writes.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(stage_module, "build_and_push", build_and_push)
+    monkeypatch.setattr(stage_module, "run_cmd", registry_write)
+    monkeypatch.setattr(stage_module, "set_github_output", seen.outputs.update)
+    monkeypatch.setattr(stage_module, "published_image", seen.published.get)
+    return seen
+
+
+def _repo() -> str:
+    return f"ghcr.io/hyperi-io/{Path.cwd().name}"
+
+
+def _mode(push_mode: str, mode: str | None, **raw) -> int:
+    return stage_module._dispatch_build(
+        dockerfile_path=Path("Dockerfile"),
+        config=CIConfig(_raw={"release": {"container": raw}} if raw else {}),
+        org=OrgConfig(),
+        registry_bases=["ghcr.io/hyperi-io"],
+        push_mode=push_mode,
+        binary_backed=False,
+        mode=mode,
+    )
+
+
+def _flag_values(cmd: list[str], flag: str) -> list[str]:
+    return [cmd[i + 1] for i, arg in enumerate(cmd) if arg == flag]
+
+
+class TestModeSelection:
+    def test_an_unknown_mode_fails_naming_the_valid_ones(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        errors: list[str] = []
+        monkeypatch.setattr(stage_module, "error", errors.append)
+        monkeypatch.setenv("HYPERCI_CONTAINER_MODE", "split")
+        assert run(_ci_config(container={"enabled": True}), language="python") == 1
+        assert seams.builds == []
+        assert "plan, leg, merge" in errors[0]
+
+    @pytest.mark.parametrize("resolve_only", [True, False])
+    def test_plan_writes_every_output_with_or_without_resolve_only(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, resolve_only: bool
+    ) -> None:
+        """The workflow sets both, so an older CLI only resolves."""
+        monkeypatch.setenv("HYPERCI_CONTAINER_MODE", "plan")
+        monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
+        if resolve_only:
+            monkeypatch.setenv("HYPERCI_CONTAINER_RESOLVE_ONLY", "1")
+        assert run(_ci_config(container={"enabled": True}), language="python") == 0
+        assert seams.builds == []
+        assert seams.outputs["build"] == "true"
+        assert json.loads(seams.outputs["platforms"]) == _BOTH
+        assert set(seams.outputs) == {"build", "platforms", "push", "reuse", "created"}
+
+    def test_plan_for_a_library_builds_nothing_and_plans_nothing(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_CONTAINER_MODE", "plan")
+        assert run(_ci_config(container={"enabled": False}), language="rust") == 0
+        assert seams.outputs == {
+            "build": "false",
+            "platforms": "[]",
+            "push": "false",
+            "reuse": "false",
+            "created": "",
+        }
+
+
+class TestPlanMode:
+    @pytest.mark.parametrize(
+        ("push_mode", "platforms", "push"),
+        [
+            pytest.param("release", _BOTH, "true", id="release-every-platform"),
+            pytest.param("dev", ["linux/amd64"], "true", id="dev-one-arch"),
+            pytest.param("validate", ["linux/amd64"], "false", id="validate-no-push"),
+        ],
+    )
+    def test_plan_takes_the_platforms_a_single_build_would(
+        self, seams: _Seams, push_mode: str, platforms: list[str], push: str
+    ) -> None:
+        assert _mode(push_mode, "plan") == 0
+        assert seams.builds == []
+        assert seams.writes == []
+        assert json.loads(seams.outputs["platforms"]) == platforms
+        assert seams.outputs["push"] == push
+        assert seams.outputs["reuse"] == "false"
+        assert re.fullmatch(
+            r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", seams.outputs["created"]
+        )
+
+    @pytest.mark.parametrize(
+        ("revision", "arches", "reuse"),
+        [
+            pytest.param(_REV, frozenset(_BOTH), "true", id="this-commit-everywhere"),
+            pytest.param("0" * 40, frozenset(_BOTH), "false", id="another-commit"),
+            pytest.param(_REV, frozenset({"linux/amd64"}), "false", id="missing-arm"),
+        ],
+    )
+    def test_plan_reports_reuse_without_writing_the_registry(
+        self, seams: _Seams, revision: str, arches: frozenset[str], reuse: str
+    ) -> None:
+        seams.published[f"{_repo()}:v1.2.3"] = PublishedImage(_INDEX, revision, arches)
+        assert _mode("release", "plan") == 0
+        assert seams.outputs["reuse"] == reuse
+        assert seams.writes == []
+
+
+class TestLegMode:
+    @pytest.mark.parametrize(
+        ("platform", "created", "digest_dir"),
+        [
+            pytest.param("", _CREATED, True, id="no-platform"),
+            pytest.param("linux/arm64", "", True, id="no-created"),
+            pytest.param("linux/arm64", _CREATED, False, id="push-without-dir"),
+        ],
+    )
+    def test_a_missing_input_fails_before_any_build(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        platform: str,
+        created: str,
+        digest_dir: bool,
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", platform)
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", created)
+        if digest_dir:
+            monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(tmp_path / "d"))
+        assert _mode("release", "leg") == 1
+        assert seams.builds == []
+
+    def test_a_push_leg_pushes_one_platform_by_digest(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        digests = tmp_path / "digests"
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", "linux/arm64")
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+        monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(digests))
+        seams.leg_digest = _ARM
+
+        assert _mode("release", "leg") == 0
+        (built,) = seams.builds
+        assert built["platforms"] == ["linux/arm64"]
+        assert built["tags"] == []
+        assert built["push"] is False
+        assert built["output"] == (
+            f"type=image,name={_repo()},push-by-digest=true,"
+            "name-canonical=true,push=true"
+        )
+        assert built["labels"]["org.opencontainers.image.created"] == _CREATED
+        assert (digests / "arm64").read_text(encoding="utf-8") == f"{_ARM}\n"
+        assert seams.outputs == {}
+
+    def test_a_push_leg_with_no_digest_fails(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        digests = tmp_path / "digests"
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", "linux/amd64")
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+        monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(digests))
+        assert _mode("dev", "leg") == 1
+        assert not digests.exists()
+
+    def test_a_validate_leg_builds_without_pushing_or_recording(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", "linux/arm64")
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+        assert _mode("validate", "leg") == 0
+        (built,) = seams.builds
+        assert built["push"] is False
+        assert built["output"] is None
+        assert built["metadata_file"] is None
+
+
+class TestMergeMode:
+    @staticmethod
+    def _digests(tmp_path: Path, **files: str) -> Path:
+        digests = tmp_path / "digests"
+        digests.mkdir()
+        for name, digest in files.items():
+            (digests / name).write_text(f"{digest}\n", encoding="utf-8")
+        return digests
+
+    @staticmethod
+    def _env(monkeypatch: pytest.MonkeyPatch, digests: Path, platforms: list[str]):
+        monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(digests))
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORMS", json.dumps(platforms))
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+
+    def test_two_legs_become_one_annotated_index(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path, amd64=_AMD, arm64=_ARM), _BOTH)
+        seams.published[f"{_repo()}:v1.2.3"] = PublishedImage(
+            _INDEX, _REV, frozenset(_BOTH)
+        )
+        assert _mode("release", "merge") == 0
+        assert seams.builds == []
+        (cmd,) = seams.writes
+        assert cmd[:4] == ["docker", "buildx", "imagetools", "create"]
+        assert cmd[-2:] == [f"{_repo()}@{_AMD}", f"{_repo()}@{_ARM}"]
+        tags = _flag_values(cmd, "--tag")
+        assert tags[0] == f"{_repo()}:v1.2.3"
+        assert f"{_repo()}:sha-{_REV[:8]}" in tags
+        annotations = _flag_values(cmd, "--annotation")
+        assert f"index:org.opencontainers.image.revision={_REV}" in annotations
+        assert f"index:org.opencontainers.image.created={_CREATED}" in annotations
+        assert seams.outputs == {
+            "digest": _INDEX,
+            "image": f"{_repo()}:v1.2.3@{_INDEX}",
+        }
+
+    def test_one_leg_is_tagged_with_no_annotations(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path, amd64=_AMD), ["linux/amd64"])
+        seams.published[f"{_repo()}:branch-x"] = PublishedImage(
+            _AMD, _REV, frozenset({"linux/amd64"})
+        )
+        monkeypatch.setattr(stage_module, "dev_branch_slug", lambda: "x")
+        assert _mode("dev", "merge") == 0
+        (cmd,) = seams.writes
+        assert _flag_values(cmd, "--annotation") == []
+        assert _flag_values(cmd, "--tag") == [
+            f"{_repo()}:branch-x",
+            f"{_repo()}:branch-x-sha-{_REV[:8]}",
+        ]
+        assert cmd[-1] == f"{_repo()}@{_AMD}"
+
+    @pytest.mark.parametrize(
+        ("files", "named"),
+        [
+            pytest.param({"amd64": _AMD}, "missing: arm64, extra: none", id="missing"),
+            pytest.param(
+                {"amd64": _AMD, "arm64": _ARM, "s390x": _AMD},
+                "missing: none, extra: s390x",
+                id="extra",
+            ),
+            pytest.param({"amd64": _AMD, "arm64": "latest"}, "no sha256", id="bad"),
+        ],
+    )
+    def test_digests_that_do_not_match_the_plan_fail_closed(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        files: dict[str, str],
+        named: str,
+    ) -> None:
+        errors: list[str] = []
+        monkeypatch.setattr(stage_module, "error", errors.append)
+        self._env(monkeypatch, self._digests(tmp_path, **files), _BOTH)
+        assert _mode("release", "merge") == 1
+        assert seams.writes == []
+        assert named in errors[-1]
+
+    def test_reuse_repoints_the_published_image_and_reads_no_digest(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path), _BOTH)
+        monkeypatch.setenv("HYPERCI_CONTAINER_REUSE", "true")
+        seams.published[f"{_repo()}:v1.2.3"] = PublishedImage(
+            _INDEX, _REV, frozenset(_BOTH)
+        )
+        assert _mode("release", "merge") == 0
+        (cmd,) = seams.writes
+        assert cmd[-1] == f"{_repo()}@{_INDEX}"
+        assert f"{_repo()}:v1.2.3" not in _flag_values(cmd, "--tag")
+        assert seams.outputs["image"] == f"{_repo()}:v1.2.3@{_INDEX}"
+
+    def test_reuse_with_the_image_gone_fails(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path), _BOTH)
+        monkeypatch.setenv("HYPERCI_CONTAINER_REUSE", "true")
+        assert _mode("release", "merge") == 1
+        assert seams.writes == []
+
+    @pytest.mark.parametrize(
+        "readback",
+        [
+            pytest.param(None, id="unreadable"),
+            pytest.param(PublishedImage(_INDEX, None, frozenset(_BOTH)), id="no-rev"),
+            pytest.param(
+                PublishedImage(_INDEX, _REV, frozenset({"linux/amd64"})), id="one-arch"
+            ),
+        ],
+    )
+    def test_an_index_that_reads_back_wrong_fails(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        readback: PublishedImage | None,
+    ) -> None:
+        """Reuse needs the revision on the index, or every re-run rebuilds."""
+        self._env(monkeypatch, self._digests(tmp_path, amd64=_AMD, arm64=_ARM), _BOTH)
+        seams.published[f"{_repo()}:v1.2.3"] = readback
+        assert _mode("release", "merge") == 1
+        assert seams.outputs == {}
+
+    @pytest.mark.parametrize(
+        ("platforms", "with_dir"),
+        [
+            pytest.param(None, True, id="no-platforms"),
+            pytest.param("[]", True, id="empty"),
+            pytest.param("linux/amd64", True, id="not-json"),
+            pytest.param('["linux/amd64","linux/amd64"]', True, id="duplicate"),
+            pytest.param(json.dumps(_BOTH), False, id="no-dir"),
+        ],
+    )
+    def test_bad_merge_inputs_fail_before_the_registry(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        platforms: str | None,
+        with_dir: bool,
+    ) -> None:
+        if with_dir:
+            monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(tmp_path))
+        if platforms is not None:
+            monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORMS", platforms)
+        assert _mode("release", "merge") == 1
+        assert seams.writes == []
+
+    def test_merge_refuses_validate_mode(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path, amd64=_AMD), ["linux/amd64"])
+        assert _mode("validate", "merge") == 1
+        assert seams.writes == []

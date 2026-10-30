@@ -34,6 +34,18 @@ def test_build_oci_labels_basic() -> None:
     assert len(labels["org.opencontainers.image.created"]) == 20
 
 
+def test_a_given_created_is_stamped_as_is() -> None:
+    """Every per-arch build of one image carries the plan's one timestamp."""
+    labels = build_oci_labels(
+        repo="hyperi-io/my-app",
+        revision="abc1234",
+        version="1.2.3",
+        title="My App",
+        created="2026-10-31T01:02:03Z",
+    )
+    assert labels["org.opencontainers.image.created"] == "2026-10-31T01:02:03Z"
+
+
 def test_build_oci_labels_with_extras() -> None:
     extra = {"com.example.team": "platform", "com.example.env": "prod"}
     labels = build_oci_labels(

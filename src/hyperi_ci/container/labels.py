@@ -11,6 +11,11 @@ from datetime import UTC, datetime
 _OCI_KEY_PREFIX = "org.opencontainers.image."
 
 
+def oci_created() -> str:
+    """Return the current UTC time in the ``org.opencontainers.image.created`` form."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def build_oci_labels(
     *,
     repo: str,
@@ -21,6 +26,7 @@ def build_oci_labels(
     licenses: str = "BUSL-1.1",
     optimized: bool = True,
     extra_labels: dict[str, str] | None = None,
+    created: str | None = None,
 ) -> dict[str, str]:
     """Build a dict of OCI-standard image labels.
 
@@ -36,12 +42,16 @@ def build_oci_labels(
                    deploy-and-test loop can be told apart from a full release
                    without benchmarking it.
         extra_labels: Additional labels merged into the result.
+        created: The ``org.opencontainers.image.created`` value. None stamps
+                 the current time. Per-arch builds of one image pass the
+                 same value so every image carries one timestamp.
 
     Returns:
         Mapping of label keys to values.
 
     """
-    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if created is None:
+        created = oci_created()
 
     labels: dict[str, str] = {
         "org.opencontainers.image.source": f"https://github.com/{repo}",
