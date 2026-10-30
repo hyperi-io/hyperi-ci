@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for :mod:`hyperi_ci.pytest_plugin`."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +60,70 @@ def test_pytest_starts_with_the_plugin_loaded(tmp_path: Path, xdist: str) -> Non
         errors="replace",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+_PROBE = """
+import os
+import types
+
+
+def pytest_configure(config):
+    pm = config.pluginmanager
+    if os.environ.get("PROBE_XDIST_LAST"):
+        # A stand-in for xdist's own plain impl, registered after ours: pluggy
+        # calls it first unless ours is tryfirst.
+        late = types.ModuleType("xdist.plugin")
+        late.pytest_xdist_auto_num_workers = lambda config: 99
+        pm.register(late, "late-xdist")
+    from hyperi_ci.pytest_plugin import auto_workers
+
+    answer = pm.hook.pytest_xdist_auto_num_workers(config=config)
+    print("ANSWER", answer, "PLUGIN", auto_workers(config.rootpath))
+"""
+
+_PROJECT_IMPL = """
+
+def pytest_xdist_auto_num_workers(config):
+    return 7
+"""
+
+
+@pytest.mark.parametrize(
+    ("xdist_last", "project_impl", "answer"),
+    [
+        # None: the plugin's own count, read in the same process.
+        pytest.param(False, False, None, id="plugin-answers"),
+        pytest.param(True, False, None, id="plugin-answers-when-xdist-loads-last"),
+        # xdist is an entry point, so it always registers before any conftest.
+        pytest.param(False, True, "7", id="project-conftest-wins"),
+    ],
+)
+def test_the_plugin_answers_whatever_the_load_order(
+    tmp_path: Path, xdist_last: bool, project_impl: bool, answer: str | None
+) -> None:
+    conftest = _PROBE + (_PROJECT_IMPL if project_impl else "")
+    (tmp_path / "conftest.py").write_text(conftest, encoding="utf-8", newline="\n")
+    (tmp_path / "test_ok.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8", newline="\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "PROBE_XDIST_LAST"}
+    if xdist_last:
+        env["PROBE_XDIST_LAST"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-s", "-p", "no:cacheprovider"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    line = next(ln for ln in result.stdout.splitlines() if ln.startswith("ANSWER"))
+    _, got, _, plugin = line.split()
+    # 99 is the stand-in for xdist's own answer.
+    assert got != "99", line
+    assert got == (answer or plugin), line
 
 
 def test_importing_the_plugin_loads_no_scalo() -> None:
