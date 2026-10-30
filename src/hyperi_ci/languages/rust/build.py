@@ -50,6 +50,7 @@ from hyperi_ci.languages.rust.optimize import (
     log_outcome,
     log_profile,
     parse_cargo_features,
+    pgo_driver_on_clock,
     resolve_optimization_profile,
     tier2_shortfall,
     unoptimized_release_refusal,
@@ -719,6 +720,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         base_profile = resolve_optimization_profile(
             channel, user_optimize, skip_optimize=skip, project_root=project_root
         )
+        on_clock = pgo_driver_on_clock(user_optimize, project_root)
+        if on_clock:
+            announce(on_clock, "hyperi-ci PGO workload compiles on the clock")
         cargo_features = _detect_cargo_features()
 
     tier2 = bool(

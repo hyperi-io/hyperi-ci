@@ -16,6 +16,8 @@ BOLT without spending a stable version (issue #144). `build.rust.optimize`
 overrides the channel defaults key by key. Library-only crates skip this path.
 """
 
+import re
+import shlex
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -283,6 +285,54 @@ def unoptimized_release_refusal(
         "(HYPERCI_RELEASE_UNOPTIMIZED=true) to ship it anyway, or drop "
         "skip-optimize for a fully optimised release."
     )
+
+
+PGO_SETUP_KEY = "build.rust.optimize.pgo.workload_setup_cmd"
+
+_DRIVER_BUILD = re.compile(r"\bcargo\s+(?:\+\S+\s+)?(?:build|run)\b")
+
+
+def pgo_driver_on_clock(
+    user_optimize: dict[str, Any] | None, project_root: Path
+) -> str | None:
+    """Say why the PGO workload compiles its own driver on the workload clock.
+
+    The workload runs under a `duration_secs + 600` timeout, so a `cargo build`
+    inside it spends that budget compiling, and a slow host overruns it.
+    Resolved at the release tier so every build of the project warns, not
+    only the release that times out.
+
+    Args:
+        user_optimize: `build.rust.optimize` from .hyperi-ci.yaml, or None.
+        project_root: Project root the workload command's script resolves from.
+
+    Returns:
+        The warning, or None when nothing compiles on the clock.
+
+    """
+    profile = resolve_optimization_profile(
+        "release", user_optimize, project_root=project_root
+    )
+    if not profile.pgo_enabled or profile.pgo_workload_setup_cmd:
+        return None
+    try:
+        tokens = shlex.split(profile.pgo_workload_cmd or "")
+    except ValueError:
+        return None
+    for token in tokens:
+        script = project_root / token
+        if not script.is_file():
+            continue
+        text = script.read_text(encoding="utf-8", errors="replace")
+        code = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+        if _DRIVER_BUILD.search("\n".join(code)):
+            return (
+                f"{token} runs a cargo build inside the timed PGO workload, so "
+                "the compile spends the workload timeout and a slow host can "
+                f"fail the release. Move that build into {PGO_SETUP_KEY}, which "
+                "runs before the clock starts."
+            )
+    return None
 
 
 def validate_profile(

@@ -481,6 +481,67 @@ class TestConventionalWorkloadDefault:
         assert profile.pgo_enabled is False
 
 
+_DRIVER_SCRIPT = "#!/usr/bin/env bash\ncargo build --release -p pgo-driver\n"
+
+
+@pytest.mark.parametrize(
+    ("script", "user_optimize", "warns"),
+    [
+        pytest.param(_DRIVER_SCRIPT, None, True, id="conventional_script_builds"),
+        pytest.param(
+            "#!/usr/bin/env bash\ncargo +nightly run -p driver\n",
+            None,
+            True,
+            id="toolchain_override_run",
+        ),
+        pytest.param(
+            _DRIVER_SCRIPT,
+            {"pgo": {"workload_setup_cmd": "cargo build -p pgo-driver"}},
+            False,
+            id="setup_cmd_moves_it_off_clock",
+        ),
+        pytest.param(
+            '#!/usr/bin/env bash\n./target/release/pgo-driver "$1"\n',
+            None,
+            False,
+            id="prebuilt_driver",
+        ),
+        pytest.param(
+            "#!/usr/bin/env bash\n# cargo build -p pgo-driver\n",
+            None,
+            False,
+            id="commented_out_build",
+        ),
+        pytest.param(_DRIVER_SCRIPT, {"pgo": {"enabled": False}}, False, id="pgo_off"),
+        pytest.param(None, None, False, id="no_workload"),
+        pytest.param(
+            _DRIVER_SCRIPT,
+            {"pgo": {"workload_cmd": "bash 'scripts/pgo-workload.sh"}},
+            False,
+            id="unbalanced_quote",
+        ),
+        pytest.param(
+            _DRIVER_SCRIPT,
+            {"pgo": {"workload_cmd": "scripts/missing.sh"}},
+            False,
+            id="named_script_absent",
+        ),
+    ],
+)
+def test_pgo_driver_on_clock(
+    tmp_path: Path, script: str | None, user_optimize: dict | None, warns: bool
+) -> None:
+    if script is not None:
+        path = tmp_path / optimize.CONVENTIONAL_WORKLOAD_SCRIPT
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(script, encoding="utf-8", newline="\n")
+    msg = optimize.pgo_driver_on_clock(user_optimize, tmp_path)
+    assert (msg is not None) is warns
+    if msg is not None:
+        assert optimize.PGO_SETUP_KEY in msg
+        assert optimize.CONVENTIONAL_WORKLOAD_SCRIPT in msg
+
+
 class TestRefusalSeesTheDefault:
     """issue #143 + #158: a defaulted project must not lose its consent gate."""
 
