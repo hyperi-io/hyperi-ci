@@ -538,7 +538,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/container-native-legs-nested
     with:
       language: typescript
       runner-mode: ${{ inputs.runner-mode }}
