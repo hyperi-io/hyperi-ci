@@ -39,8 +39,27 @@ def auto_workers(project_dir: Path) -> int:
     return worker_budget(mb).workers
 
 
+def _another_answer(config: pytest.Config) -> bool:
+    """Return True when an impl other than this one and xdist's own is registered."""
+    hook = config.pluginmanager.hook.pytest_xdist_auto_num_workers
+    return any(
+        impl.function is not pytest_xdist_auto_num_workers
+        and getattr(impl.plugin, "__name__", "") != "xdist.plugin"
+        for impl in hook.get_hookimpls()
+    )
+
+
 # Optional: without pytest-xdist the hook has no spec, and pytest refuses it.
-@pytest.hookimpl(optionalhook=True)
-def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
-    """Answer xdist's ``-n auto`` with the CPU and memory bounded count."""
+# tryfirst: the hook is firstresult, and entry-point load order alone decided
+# whether xdist's raw CPU count answered before this.
+@pytest.hookimpl(optionalhook=True, tryfirst=True)
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
+    """Answer xdist's ``-n auto`` with the CPU and memory bounded count.
+
+    Returns:
+        The count, or None to let a project's own impl answer instead.
+
+    """
+    if _another_answer(config):
+        return None
     return auto_workers(Path(config.rootpath))
