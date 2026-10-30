@@ -425,7 +425,8 @@ class TestContainerRunsNoRepoCode:
 
     @pytest.fixture
     def steps(self) -> list[dict[str, Any]]:
-        return _jobs()["container"]["steps"]
+        # The per-arch leg builds the repo's Dockerfile with packages:write.
+        return _jobs()["container-build"]["steps"]
 
     @staticmethod
     def _index(steps: list[dict[str, Any]], prefix: str) -> list[int]:
@@ -509,11 +510,17 @@ class TestContainerRunsNoRepoCode:
             if "secrets.GITHUB_TOKEN" in yaml.safe_dump(s)
             or "github.token" in yaml.safe_dump(s)
         ]
-        # The branch guard reads one ref with it, after the GHCR login has
+        assert holders == ["Init submodules", "GHCR login"]
+
+    def test_the_merge_job_runs_no_repo_code(self) -> None:
+        """It holds packages:write and names the release, so it never builds."""
+        steps = _jobs()["container"]["steps"]
+        names = [s.get("name") for s in steps]
+        for absent in ("Init submodules", "Stamp predicted version", "Place dist/"):
+            assert absent not in names
+        # The branch guard reads one ref with the token, after the GHCR login has
         # already written the same token to the docker config on disk.
         guard = "Guard -- the branch has not moved past this release"
-        assert holders == ["Init submodules", "GHCR login", guard]
-        names = [s.get("name") for s in steps]
         assert names.index("GHCR login") < names.index(guard)
 
 
