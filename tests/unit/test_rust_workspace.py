@@ -417,6 +417,15 @@ class TestLintReadsTheManifest:
             "--cap-lints",
             "warn",
         ]
+        assert cmds["feature_matrix (tests)"] == [
+            "cargo",
+            "hack",
+            "--keep-going",
+            "--each-feature",
+            "check",
+            "--tests",
+            "--workspace",
+        ]
         assert cmds["cargo doc"][:3] == ["cargo", "doc", "--workspace"]
 
     def test_fmt_and_audit_are_already_workspace_wide(self, tools: _Tools) -> None:

@@ -88,6 +88,7 @@ _NOT_SECURITY = frozenset(
         "golangci_lint",
         "fmt",
         "clippy",
+        "feature_matrix_tests",
         "semver_checks",
     }
 )

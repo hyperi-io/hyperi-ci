@@ -311,6 +311,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
+    if not _run_feature_matrix_tests(config, workspace=workspace):
+        had_failure = True
+
     _run_rustdoc_hint(config, workspace=workspace)
 
     # Rustflags this repo declares but cannot ship (issue #178).
@@ -376,6 +379,114 @@ def _ensure_cargo_hack() -> bool:
     return True
 
 
+def _matrix_extra_args(config: CIConfig) -> list[str]:
+    """Return ``quality.rust.feature_matrix.extra_args`` as strings."""
+    extra = config.setting("quality.rust.feature_matrix.extra_args")
+    return [str(x) for x in extra] if isinstance(extra, list) else []
+
+
+def _matrix_scopes(
+    extra: Sequence[str], workspace: bool
+) -> list[tuple[list[str], list[str]]]:
+    """Return the ``(package scope, target)`` argument pairs the matrix runs.
+
+    A workspace mixing lib and bin-only members gets one ``-p`` scope per
+    member, each with its own ``--lib`` or ``--bins``.
+    """
+    lib_map = _package_lib_map()
+    if len(lib_map) > 1 and len(set(lib_map.values())) > 1:
+        return [
+            (["-p", name], ["--lib"] if has_lib else ["--bins"])
+            for name, has_lib in sorted(lib_map.items())
+        ]
+    widen = workspace and not _names_a_package_scope(list(extra))
+    return [
+        (
+            ["--workspace"] if widen else [],
+            ["--lib"] if _has_lib_target() else ["--bins"],
+        )
+    ]
+
+
+def _matrix_tuning(config: CIConfig, extra: Sequence[str]) -> list[str]:
+    """Return the cargo-hack flags from the matrix's exclude and mutex settings."""
+    tuning: list[str] = []
+
+    exclude = config.setting("quality.rust.feature_matrix.exclude")
+    if isinstance(exclude, list) and exclude:
+        tuning.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
+
+    mutex = config.setting("quality.rust.feature_matrix.mutually_exclusive")
+    if isinstance(mutex, list):
+        for pair in mutex:
+            if isinstance(pair, list) and len(pair) >= 2:
+                tuning.extend(
+                    [
+                        "--mutually-exclusive-features",
+                        ",".join(str(x) for x in pair),
+                    ]
+                )
+
+    tuning.extend(extra)
+    return tuning
+
+
+def _run_feature_matrix_tests(config: CIConfig, *, workspace: bool = False) -> bool:
+    """Compile every test target under each feature alone.
+
+    The main clippy pass builds tests with ``--all-features``, so a
+    ``#[cfg(test)]`` module that needs a feature but carries no
+    ``#[cfg(feature = ...)]`` gate compiles there and breaks every other
+    feature set. ``cargo hack --each-feature check --tests`` finds it.
+
+    ``quality.rust.feature_matrix_tests`` sets the mode and ships ``warn``,
+    where a failing set is reported without failing the stage. The pass shares
+    the matrix's opt-out, scope, ``exclude``, ``mutually_exclusive`` and
+    ``extra_args``.
+
+    Args:
+        config: Merged CI configuration.
+        workspace: Pass ``--workspace``, for a root-package workspace, unless
+            each member is already scoped with ``-p`` or ``extra_args`` names
+            a scope.
+
+    Returns:
+        True when the pass succeeded, was disabled, or failed under ``warn``.
+
+    """
+    if not config.setting("quality.rust.feature_matrix.enabled"):
+        return True
+
+    mode = resolve_tool_mode(
+        "feature_matrix_tests", config, language="rust", default="warn"
+    )
+    if mode == "disabled":
+        info("  feature_matrix (tests): disabled")
+        return True
+
+    if not _ensure_cargo_hack():
+        return mode != "blocking"
+
+    extra = _matrix_extra_args(config)
+    tuning = _matrix_tuning(config, extra)
+    passed = True
+    for scope_args, _target_args in _matrix_scopes(extra, workspace):
+        # --keep-going names every failing set, where cargo-hack stops at the first.
+        cmd = [
+            "cargo",
+            "hack",
+            "--keep-going",
+            "--each-feature",
+            "check",
+            "--tests",
+            *scope_args,
+            *tuning,
+        ]
+        if not run_gate_tool("feature_matrix (tests)", cmd, mode):
+            passed = False
+    return passed
+
+
 def _run_feature_matrix(
     config: CIConfig,
     *,
@@ -426,26 +537,8 @@ def _run_feature_matrix(
         "feature_matrix.warnings", config, language="rust", default="warn"
     )
 
-    # A workspace mixing lib and bin-only members gets one -p scope per member,
-    # each with its own --lib or --bins.
-    extra = config.setting("quality.rust.feature_matrix.extra_args")
-    extra = [str(x) for x in extra] if isinstance(extra, list) else []
-
-    lib_map = _package_lib_map()
-    mixed_workspace = len(lib_map) > 1 and len(set(lib_map.values())) > 1
-    if mixed_workspace:
-        scopes = [
-            (["-p", name], ["--lib"] if has_lib else ["--bins"])
-            for name, has_lib in sorted(lib_map.items())
-        ]
-    else:
-        widen = workspace and not _names_a_package_scope(extra)
-        scopes = [
-            (
-                ["--workspace"] if widen else [],
-                ["--lib"] if _has_lib_target() else ["--bins"],
-            )
-        ]
+    extra = _matrix_extra_args(config)
+    scopes = _matrix_scopes(extra, workspace)
 
     lint_tool = (
         "check"
@@ -460,24 +553,7 @@ def _run_feature_matrix(
         driver_args = [*cap, *clippy_allows]
         lint_args = ["--", *driver_args] if driver_args else []
 
-    tuning: list[str] = []
-
-    exclude = config.setting("quality.rust.feature_matrix.exclude")
-    if isinstance(exclude, list) and exclude:
-        tuning.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
-
-    mutex = config.setting("quality.rust.feature_matrix.mutually_exclusive")
-    if isinstance(mutex, list):
-        for pair in mutex:
-            if isinstance(pair, list) and len(pair) >= 2:
-                tuning.extend(
-                    [
-                        "--mutually-exclusive-features",
-                        ",".join(str(x) for x in pair),
-                    ]
-                )
-
-    tuning.extend(extra)
+    tuning = _matrix_tuning(config, extra)
 
     # SHORTCUT: resolver 1 keeps dev-dependency features in the library build,
     # upgrade to a scratch-copy run with --no-dev-deps if a repo cannot move off it.
