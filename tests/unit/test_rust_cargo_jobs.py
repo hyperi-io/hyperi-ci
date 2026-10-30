@@ -23,6 +23,7 @@ from hyperi_ci.languages.rust._jobs import (
     cargo_jobs_env,
     config_file_setting_jobs,
     jobs_for,
+    log_peak_memory,
 )
 from hyperi_ci.memory import GIB, MemoryLimit
 
@@ -249,3 +250,33 @@ def test_the_cap_reaches_a_quality_cargo_call(
     assert clippy
     assert set(clippy) == {"8"}
     assert all(jobs == "8" for _cmd, jobs in rec.seen)
+
+
+class TestLogPeakMemory:
+    def _proc(self, tmp_path: Path) -> Path:
+        proc = tmp_path / "proc-self-cgroup"
+        proc.write_text("0::/job\n", encoding="utf-8", newline="\n")
+        return proc
+
+    def test_logs_the_peak_with_its_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        peak = tmp_path / "cg" / "job" / "memory.peak"
+        peak.parent.mkdir(parents=True)
+        peak.write_text(f"{int(13.4 * GIB)}\n", encoding="utf-8", newline="\n")
+        lines: list[str] = []
+        monkeypatch.setattr(_jobs, "info", lines.append)
+        log_peak_memory(
+            "pgo-optimize", root=tmp_path / "cg", proc_self_cgroup=self._proc(tmp_path)
+        )
+        assert lines == [f"memory peak after pgo-optimize: 13.4 GiB (cgroup v2 {peak})"]
+
+    def test_logs_nothing_where_the_host_reports_no_peak(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        lines: list[str] = []
+        monkeypatch.setattr(_jobs, "info", lines.append)
+        log_peak_memory(
+            "bolt", root=tmp_path / "none", proc_self_cgroup=self._proc(tmp_path)
+        )
+        assert lines == []

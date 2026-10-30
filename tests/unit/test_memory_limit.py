@@ -8,10 +8,13 @@
 
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.memory import (
     GIB,
     cgroup_v1_limit,
     cgroup_v2_limit,
+    cgroup_v2_peak,
     memory_limit,
     total_ram,
 )
@@ -144,3 +147,41 @@ class TestMemoryLimit:
         )
         assert found is not None
         assert found.limit_bytes == 32 * GIB
+
+
+class TestCgroupV2Peak:
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            (f"{3 * GIB}\n", 3 * GIB),
+            ("0\n", 0),
+            (None, None),
+            ("max\n", None),
+            ("not-a-number\n", None),
+            ("", None),
+        ],
+        ids=["present", "zero", "missing", "max", "non-numeric", "empty"],
+    )
+    def test_reads_the_leaf_file(
+        self, tmp_path: Path, content: str | None, expected: int | None
+    ) -> None:
+        root = tmp_path / "cg"
+        root.mkdir()
+        if content is not None:
+            _write(root / "job" / "memory.peak", content)
+        assert cgroup_v2_peak(root, _proc_cgroup(tmp_path, "/job")) == expected
+
+    def test_an_unreadable_file_reads_as_none(self, tmp_path: Path) -> None:
+        root = tmp_path / "cg"
+        (root / "job" / "memory.peak").mkdir(parents=True)
+        assert cgroup_v2_peak(root, _proc_cgroup(tmp_path, "/job")) is None
+
+    def test_a_namespaced_container_reads_the_root(self, tmp_path: Path) -> None:
+        root = tmp_path / "cg"
+        _write(root / "memory.peak", f"{GIB}\n")
+        assert cgroup_v2_peak(root, _proc_cgroup(tmp_path, "/")) == GIB
+
+    def test_no_proc_file_reads_the_root(self, tmp_path: Path) -> None:
+        root = tmp_path / "cg"
+        _write(root / "memory.peak", f"{GIB}\n")
+        assert cgroup_v2_peak(root, tmp_path / "missing") == GIB

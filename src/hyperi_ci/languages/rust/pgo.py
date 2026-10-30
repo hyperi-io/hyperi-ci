@@ -24,6 +24,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.languages._build_common import elf_section_names
+from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -165,6 +166,7 @@ def run_pgo_build(
     if rc != 0:
         error(f"PGO instrumented build failed for {target}")
         return rc
+    log_peak_memory("pgo-instrument")
 
     instrumented_bin = _instrumented_binary_path(
         cwd, target, binary_name, variant="pgo"
@@ -188,6 +190,7 @@ def run_pgo_build(
     if rc != 0:
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
+    log_peak_memory("pgo-workload")
 
     # With BOLT on, this compile is also the one BOLT rewrites, so it links
     # through lld with relocations kept and no second compile is needed.
@@ -203,6 +206,7 @@ def run_pgo_build(
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
         return rc
+    log_peak_memory("pgo-optimize")
     if outcome:
         outcome.pgo_applied = True
 
@@ -215,6 +219,8 @@ def run_pgo_build(
         )
         if rc != 0:
             warn("BOLT step failed -- continuing with PGO-only optimised binary")
+    if bolt:
+        log_peak_memory("bolt")
 
     return 0
 
@@ -240,7 +246,9 @@ def _run_plain_release_build(
     """Run a plain `cargo build --release`, keeping the Tier 1 allocator and LTO."""
     cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
     info(f"  $ {' '.join(cmd)}")
-    return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
+    rc = run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
+    log_peak_memory("release build")
+    return rc
 
 
 def cargo_pgo_version_from(output: str) -> str | None:
