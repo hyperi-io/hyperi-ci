@@ -19,7 +19,7 @@ import pytest
 from hyperi_ci import workers
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python import parallel
-from hyperi_ci.workers import WorkerBudget
+from hyperi_ci.sizing import WorkerBudget
 
 
 def _config(value: object) -> CIConfig:

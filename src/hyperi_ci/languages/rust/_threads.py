@@ -24,7 +24,8 @@ from pathlib import Path
 
 from hyperi_ci.common import info
 from hyperi_ci.config import CIConfig
-from hyperi_ci.workers import WORKERS_ENV, forced_workers, per_worker_mb, worker_budget
+from hyperi_ci.sizing import worker_budget
+from hyperi_ci.workers import WORKERS_ENV, forced_workers, per_worker_mb
 
 THREADS_ENV = "NEXTEST_TEST_THREADS"
 

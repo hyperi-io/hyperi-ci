@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Tests for :mod:`hyperi_ci.workers` and the free-memory readers it uses.
+"""Tests for :mod:`hyperi_ci.workers`, :mod:`hyperi_ci.sizing` and the memory readers.
 
 CPUs, load and memory are injected, and meminfo / cgroup files are written to
 ``tmp_path``, so no case depends on the host running the suite.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci import workers
+from hyperi_ci import sizing, workers
 from hyperi_ci.config import CIConfig
 from hyperi_ci.memory import (
     GIB,
@@ -38,8 +38,8 @@ def _budget(
     ci: bool,
     load: float | None = None,
     free: MemoryLimit | None = None,
-) -> workers.WorkerBudget:
-    return workers.worker_budget(
+) -> sizing.WorkerBudget:
+    return sizing.worker_budget(
         mb, cpus=cpus, ci=ci, read_load=lambda: load, read_memory=lambda: free
     )
 
@@ -226,7 +226,7 @@ class TestFreeMemoryReaders:
         """End to end: a 4 GiB cgroup headroom caps 64 CI CPUs at 3 workers."""
         root, proc = self._cgroup(tmp_path, str(5 * GIB), str(GIB))
         meminfo = self._meminfo(tmp_path, 64 * 1024 * 1024)
-        budget = workers.worker_budget(
+        budget = sizing.worker_budget(
             1024,
             cpus=64,
             ci=True,
