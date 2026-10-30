@@ -43,6 +43,7 @@ from hyperi_ci.languages._build_common import (
 from hyperi_ci.languages._build_common import (
     human_size as _human_size,
 )
+from hyperi_ci.languages.rust import runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -626,7 +627,7 @@ def _host_targets(targets: list[str], native: str) -> list[str] | None:
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
-    """Run Rust build.
+    """Run Rust build and record what it used, pass or fail.
 
     Args:
         config: Merged CI configuration.
@@ -636,6 +637,17 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
+    runner_fit.begin()
+    rc = 1
+    try:
+        rc = _run_build(config, extra_env)
+        return rc
+    finally:
+        runner_fit.finish(config, rc)
+
+
+def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
+    """Build every host target, then package the binaries."""
     if not shutil.which("cargo"):
         error("cargo not installed")
         return 1
@@ -730,6 +742,17 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     tier2 = bool(
         base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
+    )
+    runner_fit.set_optimization(
+        "+".join(
+            name
+            for name, on in (
+                ("pgo", base_profile and base_profile.pgo_enabled),
+                ("bolt", base_profile and base_profile.bolt_enabled),
+            )
+            if on
+        )
+        or "none"
     )
 
     # A skipped Tier 2 stage fails the release rather than shipping it green.

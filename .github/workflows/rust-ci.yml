@@ -698,6 +698,8 @@ jobs:
           # env so a dispatch value is never shell. The build refuses it on a run
           # that ships.
           HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
+          # The process cannot see the label it was scheduled on. Naming it also turns on the runner-fit record.
+          HYPERCI_RUNNER_LABEL: ${{ matrix.runner }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Upload build artifacts
@@ -710,6 +712,16 @@ jobs:
             VERSION
           if-no-files-found: ignore
           retention-days: 1
+
+      - name: Upload runner-fit record
+        # Its own artifact, never dist/, which the release tail ships. A failed build still writes one.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runner-fit-${{ matrix.os_arch }}
+          path: runner-fit.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   release-tail:
     name: Release tail
