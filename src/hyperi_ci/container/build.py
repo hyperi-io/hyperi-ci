@@ -142,6 +142,7 @@ def buildx_command(
     build_args: dict[str, str] | None = None,
     push: bool = True,
     metadata_file: Path | None = None,
+    output: str | None = None,
 ) -> list[str]:
     """Return the ``docker buildx build`` argv :func:`build_and_push` runs.
 
@@ -160,6 +161,9 @@ def buildx_command(
         push: When True, append ``--push``.
         metadata_file: Where buildx writes its result metadata, which
             carries the pushed image's digest.
+        output: An ``--output`` exporter spec, such as
+            :func:`push_by_digest_output`. It does its own pushing, so pass
+            ``push`` False beside it.
 
     Returns:
         The argv list.
@@ -191,6 +195,9 @@ def buildx_command(
     if metadata_file is not None:
         cmd.extend(["--metadata-file", str(metadata_file)])
 
+    if output is not None:
+        cmd.extend(["--output", output])
+
     if push:
         cmd.append("--push")
     # Never --load: the local daemon takes one platform, and build-and-discard
@@ -213,6 +220,7 @@ def build_and_push(
     attempts: int = 1,
     retry_delay: float = 0.0,
     sleep: Callable[[float], None] = time.sleep,
+    output: str | None = None,
 ) -> int:
     """Build a container image with docker buildx and optionally push.
 
@@ -237,6 +245,8 @@ def build_and_push(
         attempts: Total builds to try when an apt mirror is mid-sync.
         retry_delay: Seconds to wait before each rebuild.
         sleep: The wait, injectable so a test does not block.
+        output: An ``--output`` exporter spec, passed to
+            :func:`buildx_command`.
 
     Returns:
         Exit code (0 = success).
@@ -251,10 +261,14 @@ def build_and_push(
         build_args=build_args,
         push=push,
         metadata_file=metadata_file,
+        output=output,
     )
 
-    action = "Pushing" if push else "Validating (no push)"
-    info(f"{action}: {', '.join(tags) if tags else '<no tags>'}")
+    if output is not None:
+        info(f"Output: {output}")
+    else:
+        action = "Pushing" if push else "Validating (no push)"
+        info(f"{action}: {', '.join(tags) if tags else '<no tags>'}")
     info(f"Platforms: {', '.join(platforms)}")
 
     returncode = 0
@@ -275,12 +289,45 @@ def build_and_push(
         error("docker buildx build failed")
         return returncode
 
-    action = "pushed" if push else "validated"
+    action = "pushed" if push or output is not None else "validated"
     if tags:
         success(f"Built and {action}: {tags[0]}")
     else:
         success(f"Built and {action}")
     return 0
+
+
+def push_by_digest_output(repo: str) -> str:
+    """Return the ``--output`` spec that pushes ``repo`` by digest, untagged.
+
+    One per-arch build pushes this way, and
+    :func:`imagetools_create_command` later names every digest under the
+    release tags.
+    """
+    return f"type=image,name={repo},push-by-digest=true,name-canonical=true,push=true"
+
+
+def imagetools_create_command(
+    *, tags: list[str], sources: list[str], annotations: list[str] | None = None
+) -> list[str]:
+    """Return the ``docker buildx imagetools create`` argv.
+
+    Args:
+        tags: Every reference the new image is pushed under.
+        sources: ``<repo>@<digest>`` images or indexes to combine, in order.
+        annotations: ``--annotation`` argv pairs, from
+            :func:`labels_to_index_annotation_args`.
+
+    Returns:
+        The argv list, sources last.
+
+    """
+    cmd = ["docker", "buildx", "imagetools", "create"]
+    for tag in tags:
+        cmd.extend(["--tag", tag])
+    cmd.extend(annotations or [])
+    cmd.extend(sources)
+    return cmd
 
 
 def pushed_digest(metadata_file: Path) -> str | None:

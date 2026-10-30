@@ -14,7 +14,13 @@ import pytest
 
 from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.container import stage
-from hyperi_ci.container.build import buildx_command, pushed_digest, resolve_tags
+from hyperi_ci.container.build import (
+    buildx_command,
+    imagetools_create_command,
+    push_by_digest_output,
+    pushed_digest,
+    resolve_tags,
+)
 from hyperi_ci.container.labels import build_oci_labels
 
 
@@ -75,6 +81,53 @@ class TestIndexAnnotations:
         assert cmd[-1] == "ctx"
         assert cmd[-2] == "--push"
         assert "org.opencontainers.image.title=dfe-loader" in cmd
+
+
+class TestPushByDigest:
+    def test_a_by_digest_build_carries_the_output_and_no_tag_or_push(self) -> None:
+        output = push_by_digest_output("ghcr.io/hyperi-io/app")
+        cmd = buildx_command(
+            dockerfile_path=Path("Dockerfile"),
+            context="ctx",
+            tags=[],
+            platforms=["linux/arm64"],
+            labels={},
+            push=False,
+            metadata_file=Path("meta.json"),
+            output=output,
+        )
+        assert output == (
+            "type=image,name=ghcr.io/hyperi-io/app,push-by-digest=true,"
+            "name-canonical=true,push=true"
+        )
+        assert cmd[-5:] == [
+            "--metadata-file",
+            "meta.json",
+            "--output",
+            output,
+            "ctx",
+        ]
+        assert "--tag" not in cmd
+        assert "--push" not in cmd
+
+    @pytest.mark.parametrize(
+        ("annotations", "want"),
+        [
+            pytest.param(None, [], id="none"),
+            pytest.param(["--annotation", "index:k=v"], ["index:k=v"], id="index"),
+        ],
+    )
+    def test_imagetools_create_puts_the_sources_last(
+        self, annotations: list[str] | None, want: list[str]
+    ) -> None:
+        cmd = imagetools_create_command(
+            tags=["r:v1", "r:latest"],
+            sources=["r@sha256:a", "r@sha256:b"],
+            annotations=annotations,
+        )
+        assert cmd[:4] == ["docker", "buildx", "imagetools", "create"]
+        assert cmd[-2:] == ["r@sha256:a", "r@sha256:b"]
+        assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "--annotation"] == want
 
 
 class TestPushedDigest:

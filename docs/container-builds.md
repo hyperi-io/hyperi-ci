@@ -92,6 +92,18 @@ The build and prepared artefacts come from jobs that ran repo code, so Tag & Rel
 
 `release-commit` writes `VERSION` from the release version. It restores only the `release.stamp_paths` files, by name from the checkout's own config, and only when `prepare` ran on the same commit. The release App key reaches only the step that mints the bot token. The Tag step's semantic-release still loads a repo-controlled config (issue #413).
 
+## Native per-arch builds (issue #709)
+
+`HYPERCI_CONTAINER_MODE` splits the one multi-platform build into a plan, one leg per platform on a runner of that arch, and a merge. Unset, `run container` does the single build above.
+
+| Mode | Reads | Does |
+|---|---|---|
+| `plan` | the release env | Writes `build`, `platforms` (a JSON list), `push`, `reuse` and `created`. Builds nothing. With `HYPERCI_CONTAINER_RESOLVE_ONLY` also set, a CLI release without the mode only resolves |
+| `leg` | `HYPERCI_CONTAINER_PLATFORM`, `HYPERCI_CONTAINER_CREATED`, and `HYPERCI_CONTAINER_DIGEST_DIR` on a push | Builds that one platform. A push goes by digest with no tag, and the digest lands in `<dir>/<arch>` (`linux/arm64` is `arm64`). A push with no digest fails |
+| `merge` | `HYPERCI_CONTAINER_DIGEST_DIR`, `HYPERCI_CONTAINER_PLATFORMS`, `HYPERCI_CONTAINER_REUSE`, `HYPERCI_CONTAINER_CREATED` | Fails when the digest files and the platforms differ, naming both. Runs one `imagetools create` with every tag and, for two or more platforms, the index annotations. Reads the index back and fails unless it carries this commit and every platform, then sets `image` and `digest` |
+
+Every mode takes the version, push mode and tags from the same env as the single build. `created` comes from the plan, so every image of one release carries one timestamp. With `reuse` true the merge re-points the existing image instead.
+
 ## See also
 
 - [architecture.md](architecture.md) -- the two-sides overview
