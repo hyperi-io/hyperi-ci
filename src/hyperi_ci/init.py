@@ -26,6 +26,12 @@ import yaml
 from hyperi_ci import licenses
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.detect import detect_language
+from hyperi_ci.schedule import (
+    ScheduleResult,
+    ensure_schedule,
+    project_cron,
+    schedule_block,
+)
 from hyperi_ci.seed import existing_version_tags
 from hyperi_ci.seed import seed_tag as _seed_tag
 from hyperi_ci.versions import runtime_version
@@ -267,8 +273,13 @@ def _render_workflow(
     workflow_file: str,
     license_id: str = _DEFAULT_LICENSE,
     submodules: str = "",
+    cron: str | None = None,
 ) -> str:
-    """Render consumer .github/workflows/ci.yml content."""
+    """Render consumer .github/workflows/ci.yml content.
+
+    ``cron`` adds the nightly ``schedule:`` trigger, which the plan job runs
+    at the full test tier.
+    """
     # BOLT is Rust-only, and a caller forwarding an input its reusable
     # workflow does not declare fails to start.
     rust = workflow_file == "rust-ci.yml"
@@ -336,6 +347,8 @@ def _render_workflow(
             '        default: ""\n'
             '        description: "Debug only: llvm-bolt flags replacing the BOLT optimise defaults, for a bisect. Needs optimize-tier=release; refused on a run that ships."\n'
         )
+    if cron:
+        base += schedule_block(cron)
     base += "\npermissions:\n"
     base += "".join(f"  {grant}\n" for grant in _CALLER_PERMISSIONS)
     base += (
@@ -507,12 +520,32 @@ def _has_releaserc(project_dir: Path) -> bool:
     return any((project_dir / name).exists() for name in candidates)
 
 
+def _add_schedule(project_dir: Path) -> int:
+    """Add the nightly schedule to an existing ci.yml, leaving it alone if set."""
+    workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
+    if not workflow_path.is_file():
+        error(f"No {workflow_path.relative_to(project_dir)} to add a schedule to")
+        return 1
+    cron = project_cron(project_dir, project_dir.name)
+    match ensure_schedule(workflow_path, cron):
+        case ScheduleResult.ADDED:
+            success(f"  Added schedule cron '{cron}' to ci.yml")
+        case ScheduleResult.PRESENT:
+            info("  Skipped ci.yml (already has a schedule trigger)")
+        case ScheduleResult.UNSUPPORTED:
+            warn("  ci.yml `on:` is not a block mapping: add this by hand")
+            info(f"  schedule:\n    - cron: '{cron}'")
+            return 1
+    return 0
+
+
 def init_project(
     project_dir: Path,
     *,
     language: str | None = None,
     force: bool = False,
     seed_tag: bool = True,
+    schedule_only: bool = False,
 ) -> int:
     """Initialise a consumer project for hyperi-ci.
 
@@ -521,6 +554,8 @@ def init_project(
         language: Override detected language.
         force: Overwrite existing files.
         seed_tag: Create the repo's first v* tag when it has none.
+        schedule_only: Add the nightly schedule to the existing ci.yml and
+            write nothing else.
 
     Returns:
         Exit code (0 = success).
@@ -528,6 +563,8 @@ def init_project(
     """
     project_dir = project_dir.resolve()
     project_name = project_dir.name
+    if schedule_only:
+        return _add_schedule(project_dir)
 
     detected = language or detect_language(project_dir)
     if not detected:
@@ -577,6 +614,7 @@ def init_project(
             workflow_file,
             license_id=license_id,
             submodules=submodules,
+            cron=project_cron(project_dir, project_name),
         )
         workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
         if _write_file(

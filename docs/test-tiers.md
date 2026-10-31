@@ -21,6 +21,17 @@ The test stage runs one of two tiers.
 
 Neither is related to `test.use_tiers` / `test.tiers.*` (the Python directory split) or `test.rust.tier` (the Rust unit / integration / e2e subset). Those pick where tests live. The test tier picks whether the left-out ones run.
 
+`test.rust.tier: all` is NOT the full tier. It selects every cargo target kind (unit, integration, e2e) and still leaves out every `#[ignore]` test and anything a nextest `default-filter` drops. Only `test.tier: full` runs those.
+
+## The nightly full run
+
+`hyperi-ci init` writes a `schedule:` trigger into the consumer's ci.yml, because the plan job runs the full tier on a `schedule` event and nothing else creates one. A scheduled run never publishes.
+
+- The cron is daily at a minute and hour hashed from the repo name, so the fleet does not start together. Minutes :00 and :30 are skipped.
+- The hour comes from `test.full.schedule_window_utc` (default `"14-18"`, both ends inclusive).
+- A repo that already has ci.yml takes the trigger with `hyperi-ci init --schedule-only`. It adds nothing where a `schedule:` exists, and it leaves every other trigger and comment as written.
+- It edits a block-style `on:` mapping only. An inline `on: [push]` is reported for a hand edit.
+
 ## Choosing the tier
 
 For a local run, highest wins:
@@ -152,6 +163,7 @@ pytest-xdist leaves the deselected count out of its summary, so under `-n` the n
 | `test.full.rust.skip` | `[]` | Test-name substrings full leaves out, both runners |
 | `test.full.rust.filter` | `""` | nextest filterset full leaves out, nextest only |
 | `test.full.required_for_release` | `false` | Whether a release must have run full |
+| `test.full.schedule_window_utc` | `"14-18"` | UTC hours (inclusive) `hyperi-ci init` picks a repo's nightly cron from |
 | `test.native_tools` | `[]` | Pinned binaries installed and put on PATH before the tests, both tiers. Known: `clickhouse`, `helm`, `kustomize`, `tofu` |
 
 `test.full.required_for_release` is read by the CI plan job, not by this CLI. Set it in `.hyperi-ci.yaml`: a `HYPERCI_*` variable splits its name on underscores, so no environment variable can reach a key that contains one.
