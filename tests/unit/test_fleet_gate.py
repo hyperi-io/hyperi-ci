@@ -836,7 +836,10 @@ class TestSlowRunsAreCollectedUnderAFreshToken:
             pytest.param((sweep.PASS, sweep.PASS), 0, False, id="all-pass"),
             pytest.param((sweep.PASS, sweep.TIMEOUT), 0, True, id="slow-run-deferred"),
             pytest.param(
-                (sweep.FAIL, sweep.TIMEOUT), 0, True, id="failure-waits-for-collect"
+                (sweep.FAIL, sweep.TIMEOUT),
+                1,
+                False,
+                id="failure-is-red-before-collect",
             ),
             pytest.param((sweep.PASS, sweep.FAIL), 1, False, id="failure-is-red"),
             pytest.param(

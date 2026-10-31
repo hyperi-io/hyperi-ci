@@ -2301,7 +2301,16 @@ def check_commit_cmd(
         raise typer.Exit(0)
 
     if message_file:
-        msg = Path(message_file).read_text(encoding="utf-8", errors="replace").strip()
+        try:
+            msg = Path(message_file).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            typer.echo(
+                f"Cannot read the commit message file {message_file!r} ({exc}). "
+                "Pass a file, or pipe the message on stdin.",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
+        msg = msg.strip()
     elif not sys.stdin.isatty():
         msg = sys.stdin.read().strip()
     else:

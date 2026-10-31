@@ -857,7 +857,7 @@ def _install_language_tools(language: str) -> int:
 
         logger.info(f"Installing {tool.name}: {' '.join(cmd)}")
         # From $HOME, so a project's rust-toolchain file does not pick the toolchain.
-        result = subprocess.run(cmd, check=False, cwd=Path.home())
+        result = run_cmd(cmd, check=False, cwd=Path.home())
         if result.returncode != 0:
             logger.warning(
                 f"[{tool.name}] install failed (exit {result.returncode}) -- "
