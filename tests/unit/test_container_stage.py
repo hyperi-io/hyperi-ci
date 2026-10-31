@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hyperi_ci.ci_env import CI_ENV_VARS
 from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.container import stage as stage_module
 from hyperi_ci.container.build import PublishedImage
@@ -598,6 +599,8 @@ _ARM = "sha256:" + "b" * 64
 _INDEX = "sha256:" + "c" * 64
 _CREATED = "2026-10-31T01:02:03Z"
 _BOTH = ["linux/amd64", "linux/arm64"]
+# Taken at import, before the conftest autouse swaps it out.
+_REFUSE_EMULATION = stage_module._refuse_emulation
 _MODE_ENV = (
     "HYPERCI_CONTAINER_MODE",
     "HYPERCI_CONTAINER_PLATFORM",
@@ -820,6 +823,59 @@ class TestLegMode:
         assert built["push"] is False
         assert built["output"] is None
         assert built["metadata_file"] is None
+
+
+class TestNoEmulation:
+    @pytest.fixture(autouse=True)
+    def _real_refusal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(stage_module, "_refuse_emulation", _REFUSE_EMULATION)
+
+    @pytest.mark.parametrize(
+        ("platforms", "machine", "refused"),
+        [
+            pytest.param(["linux/arm64"], "aarch64", False, id="arm-leg-on-arm"),
+            pytest.param(["linux/amd64"], "x86_64", False, id="amd-leg-on-amd"),
+            pytest.param(["linux/arm64"], "x86_64", True, id="arm-leg-on-amd"),
+            pytest.param(["linux/amd64"], "arm64", True, id="amd-leg-on-arm"),
+            pytest.param(_BOTH, "x86_64", True, id="both-on-one-runner"),
+            pytest.param(["linux/amd64"], "riscv64", True, id="unknown-host"),
+        ],
+    )
+    def test_only_the_runner_arch_builds(
+        self, platforms: list[str], machine: str, refused: bool
+    ) -> None:
+        assert stage_module._refuse_emulation(platforms, machine) is refused
+
+    @pytest.mark.parametrize(
+        ("host", "rc", "builds"),
+        [
+            pytest.param("amd64", 1, 0, id="amd-runner-refuses"),
+            pytest.param("arm64", 0, 1, id="arm-runner-builds"),
+        ],
+    )
+    def test_ci_refuses_an_arm_leg_on_another_arch(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        host: str,
+        rc: int,
+        builds: int,
+    ) -> None:
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setattr(stage_module, "machine_arch", lambda _m=None: host)
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", "linux/arm64")
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+        assert _mode("validate", "leg") == rc
+        assert len(seams.builds) == builds
+
+    def test_a_local_build_may_still_cross_build(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for name in CI_ENV_VARS:
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(stage_module, "machine_arch", lambda _m=None: "amd64")
+        assert _mode("release", None) == 0
+        assert seams.builds[0]["platforms"] == _BOTH
 
 
 class TestMergeMode:

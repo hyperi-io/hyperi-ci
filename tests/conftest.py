@@ -288,6 +288,15 @@ def no_registry_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_emulation_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let a faked multi-arch build run on the suite's own CI runner.
+
+    The refusal reads the runner's real CPU. A test of it patches it back.
+    """
+    monkeypatch.setattr(container_stage, "_refuse_emulation", lambda *_a: False)
+
+
+@pytest.fixture(autouse=True)
 def packaged_label_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
     """Turn the org `.github` label lookup off, so the packaged default applies.
 
