@@ -60,16 +60,10 @@ Templates for common app shapes (HTTP server, gRPC server, Kafka producer/consum
 
 ## Runner requirements
 
-- **apt.llvm.org egress** - `bolt-NN` (LLVM's post-link optimiser) isn't
-  in Ubuntu's default universe repo. hyperi-ci adds the repo
-  scheme-agnostically if it's not already present (i.e. works on vanilla
-  GH runners and on self-hosted runners that pre-provision the repo
-  under any filename).
-- **crates.io egress** - for `cargo install cargo-pgo --locked`.
-- **Linux runners** - BOLT doesn't apply on macOS/Windows targets.
-- **Native arm64 runner for arm64 builds** - `ubuntu-24.04-arm`. Cross-
-  compiled arm64 from amd64 cannot collect arm64-native PGO profiles
-  (no way to execute the instrumented binary on the wrong host).
+- Egress to apt.llvm.org, because `bolt-NN` (LLVM's post-link optimiser) isn't in Ubuntu's universe repo. hyperi-ci adds the repo when it's missing, whatever filename a runner already holds it under.
+- Egress to crates.io, for `cargo install cargo-pgo --locked`.
+- Linux. BOLT doesn't apply to macOS or Windows targets.
+- A native arm64 runner for arm64: Namespace `namespace-profile-hyperi-arm64-<CPU>x<GiB>`, or `ubuntu-24.04-arm` in `free` mode. An amd64 host can't run the instrumented arm64 binary, so it can't collect the profile.
 
 ## Reading the result in the log
 

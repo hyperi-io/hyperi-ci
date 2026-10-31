@@ -9,7 +9,7 @@ The tiers themselves and the `.hyperi-ci.yaml` keys are [rust.md](rust.md).
 ## Release dispatch flow
 
 ```text
-0:00  Setup: runners claimed (arc-runner-16cpu on amd64, ubuntu-24.04-arm on arm64)
+0:00  Setup: runners claimed (namespace-profile-hyperi-amd64-32x64, namespace-profile-hyperi-arm64-32x64)
 0:30  Native deps install -- bolt-23, binutils via apt.llvm.org
 1:00  cargo install cargo-pgo --locked
 2:00  Cargo build deps (cached after first run)

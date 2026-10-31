@@ -6,11 +6,13 @@ CI runs on self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 
 
 - x64 jobs under 32 CPUs run on ARC, the cheapest place to run them.
 - x64 jobs that need 32 CPUs, the heaviest Rust release builds, run on Namespace 32x64.
-- arm64 jobs run on Namespace. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner.
+- arm64 jobs run on Namespace. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
 - Anything else is a project-specific exception, set as a repo-level variable on that repo only.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception too.
 
-Namespace profiles are named `namespace-profile-hyperi-<arch>-<CPU>x<GiB>`. Namespace runners cannot reach Harbor or the devex services, so Quality and Test stay on ARC. A failing ARC job is fixed on ARC, not moved off it. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
+Namespace profiles are named `namespace-profile-hyperi-<arch>-<CPU>x<GiB>`. Quality and Test stay on ARC: a Namespace job reaches neither the NFS sccache nor the hosted cache, whose step skips self-hosted runners. A failing ARC job is fixed on ARC, not moved off it. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
+
+Namespace runs at most 64 Linux CPUs for the org at once (`nsc workspace concurrency`). One amd64 32x64 Build and one arm64 32x64 Build fill it, and the arm64 parity builds and container legs queue behind them.
 
 ## Runner modes
 
@@ -39,9 +41,7 @@ gh variable list --org hyperi-io          # what is set now
 gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16x32
 ```
 
-A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-build` / `runner-build-arm64` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
-
-There is no C++ reusable workflow. The org `GH_RUNNER_CPP` variable is read by nothing, and #517 covers deleting it.
+A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-test` / `runner-build` / `runner-build-arm64` / `runner-arm64-check` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
 
 ### Which chain each job takes
 
@@ -67,7 +67,7 @@ The self-hosted fleet is ARC scale sets on two axes:
 | type | `vanilla` | stock runner + internal CA + docker CLI + uv. Fast start. |
 | type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM, the distro gcc, and the shared sccache/crate cache. |
 | type | `debian` | vanilla on Debian Trixie, for .deb builds, which have to happen on the distro they target. No toolchain. |
-| size | `4x8` | 4 CPUs and 8 GiB, the stock GitHub ubuntu runner |
+| size | `4x8` | 4 CPUs and 8 GiB |
 | size | `8x16`, `16x32` | the steps up, 2 GiB a CPU |
 
 **A job addresses a scale set as `arc-<type>-<CPU>x<GiB>`**, for example:
@@ -108,12 +108,12 @@ It holds the arch, runner label, CPU model, CPU budget, memory limit and its sou
 
 The verdict advises and never changes a runner or fails a Build. The `build.rust.runner_fit` tunables set it:
 
-- `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing.
+- `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing or the `build.rust.runner_fit` block is malformed.
 - `recommended` is the first profile in `profiles` order, for this arch, with a CPU for each cargo job the build ran (at least `min_jobs`) and the memory for that many jobs at the per-job peak with `min_headroom` free. A build that used every CPU is never told to move to fewer. Order the profiles cheapest first.
 - `move` is true when that differs from the runner used, and `move_reason` says how.
-- A per-job peak further than `per_job_drift` from `build.rust.memory_per_job_gib` adds a note naming both.
+- A per-job peak more than `per_job_drift` off `build.rust.memory_per_job_gib`, as a fraction (0.25 is 25%), adds a note naming both.
 
-One command tables a fleet round, newest run with a record per repo:
+One command tables a fleet round, the newest run with a record per repo, from each repo's latest 20 runs:
 
 ```bash
 hyperi-ci runner report dfe-loader dfe-receiver   # bare names are hyperi-io/
