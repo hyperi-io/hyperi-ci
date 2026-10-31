@@ -394,9 +394,10 @@ build:
       per_job_drift: 0.25
       # Cheapest first, as the live runner sets size them.
       profiles:
-        - {label: arc-native-4x8, arch: amd64, cpus: 4, memory_gib: 8}
-        - {label: arc-native-8x16, arch: amd64, cpus: 8, memory_gib: 16}
-        - {label: arc-native-16x32, arch: amd64, cpus: 16, memory_gib: 32}
+        # ARC sets by name: GitHub routes ARC jobs on the scale-set name only.
+        - {label: arc-native-4cpu, arch: amd64, cpus: 4, memory_gib: 8}
+        - {label: arc-native-8cpu, arch: amd64, cpus: 8, memory_gib: 16}
+        - {label: arc-native-16cpu, arch: amd64, cpus: 16, memory_gib: 32}
         - {label: namespace-profile-hyperi-amd64-32x64, arch: amd64, cpus: 32, memory_gib: 64}
         - {label: namespace-profile-hyperi-arm64-4x8, arch: arm64, cpus: 4, memory_gib: 8}
         - {label: namespace-profile-hyperi-arm64-8x16, arch: arm64, cpus: 8, memory_gib: 16}

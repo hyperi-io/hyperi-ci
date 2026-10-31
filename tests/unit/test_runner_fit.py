@@ -26,7 +26,7 @@ from hyperi_ci.languages.rust.runner_fit import (
 from hyperi_ci.memory import GIB, MemoryLimit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ARC = "arc-native-16x32"
+ARC = "arc-native-16cpu"
 NS_AMD = "namespace-profile-hyperi-amd64-32x64"
 NS_ARM_16 = "namespace-profile-hyperi-arm64-16x32"
 NS_ARM_32 = "namespace-profile-hyperi-arm64-32x64"
@@ -428,7 +428,7 @@ class TestRecord:
         ]
         assert got["verdict"]["status"] == "fits"
         # 6 GiB a job x 2 jobs fits 8x16's 12.8 GiB with headroom, the cheaper set.
-        assert got["verdict"]["recommended"] == "arc-native-8x16"
+        assert got["verdict"]["recommended"] == "arc-native-8cpu"
         assert got["verdict"]["move"] is True
         json.dumps(got)
 
