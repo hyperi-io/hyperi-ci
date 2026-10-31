@@ -359,7 +359,8 @@ def _ensure_cargo_hack() -> bool:
     install = ["cargo", "install", "--locked", "cargo-hack", "--version", pinned]
     info(f"  feature_matrix: cargo-hack {seen}, pinned {pinned} -- installing")
     try:
-        result = run_cmd(install, check=False, capture=True)
+        # From $HOME, so the project's rust-toolchain file does not pick the toolchain.
+        result = run_cmd(install, check=False, capture=True, cwd=Path.home())
     except OSError as exc:
         error(f"  feature_matrix: cannot install cargo-hack {pinned}: {exc}")
         return False

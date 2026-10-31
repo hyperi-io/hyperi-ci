@@ -287,7 +287,8 @@ def _ensure_cargo_pgo_installed() -> bool:
     install = ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
     found = f"found {installed}" if installed else "not found"
     info(f"cargo-pgo {found}, pinned {pinned} -- installing with '{' '.join(install)}'")
-    result = run_cmd(install, check=False)
+    # From $HOME, so the project's rust-toolchain file does not pick the toolchain.
+    result = run_cmd(install, check=False, cwd=Path.home())
     if result.returncode != 0:
         warn("cargo-pgo install failed")
         return False

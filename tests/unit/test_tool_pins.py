@@ -99,17 +99,19 @@ class _Cargo:
         self.installed = installed
         self.install_rc = install_rc
         self.installs: list[list[str]] = []
+        self.install_cwds: list[str] = []
 
     def which(self, name: str) -> str | None:
         if name == "cargo-hack":
             return "/home/dev/.cargo/bin/cargo-hack" if self.installed else None
         return f"/usr/bin/{name}"
 
-    def run(self, cmd: list[str], **_kw: Any) -> subprocess.CompletedProcess:
+    def run(self, cmd: list[str], **kw: Any) -> subprocess.CompletedProcess:
         if cmd[:3] == ["cargo", "hack", "--version"]:
             return _done(cmd, out=f"cargo-hack {self.installed}\n")
         if cmd[:2] == ["cargo", "install"]:
             self.installs.append(list(cmd))
+            self.install_cwds.append(str(kw.get("cwd")))
             if self.install_rc == 0 and "--version" in cmd:
                 self.installed = cmd[cmd.index("--version") + 1]
             return _done(cmd, rc=self.install_rc)
@@ -136,6 +138,8 @@ class TestCargoHackRunsItsPin:
         assert cargo.installs == [
             ["cargo", "install", "--locked", "cargo-hack", "--version", pin]
         ]
+        # Outside the project, so its rust-toolchain file does not pick the toolchain.
+        assert cargo.install_cwds == [str(Path.home())]
 
     def test_a_different_version_on_path_is_replaced_by_the_pin(
         self, monkeypatch: pytest.MonkeyPatch
