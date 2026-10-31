@@ -20,6 +20,7 @@ from scalo.logger import setup as setup_logger
 from hyperi_ci import channel, common, config, labels
 from hyperi_ci.common import is_ci, run_cmd
 from hyperi_ci.container import stage as container_stage
+from hyperi_ci.languages.tiering import TIER_EXPORT_ENV
 
 
 @functools.cache
@@ -275,6 +276,12 @@ def no_inherited_quality_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         "HYPERCI_CLASSIFICATION",
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_exported_test_tier(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo the tier ``stage_test`` exports, which the config cascade reads back."""
+    monkeypatch.delenv(TIER_EXPORT_ENV, raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -19,6 +19,7 @@ from hyperi_ci import native_tools, release_prepare, vendor
 from hyperi_ci.common import (
     ReleaseVersionError,
     announce,
+    echo_chunk,
     error,
     group,
     info,
@@ -39,6 +40,7 @@ from hyperi_ci.languages.quality_common import (
 from hyperi_ci.languages.rust._jobs import capped_cargo_jobs
 from hyperi_ci.languages.tiering import (
     TEST_TIER_ENV,
+    TIER_EXPORT_ENV,
     InvalidTestTierError,
     resolve_test_tier,
 )
@@ -338,6 +340,38 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     return rc
 
 
+_TEST_LOG_LINES = 400
+
+
+def show_test_logs(globs: object, root: Path) -> None:
+    """Print the tail of each file ``test.logs`` matches under ``root``.
+
+    A test harness's own record (which services it started, and how often)
+    then shows in the CI log beside the test output. A pattern that is not a
+    relative glob, or a match outside ``root``, is skipped with a warning.
+    """
+    if not isinstance(globs, list):
+        return
+    resolved_root = root.resolve()
+    for pattern in globs:
+        try:
+            matches = sorted(root.glob(pattern)) if isinstance(pattern, str) else []
+        except (NotImplementedError, ValueError) as exc:
+            warn(f"test.logs: cannot glob {pattern!r} ({exc})")
+            continue
+        for path in matches:
+            if not path.is_file():
+                continue
+            if not path.resolve().is_relative_to(resolved_root):
+                warn(f"test.logs: {path} is outside the project, not printed")
+                continue
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            with group(f"Test log {path.relative_to(root)}"):
+                if len(lines) > _TEST_LOG_LINES:
+                    info(f"  last {_TEST_LOG_LINES} of {len(lines)} lines")
+                echo_chunk("\n".join(lines[-_TEST_LOG_LINES:]) + "\n")
+
+
 def stage_test(language: str, config: CIConfig) -> int:
     """Run tests -- dispatch to language-specific handler."""
     if not config.setting("test.enabled"):
@@ -350,6 +384,7 @@ def stage_test(language: str, config: CIConfig) -> int:
         error(str(exc))
         return 1
     info(f"Test tier: {test_tier}")
+    os.environ[TIER_EXPORT_ENV] = test_tier.value
 
     extra_env: dict[str, str] = {TEST_TIER_ENV: test_tier.value}
     if language == "rust":
@@ -361,6 +396,7 @@ def stage_test(language: str, config: CIConfig) -> int:
         return 1
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
+    show_test_logs(config.setting("test.logs"), Path.cwd())
     if rc == -1:
         # A missing handler is a packaging bug, not "no tests". A project with
         # none sets `test.enabled: false`.

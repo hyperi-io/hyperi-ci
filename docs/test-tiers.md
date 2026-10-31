@@ -47,6 +47,8 @@ Any value other than `core` or `full` fails the test stage, and an empty value c
 
 In CI the reusable workflows pick the tier per run and set `HYPERCI_TEST_TIER`. There the project file's `test.tier` is a FLOOR: `full` raises a core run to full, and nothing lowers a full run to core. That behaviour belongs to the workflow side, which ships separately from the CLI described here.
 
+The test stage exports the tier it resolved as `HYPERCI_TEST_TIER` to every test process, however it was set, so a harness can gate full-only behaviour on it.
+
 ## What full adds, per language
 
 | Language | core | full |
@@ -165,5 +167,6 @@ pytest-xdist leaves the deselected count out of its summary, so under `-n` the n
 | `test.full.required_for_release` | `false` | Whether a release must have run full |
 | `test.full.schedule_window_utc` | `"14-18"` | UTC hours (inclusive) `hyperi-ci init` picks a repo's nightly cron from |
 | `test.native_tools` | `[]` | Pinned binaries installed and put on PATH before the tests, both tiers. Known: `clickhouse`, `helm`, `kustomize`, `tofu` |
+| `test.logs` | `["target/tmp/shared-services-*.log"]` | Globs under the project root whose last 400 lines the test stage prints after the tests, pass or fail |
 
 `test.full.required_for_release` is read by the CI plan job, not by this CLI. Set it in `.hyperi-ci.yaml`: a `HYPERCI_*` variable splits its name on underscores, so no environment variable can reach a key that contains one.

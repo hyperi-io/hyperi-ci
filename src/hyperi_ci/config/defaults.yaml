@@ -273,6 +273,12 @@ test:
   # fails the stage. Known: helm, kustomize, tofu.
   native_tools: []
 
+  # Globs, relative to the project root, of logs a test run writes. The test
+  # stage prints the last 400 lines of each match after the tests, pass or
+  # fail. The default is the shared-service harness's per-run log.
+  logs:
+    - "target/tmp/shared-services-*.log"
+
   full:
     # Whether a release must have run the full tier.
     required_for_release: false
