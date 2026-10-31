@@ -540,11 +540,14 @@ jobs:
     # Nothing here builds, packs or stamps: those run the repo's code, and this
     # job holds every publish credential, so they happen in `prepare` and this
     # job uploads what it left. A failed prepare therefore cuts no tag.
+    #
+    # Only an explicit `false` from resolve reads as "no container": a job that
+    # dies before resolve leaves the output empty, and that blocks (issue #764).
     if: >-
       ${{ always() && inputs.will-publish == 'true'
           && needs.prepare.result == 'success'
           && (needs.container.result == 'success'
-              || needs.container.outputs.ships-container != 'true') }}
+              || needs.container.outputs.ships-container == 'false') }}
     # ARC, like the rest of the tail. The image lacks the aws CLI needed for R2, so
     # hyperi-ci installs AWS's signed v2 bundle on demand
     # (native_deps.ensure_aws_cli).
