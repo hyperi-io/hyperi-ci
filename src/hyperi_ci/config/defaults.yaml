@@ -276,6 +276,9 @@ test:
   full:
     # Whether a release must have run the full tier.
     required_for_release: false
+    # UTC hours, both ends inclusive, in which `hyperi-ci init` places a repo's
+    # nightly full-tier cron. Each repo hashes to its own minute and hour in it.
+    schedule_window_utc: "14-18"
     python:
       # pytest -m expression the full tier passes in place of the project's
       # addopts -m. Empty selects every test; "not live" keeps one marker out.

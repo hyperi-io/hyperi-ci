@@ -627,6 +627,13 @@ def init(
             help="Create the repo's first v* tag when it has none",
         ),
     ] = True,
+    schedule_only: Annotated[
+        bool,
+        typer.Option(
+            "--schedule-only",
+            help="Add the nightly schedule to an existing ci.yml, write nothing else",
+        ),
+    ] = False,
 ) -> None:
     """Initialise a project for hyperi-ci (generates config, Makefile, workflow).
 
@@ -635,13 +642,23 @@ def init(
     skip). The version pipeline reads tags, so a tag-less repo has nothing
     to release from.
 
+    The ci.yml carries a nightly `schedule:` cron at a per-repo time inside
+    `test.full.schedule_window_utc`, which runs the full test tier.
+    `--schedule-only` adds that trigger to a ci.yml already in place.
+
     `--force` here overwrites existing files, unlike `push --force`, which
     skips pre-push checks.
     """
     from hyperi_ci.init import init_project
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
-    rc = init_project(dir_path, language=language, force=force, seed_tag=seed_tag)
+    rc = init_project(
+        dir_path,
+        language=language,
+        force=force,
+        seed_tag=seed_tag,
+        schedule_only=schedule_only,
+    )
     raise typer.Exit(rc)
 
 
