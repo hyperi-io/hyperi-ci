@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.39](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.38...v2.14.39) (2026-10-31)
+
+### Bug Fixes
+
+* **container:** rebuild a published image whose provenance shows emulation ([#782](https://github.com/hyperi-io/hyperi-ci/issues/782)) ([c6cf91c](https://github.com/hyperi-io/hyperi-ci/commit/c6cf91cd92b55c08cdaffa4a4acf6c9ed4ccb672))
+* harden curl fetches and the fleet sweep verdict ([#783](https://github.com/hyperi-io/hyperi-ci/issues/783)) ([0b34a46](https://github.com/hyperi-io/hyperi-ci/commit/0b34a466827cb940ed5a5f3c60e48f9353f71774))
+* **rust:** keep the build's cargo jobs in the runner-fit recommendation ([#780](https://github.com/hyperi-io/hyperi-ci/issues/780)) ([acf4575](https://github.com/hyperi-io/hyperi-ci/commit/acf457536abae94018438f45d37643522656a573))
+* **test:** let pytest -n auto honour the worker overrides and the 16 cap ([#779](https://github.com/hyperi-io/hyperi-ci/issues/779)) ([1b2daa1](https://github.com/hyperi-io/hyperi-ci/commit/1b2daa1c60d41313448e84dd9bbcc9a5643081a3))
+
 ## [2.14.38](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.37...v2.14.38) (2026-10-31)
 
 ### Bug Fixes
