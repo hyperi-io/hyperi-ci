@@ -227,6 +227,13 @@ def _reusable(
             f"{', '.join(missing)} image; rebuilding it with every platform."
         )
         return False
+    if image.native is not None and (emulated := sorted(set(platforms) - image.native)):
+        warn(
+            f"{version_tag} is already published from this commit, but its "
+            f"provenance does not show {', '.join(emulated)} built on its own "
+            "arch; rebuilding it natively."
+        )
+        return False
     info(f"{version_tag} is already published from this commit: reusing it")
     return True
 
