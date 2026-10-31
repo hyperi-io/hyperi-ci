@@ -365,31 +365,34 @@ class TestFromHeadThreading:
         assert "from-head" in wc and "bump" in wc
 
     @pytest.mark.parametrize(
-        ("container_result", "ships_container", "tags"),
+        ("merge_result", "ships_container", "tags"),
         [
             pytest.param("success", "true", True, id="image-shipped"),
-            pytest.param("success", "false", True, id="library"),
-            # Issue #33: a library's release survives a registry hiccup.
-            pytest.param("failure", "false", True, id="library-container-failed"),
+            # Issue #33: a library's release survives a registry hiccup, and
+            # its merge job never runs.
+            pytest.param("skipped", "false", True, id="library"),
             # Issue #102: no tag for a version the registry never got.
-            pytest.param("failure", "true", False, id="image-build-failed"),
-            # Issue #764: a job that dies before resolve leaves the output empty.
-            pytest.param("failure", "", False, id="died-before-resolve"),
+            pytest.param("failure", "true", False, id="merge-failed"),
+            pytest.param("skipped", "true", False, id="a-leg-failed"),
+            # Issue #764: a plan that dies before resolve leaves the output empty.
+            pytest.param("skipped", "", False, id="plan-died-before-resolve"),
             pytest.param("cancelled", "", False, id="cancelled-before-resolve"),
         ],
     )
     def test_release_tail_tags_only_behind_its_container(
-        self, container_result: str, ships_container: str, tags: bool
+        self, merge_result: str, ships_container: str, tags: bool
     ) -> None:
         wf = _load_workflow("_release-tail.yml")
-        assert wf["jobs"]["container"].get("outputs", {}).get("ships-container")
+        plan = wf["jobs"]["container-plan"]
+        assert plan.get("outputs", {}).get("ships-container")
+        assert "container-plan" in wf["jobs"]["tag-and-release"]["needs"]
         condition = " ".join(str(wf["jobs"]["tag-and-release"]["if"]).split())
         condition = condition.removeprefix("${{").removesuffix("}}")
         context = {
             "inputs.will-publish": "true",
             "needs.prepare.result": "success",
-            "needs.container.result": container_result,
-            "needs.container.outputs.ships-container": ships_container,
+            "needs.container.result": merge_result,
+            "needs.container-plan.outputs.ships-container": ships_container,
         }
         assert _fires(condition, context) is tags
 
@@ -567,20 +570,20 @@ class TestFromHeadThreading:
     def test_container_stamps_predicted_version_before_the_build(self) -> None:
         # The container job checks out HEAD on its own runner, so the Build job's
         # stamp never reaches the tree the Dockerfile copies (dfe-engine#271).
-        steps = _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+        tail = _load_workflow("_release-tail.yml")["jobs"]
+        steps = tail["container-build"]["steps"]
         names = [s.get("name") for s in steps]
         assert "Stamp predicted version" in names, (
-            "_release-tail.container: no 'Stamp predicted version' step -- the "
-            "image is built from the committed placeholder version."
+            "_release-tail.container-build: no 'Stamp predicted version' step -- "
+            "the image is built from the committed placeholder version."
         )
         assert names.index("Stamp predicted version") < names.index(
             "Build container"
-        ), "_release-tail.container: the stamp must run before 'Build container'."
+        ), "_release-tail.container-build: the stamp must run before the build."
         stamp = steps[names.index("Stamp predicted version")]
         ifc = str(stamp["if"])
-        assert "steps.resolve.outputs.build" in ifc, (
-            "container stamp must gate on the resolve step, like every Docker step"
-        )
+        # The leg job runs only when the plan resolved a container to build.
+        assert "ships-container == 'true'" in str(tail["container-build"]["if"])
         assert "inputs.will-publish == 'true'" in ifc, (
             "container stamp must only rewrite the tree on a publish run"
         )
@@ -1058,13 +1061,18 @@ class TestBranchModeThreading:
 
     def test_release_tail_container_accepts_pull_request(self) -> None:
         wf = _load_workflow("_release-tail.yml")
-        ifc = str(wf["jobs"]["container"]["if"])
+        ifc = str(wf["jobs"]["container-plan"]["if"])
         assert "github.event_name == 'pull_request'" in ifc, (
-            "_release-tail container job must accept pull_request events "
+            "_release-tail container-plan job must accept pull_request events "
             "(branch-mode dev builds)"
         )
         assert "fork != true" in ifc, (
-            "_release-tail container job must keep the fork guard"
+            "_release-tail container-plan job must keep the fork guard"
+        )
+        # The legs and the merge need the plan, so the fork guard reaches them too.
+        assert "container-plan" in wf["jobs"]["container-build"]["needs"]
+        assert "needs.container-plan.result == 'success'" in str(
+            wf["jobs"]["container"]["if"]
         )
 
     def test_release_tail_publish_still_gated_on_will_publish(self) -> None:
@@ -1396,7 +1404,7 @@ class TestBuildxCgroupParent:
     _PARENT = "vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent"
 
     def _steps(self) -> list[dict]:
-        return _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+        return _load_workflow("_release-tail.yml")["jobs"]["container-build"]["steps"]
 
     def _index(self, pred) -> int:
         return next(i for i, s in enumerate(self._steps()) if pred(s))
@@ -1416,8 +1424,11 @@ class TestBuildxCgroupParent:
         assert hub < probe < buildx
 
     def test_the_probe_is_gated_like_every_docker_step(self) -> None:
-        cond = str(self._probe_step().get("if", ""))
-        assert "steps.resolve.outputs.build == 'true'" in cond
+        # The whole leg job is gated on the plan, so a library starts no leg.
+        job = _load_workflow("_release-tail.yml")["jobs"]["container-build"]
+        assert "needs.container-plan.outputs.ships-container == 'true'" in str(
+            job["if"]
+        )
 
     def test_the_variable_skips_the_probe(self) -> None:
         cond = str(self._probe_step().get("if", ""))
@@ -1804,21 +1815,28 @@ class TestReleaseTailDecoupling:
     def test_container_resolves_before_docker(self) -> None:
         # The Docker-touching steps must gate on the resolve step's output
         # so a library never pulls buildkit / logs in to GHCR.
-        steps = self._tail()["jobs"]["container"]["steps"]
+        jobs = self._tail()["jobs"]
+        steps = jobs["container-plan"]["steps"]
         assert any(s.get("id") == "resolve" for s in steps), (
-            "container job must have a 'resolve' step before Docker setup."
+            "container-plan job must have a 'resolve' step before Docker setup."
         )
         docker_steps = [
             s
             for s in steps
             if any(k in str(s.get("uses", "")) for k in ("buildx", "login-action"))
         ]
-        assert docker_steps, "expected Docker login/buildx steps in container job"
+        assert docker_steps, "expected a GHCR login in the container-plan job"
         for s in docker_steps:
             assert "steps.resolve.outputs.build" in str(s.get("if", "")), (
                 f"Docker step {s.get('name')!r} must gate on resolve output "
                 "so libraries skip Buildx/GHCR (issue #33)."
             )
+        # The leg and merge jobs hold every other Docker step and start only
+        # when the plan resolved a container.
+        for name in ("container-build", "container"):
+            assert "needs.container-plan.outputs.ships-container == 'true'" in str(
+                jobs[name]["if"]
+            ), f"{name} must gate on the plan's resolve output (issue #33)."
 
 
 class TestCommitCheckJob:
@@ -2121,6 +2139,24 @@ def test_the_container_build_resolves_its_runner_through_the_org_variables() -> 
         f"_release-tail.container: lost the free-mode escape, so an org with "
         f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
+
+
+def test_the_arm64_container_leg_runs_on_a_native_arm64_runner() -> None:
+    """issue #709: an arm64 image builds on arm64, never under QEMU on x64."""
+    runs_on = str(
+        _load_workflow("_release-tail.yml")["jobs"]["container-build"]["runs-on"]
+    )
+    arm64, _, amd64 = runs_on.partition(") || (")
+    assert arm64.startswith("${{ matrix.platform == 'linux/arm64' && (")
+    for want in (
+        "'ubuntu-24.04-arm'",
+        "vars.GH_RUNNER_ARM64_CONTAINER || vars.GH_RUNNER_ARM64",
+    ):
+        assert want in arm64, f"arm64 leg runner chain lost {want}: {runs_on}"
+    assert arm64.index("GH_RUNNER_ARM64_CONTAINER") < arm64.index(
+        "vars.GH_RUNNER_ARM64 "
+    )
+    assert "vars.GH_RUNNER_PUBLISH" in amd64 and "ARM64" not in amd64
 
 
 def test_the_publish_job_resolves_a_runner_like_the_container_job() -> None:
@@ -2882,10 +2918,10 @@ class TestMergeGroup:
 
 
 class TestContainerJobGate:
-    """Which events run _release-tail.yml's Container job (issue #479).
+    """Which events run _release-tail.yml's Container plan (issue #479).
 
-    A skipped Container job leaves ``ships-container`` empty, which blocks Tag &
-    Release, so a publish run must never skip Container.
+    A skipped plan leaves ``ships-container`` empty, which blocks Tag & Release,
+    so a publish run must never skip it.
     """
 
     _BETA = "refs/heads/beta"
@@ -2909,7 +2945,8 @@ class TestContainerJobGate:
 
     @staticmethod
     def _runs(event: str, ref: str, will_publish: str, fork: str) -> bool:
-        condition = str(_load_workflow("_release-tail.yml")["jobs"]["container"]["if"])
+        jobs = _load_workflow("_release-tail.yml")["jobs"]
+        condition = str(jobs["container-plan"]["if"])
         return _fires(
             condition,
             {
@@ -2973,7 +3010,8 @@ class TestContractChartInTheReleaseTail:
         container = self._jobs()["container"]
         assert container["outputs"]["image"] == "${{ steps.build.outputs.image }}"
         build = next(s for s in container["steps"] if s.get("id") == "build")
-        assert build["name"] == "Build container"
+        assert build["name"] == "Merge the legs into one tagged image"
+        assert build["env"]["HYPERCI_CONTAINER_MODE"] == "merge"
         assert build["run"] == "${{ env.HYPERCI_INSTALL }} run container"
 
     def test_no_job_in_the_tail_runs_the_producer_or_assemble(self) -> None:
@@ -3368,10 +3406,15 @@ class TestTheBranchGuardRunsBeforeEveryPublish:
         assert len(found) == 1, f"expected one branch guard, found {len(found)}"
         return found[0]
 
-    def test_it_is_the_last_step_before_the_container_push(self) -> None:
+    def test_it_is_the_last_step_before_the_container_tags(self) -> None:
+        # The legs push untagged digests, which no one pulls as a release, so the
+        # guard sits before the merge that names them.
         steps = self._steps("container")
         names = [s.get("name") for s in steps]
-        assert self._guard_index(steps) == names.index("Build container") - 1
+        merge = names.index("Merge the legs into one tagged image")
+        assert self._guard_index(steps) == merge - 1
+        for leg_step in self._steps("container-build"):
+            assert leg_step.get("uses") != _BRANCH_GUARD
 
     def test_it_runs_before_the_charts_and_every_tag(self) -> None:
         steps = self._steps("tag-and-release")

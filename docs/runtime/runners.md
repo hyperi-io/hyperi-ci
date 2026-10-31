@@ -52,6 +52,7 @@ There is no C++ reusable workflow. The org `GH_RUNNER_CPP` variable is read by n
 | Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
 | arm64 build leg | `runner-build-arm64` input -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |
 | arm64 parity build | `runner-arm64-check` input -> `GH_RUNNER_ARM64_CHECK` -> the arm64 build leg's chain | no PGO or BOLT, so it fits a smaller runner than a release build |
+| arm64 container leg | `free` -> `ubuntu-24.04-arm`, else `GH_RUNNER_ARM64_CONTAINER` -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | arm64 images build natively, never under emulation on x64. A Dockerfile's COPY and apt steps fit a far smaller runner than a Rust Build |
 
 Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml` (version: `tools.pyyaml` in `versions.yaml`). No image needs PyYAML or yq. A config that exists and cannot be read raises a `::warning::` naming the file, and its settings take their defaults.
 
