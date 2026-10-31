@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from hyperi_ci.common import run_cmd
 from hyperi_ci.config import shipped_default
 from hyperi_ci.init import _render_workflow, init_project
 from hyperi_ci.schedule import ScheduleResult, ensure_schedule, schedule_cron
@@ -111,6 +112,11 @@ class TestEnsureSchedule:
 
 
 class TestInitScaffold:
+    @pytest.fixture(autouse=True)
+    def _no_actions_repo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # CI sets GITHUB_REPOSITORY to hyperi-ci, which would name every project.
+        monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+
     def test_render_includes_the_cron_when_given(self) -> None:
         doc = yaml.safe_load(_render_workflow("p", "python-ci.yml", cron="7 15 * * *"))
         assert triggers(doc)["schedule"] == [{"cron": "7 15 * * *"}]
@@ -126,6 +132,21 @@ class TestInitScaffold:
         assert 14 <= hour <= 18
         assert minute not in (0, 30)
         assert entry["cron"] == schedule_cron("my-service", WINDOW)
+
+    def test_origin_repo_name_beats_the_checkout_dir(self, tmp_path: Path) -> None:
+        project = tmp_path / "renamed-checkout"
+        project.mkdir()
+        (project / "pyproject.toml").write_text("[project]\n")
+        for args in (
+            ["init", "-q"],
+            ["remote", "add", "origin", "git@github.com:hyperi-io/dfe-loader.git"],
+        ):
+            run_cmd(["git", *args], capture=True, check=True, cwd=project)
+        init_project(project, seed_tag=False)
+        doc = yaml.safe_load((project / ".github/workflows/ci.yml").read_text())
+        [entry] = triggers(doc)["schedule"]
+        assert entry["cron"] == schedule_cron("dfe-loader", WINDOW)
+        assert entry["cron"] != schedule_cron("renamed-checkout", WINDOW)
 
     def test_init_takes_the_window_from_project_config(self, tmp_path: Path) -> None:
         project = tmp_path / "my-service"

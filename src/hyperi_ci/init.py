@@ -526,7 +526,7 @@ def _add_schedule(project_dir: Path) -> int:
     if not workflow_path.is_file():
         error(f"No {workflow_path.relative_to(project_dir)} to add a schedule to")
         return 1
-    cron = project_cron(project_dir, project_dir.name)
+    cron = project_cron(project_dir)
     match ensure_schedule(workflow_path, cron):
         case ScheduleResult.ADDED:
             success(f"  Added schedule cron '{cron}' to ci.yml")
@@ -614,7 +614,7 @@ def init_project(
             workflow_file,
             license_id=license_id,
             submodules=submodules,
-            cron=project_cron(project_dir, project_name),
+            cron=project_cron(project_dir),
         )
         workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
         if _write_file(

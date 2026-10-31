@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 from hyperi_ci.config import ConfigError, load_config, shipped_default
+from hyperi_ci.description_source import repo_slug
 from hyperi_ci.gate_audit import triggers_on_schedule
 
 _MINUTES = tuple(m for m in range(60) if m not in (0, 30))
@@ -56,8 +57,14 @@ def schedule_cron(repo_name: str, window: str) -> str:
     return f"{_MINUTES[slot % len(_MINUTES)]} {hours[slot // len(_MINUTES)]} * * *"
 
 
-def project_cron(project_dir: Path, repo_name: str) -> str:
-    """Return the cron for a project, with the window from its merged config."""
+def project_cron(project_dir: Path) -> str:
+    """Return the cron for a project, with the window from its merged config.
+
+    The slot hashes the origin remote's repo name, so renaming the checkout dir
+    does not move it.
+    """
+    slug = repo_slug(project_dir)
+    repo_name = slug.rpartition("/")[2] if slug else project_dir.name
     try:
         config = load_config(project_dir=project_dir, reload=True, report_removed=False)
         window = str(config.setting("test.full.schedule_window_utc"))
