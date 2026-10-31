@@ -364,23 +364,34 @@ class TestFromHeadThreading:
         wc = on.get("workflow_call", {}).get("inputs", {})
         assert "from-head" in wc and "bump" in wc
 
-    def test_release_tail_blocks_the_tag_when_a_shipped_container_fails(self) -> None:
-        # A container-shipping project must not cut a tag/release its image
-        # does not back (issue #102): dfe-loader v1.18.19 advertised a version
-        # GHCR never had. A library keeps the issue-#33 decoupling.
+    @pytest.mark.parametrize(
+        ("container_result", "ships_container", "tags"),
+        [
+            pytest.param("success", "true", True, id="image-shipped"),
+            pytest.param("success", "false", True, id="library"),
+            # Issue #33: a library's release survives a registry hiccup.
+            pytest.param("failure", "false", True, id="library-container-failed"),
+            # Issue #102: no tag for a version the registry never got.
+            pytest.param("failure", "true", False, id="image-build-failed"),
+            # Issue #764: a job that dies before resolve leaves the output empty.
+            pytest.param("failure", "", False, id="died-before-resolve"),
+            pytest.param("cancelled", "", False, id="cancelled-before-resolve"),
+        ],
+    )
+    def test_release_tail_tags_only_behind_its_container(
+        self, container_result: str, ships_container: str, tags: bool
+    ) -> None:
         wf = _load_workflow("_release-tail.yml")
-        container = wf["jobs"]["container"]
-        assert container.get("outputs", {}).get("ships-container"), (
-            "container job must expose ships-container so tag-and-release can "
-            "tell a failed deliverable from a project that ships no container"
-        )
-        ifc = " ".join(str(wf["jobs"]["tag-and-release"]["if"]).split())
-        assert "needs.container.result == 'success'" in ifc, (
-            "tag-and-release must require a successful container..."
-        )
-        assert "needs.container.outputs.ships-container != 'true'" in ifc, (
-            "...unless the project ships no container (issue #33 decoupling)"
-        )
+        assert wf["jobs"]["container"].get("outputs", {}).get("ships-container")
+        condition = " ".join(str(wf["jobs"]["tag-and-release"]["if"]).split())
+        condition = condition.removeprefix("${{").removesuffix("}}")
+        context = {
+            "inputs.will-publish": "true",
+            "needs.prepare.result": "success",
+            "needs.container.result": container_result,
+            "needs.container.outputs.ships-container": ships_container,
+        }
+        assert _fires(condition, context) is tags
 
     def test_release_tail_tags_head_on_dispatch_auto(self) -> None:
         # semantic-release tags HEAD on from-head + bump=auto (re-uses the
@@ -2873,9 +2884,8 @@ class TestMergeGroup:
 class TestContainerJobGate:
     """Which events run _release-tail.yml's Container job (issue #479).
 
-    Tag & Release goes ahead when ``ships-container`` is empty, and a skipped
-    Container job leaves it empty. So a publish run that skips Container ships
-    its release with no image behind it.
+    A skipped Container job leaves ``ships-container`` empty, which blocks Tag &
+    Release, so a publish run must never skip Container.
     """
 
     _BETA = "refs/heads/beta"
