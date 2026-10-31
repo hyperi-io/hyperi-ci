@@ -285,6 +285,7 @@ def no_registry_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
     of the lookup patches it back.
     """
     monkeypatch.setattr(container_stage, "published_image", lambda _ref: None)
+    monkeypatch.setattr(container_stage, "built_natively", lambda _ref, _p: True)
 
 
 @pytest.fixture(autouse=True)

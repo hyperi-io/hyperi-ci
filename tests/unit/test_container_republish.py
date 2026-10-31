@@ -157,6 +157,26 @@ class TestPublishedImage:
     ) -> None:
         assert build.native_platforms(provenance, platforms) == native
 
+    @pytest.mark.parametrize(
+        ("returncode", "provenance", "native"),
+        [
+            # A leg digest's provenance is unkeyed, as dfe-hyperdx's arm64 leg showed.
+            pytest.param(0, _slsa("linux/arm64"), True, id="native-leg"),
+            pytest.param(0, _slsa("linux/amd64"), False, id="emulated-leg"),
+            pytest.param(0, None, False, id="no-provenance"),
+            pytest.param(1, None, False, id="registry-unreachable"),
+        ],
+    )
+    def test_built_natively(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        returncode: int,
+        provenance: dict[str, Any] | None,
+        native: bool,
+    ) -> None:
+        _inspect(monkeypatch, returncode=returncode, provenance=provenance)
+        assert build.built_natively(f"{_REF}@{_DIGEST}", "linux/arm64") is native
+
     def test_a_single_image_reads_its_revision_from_the_config_labels(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
