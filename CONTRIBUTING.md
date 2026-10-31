@@ -242,6 +242,7 @@ the planted failures (`uv run scripts/negative-cases.py`). Ran nothing, could
 not reach a repo, or a planted failure that went green is a FAILURE, not a pass.
 By hand: `uv run scripts/sweep-fleet.py --only <fixture>`.
 The sweep waits for a fixture carrying a `rehearse/*` branch, and reads one still held at its deadline as inconclusive.
+A run still going at the 50-minute deadline is inconclusive too, never red. The workflow reads it for another 50 minutes under a freshly minted App token (`--pending-file`, then `--collect`), because the first token lives 60.
 
 **A fixture switching a hyperi-ci feature off declares it.** Add a `masks:`
 entry to `config/fixtures.yaml` naming the feature, the reason, and the ISSUE

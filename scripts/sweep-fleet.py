@@ -30,11 +30,21 @@ runner-image canary, which dispatches the same fixtures and would have its
 runs cancelled by the sweep's. A canary still running at the deadline fails
 the sweep with nothing dispatched.
 
+A run still going at the deadline proves nothing either way, so it is
+inconclusive rather than red. The GitHub App token the sweep reads runs with
+lives 60 minutes, so a run that outlasts one window is handed to a second
+invocation under a fresh token: `--pending-file` has the first write the runs
+still going, and `--collect` has the second read them to a verdict.
+
 Usage:
     uv run scripts/sweep-fleet.py
     uv run scripts/sweep-fleet.py --only ci-test-go-app --timeout-minutes 30
     uv run scripts/sweep-fleet.py --language rust --dry-run
-Exit 1 on a failing fixture, 2 when the sweep proved nothing.
+    uv run scripts/sweep-fleet.py --pending-file pending.json
+    uv run scripts/sweep-fleet.py --collect pending.json
+Exit 1 on a failing fixture, 2 when the sweep proved nothing. With
+`--pending-file`, exit 0 when only runs still going are left, because the
+`--collect` run decides.
 """
 
 import argparse
@@ -44,8 +54,10 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from hyperi_ci.common import set_github_output
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -71,8 +83,9 @@ PENDING_RELEASE = "pending-release"
 HELD = "held"
 
 # Answered nothing, as distinct from answered badly - neither is PASS, so a run
-# carrying one can never go green.
-INCONCLUSIVE = (UNREACHABLE, PENDING_RELEASE, HELD)
+# carrying one can never go green. A run still going at the deadline has not
+# failed, so TIMEOUT sits here.
+INCONCLUSIVE = (TIMEOUT, UNREACHABLE, PENDING_RELEASE, HELD)
 
 _WORKFLOW = "ci.yml"
 _POLL_SECONDS = 20
@@ -87,6 +100,8 @@ class Result:
     fixture: str
     state: str
     detail: str
+    # Set on a TIMEOUT, so a later invocation can read the same run again.
+    run_id: int | None = None
 
 
 def _run(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
@@ -338,6 +353,138 @@ def run_result(
     return Result(fixture, FAIL, detail)
 
 
+def _read_pending(pending: dict[str, int], misses: dict[str, int]) -> list[Result]:
+    """Read each run still going once, and settle the ones that finished.
+
+    Args:
+        pending: Fixture -> run id. Settled and unreadable runs are removed.
+        misses: Consecutive failed reads per fixture, so one gh error is not a
+            verdict. Updated in place.
+
+    Returns:
+        A Result for each run settled by this pass.
+    """
+    settled: list[Result] = []
+    for name, run_id in list(pending.items()):
+        repo = f"{fixture_fleet.ORG}/{name}"
+        state = _run_state(repo, run_id)
+        if state is None:
+            misses[name] = misses.get(name, 0) + 1
+            if misses[name] >= _READ_ATTEMPTS:
+                settled.append(
+                    Result(
+                        name,
+                        UNREACHABLE,
+                        f"cannot read run {run_id} ({misses[name]} reads in a row)",
+                    )
+                )
+                del pending[name]
+            continue
+        misses.pop(name, None)
+        status, conclusion = state
+        # Finished means a conclusion to read, not only a completed status.
+        if status != "completed" or not conclusion:
+            continue
+        del pending[name]
+        jobs = (
+            None if rehearse_branch.run_passed(conclusion) else _read_jobs(repo, run_id)
+        )
+        settled.append(run_result(name, run_id, conclusion, jobs))
+    return settled
+
+
+def _still_going(pending: dict[str, int]) -> list[Result]:
+    """A TIMEOUT result for each run that outlasted its deadline."""
+    return [
+        Result(name, TIMEOUT, f"run {run_id} still going", run_id)
+        for name, run_id in pending.items()
+    ]
+
+
+def split_pending(results: list[Result]) -> tuple[list[Result], dict[str, int]]:
+    """Separate the runs still going from the results already decided.
+
+    Args:
+        results: A sweep's results.
+
+    Returns:
+        (the results that are decided, fixture -> run id for each TIMEOUT that
+        names a run it can be read from again).
+    """
+    pending = {
+        result.fixture: result.run_id
+        for result in results
+        if result.state == TIMEOUT and result.run_id is not None
+    }
+    settled = [result for result in results if result.fixture not in pending]
+    return settled, pending
+
+
+def write_pending(
+    path: Path, targets: list[str], settled: list[Result], pending: dict[str, int]
+) -> None:
+    """Record what the next invocation needs to finish this sweep.
+
+    Args:
+        path: The file to write.
+        targets: Every fixture the sweep set out to run.
+        settled: The results already decided, which the final verdict still needs.
+        pending: Fixture -> run id for the runs still going.
+    """
+    record = {
+        "targets": targets,
+        "settled": [asdict(result) for result in settled],
+        "pending": pending,
+    }
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+def read_pending(path: Path) -> tuple[list[str], list[Result], dict[str, int]]:
+    """Load what `write_pending` recorded.
+
+    Args:
+        path: The file written by `write_pending`.
+
+    Returns:
+        (targets, settled results, fixture -> run id still going).
+
+    Raises:
+        ValueError: The file is missing, unreadable or not in the written shape.
+    """
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        targets = [str(name) for name in record["targets"]]
+        settled = [Result(**result) for result in record["settled"]]
+        pending = {str(name): int(run) for name, run in record["pending"].items()}
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"cannot read the pending runs from {path}: {exc}") from exc
+    return targets, settled, pending
+
+
+def collect_pending(pending: dict[str, int], timeout_minutes: int) -> list[Result]:
+    """Wait for runs a first sweep left going, until each finishes or time is up.
+
+    Args:
+        pending: Fixture -> run id. Emptied as runs settle.
+        timeout_minutes: How long to keep reading them.
+
+    Returns:
+        One Result per run: settled, or TIMEOUT when it was still going.
+    """
+    deadline = time.time() + timeout_minutes * 60
+    misses: dict[str, int] = {}
+    results: list[Result] = []
+    while pending:
+        results.extend(_read_pending(pending, misses))
+        if not pending:
+            break
+        time.sleep(_POLL_SECONDS)
+        if time.time() >= deadline:
+            break
+    results.extend(_still_going(pending))
+    return results
+
+
 def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[str]]:
     """Turn per-fixture results into an exit code and a report.
 
@@ -348,7 +495,8 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
     Returns:
         (exit code, report lines). 0 all green, 1 a fixture failed, 2 the
         sweep proved nothing -- it ran none, could not reach one, one was
-        waiting on a release, or a rehearsal held one.
+        still going at the deadline, one was waiting on a release, or a
+        rehearsal held one.
     """
     # Wide enough for the longest state, so the column stays a column.
     lines = [
@@ -409,33 +557,7 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
             else:
                 pending[name] = started
 
-        for name, run_id in list(pending.items()):
-            repo = f"{fixture_fleet.ORG}/{name}"
-            state = _run_state(repo, run_id)
-            if state is None:
-                misses[name] = misses.get(name, 0) + 1
-                if misses[name] >= _READ_ATTEMPTS:
-                    results.append(
-                        Result(
-                            name,
-                            UNREACHABLE,
-                            f"cannot read run {run_id} ({misses[name]} reads in a row)",
-                        )
-                    )
-                    del pending[name]
-                continue
-            misses.pop(name, None)
-            status, conclusion = state
-            # Finished means a conclusion to read, not only a completed status.
-            if status != "completed" or not conclusion:
-                continue
-            del pending[name]
-            jobs = (
-                None
-                if rehearse_branch.run_passed(conclusion)
-                else _read_jobs(repo, run_id)
-            )
-            results.append(run_result(name, run_id, conclusion, jobs))
+        results.extend(_read_pending(pending, misses))
         if not (waiting or pending):
             break
         time.sleep(_POLL_SECONDS)
@@ -443,8 +565,7 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
         if time.time() >= deadline:
             break
 
-    for name, run_id in pending.items():
-        results.append(Result(name, TIMEOUT, f"run {run_id} still going"))
+    results.extend(_still_going(pending))
     for name, holders in waiting.items():
         results.append(
             Result(
@@ -480,7 +601,20 @@ def main() -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="name the targets, dispatch nothing"
     )
+    parser.add_argument(
+        "--pending-file",
+        default="",
+        help="write runs still going at the deadline here and exit 0 for --collect",
+    )
+    parser.add_argument(
+        "--collect",
+        default="",
+        help="finish the sweep a --pending-file run left, and print the verdict",
+    )
     args = parser.parse_args()
+
+    if args.collect:
+        return _collect(Path(args.collect), args.timeout_minutes)
 
     fleet = fixture_fleet.load_fleet()
     if problems := fixture_fleet.mask_problems(fleet):
@@ -527,10 +661,31 @@ def main() -> int:
         return 0
 
     results = _sweep(targets, args.timeout_minutes)
-    code, lines = sweep_verdict(names, results)
+    if args.pending_file:
+        settled, pending = split_pending(results)
+        if pending:
+            write_pending(Path(args.pending_file), names, settled, pending)
+            set_github_output(pending="true")
+            _print_results(sweep_verdict(names, results)[1])
+            print(
+                f"{len(pending)} run(s) still going: {', '.join(sorted(pending))}. "
+                "The collect step reads them under a fresh token."
+            )
+            return 0
+    return _report(names, results)
+
+
+def _print_results(lines: list[str]) -> None:
+    """Print the per-fixture report."""
     print("Sweep results:")
     for line in lines:
         print(line)
+
+
+def _report(names: list[str], results: list[Result]) -> int:
+    """Print the verdict on a finished sweep and return its exit code."""
+    code, lines = sweep_verdict(names, results)
+    _print_results(lines)
     if code == 0:
         print(f"FLEET GREEN: {len(results)} fixture(s) ran hyperi-ci@main and passed.")
     elif code == 1:
@@ -540,6 +695,17 @@ def main() -> int:
             "SWEEP INCONCLUSIVE: it did not prove main is safe. Read it, do not re-run blind."
         )
     return code
+
+
+def _collect(path: Path, timeout_minutes: int) -> int:
+    """Finish a sweep from its pending file and return the verdict's exit code."""
+    try:
+        names, settled, pending = read_pending(path)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 2
+    print(f"Collecting {len(pending)} run(s) still going: {', '.join(sorted(pending))}")
+    return _report(names, settled + collect_pending(pending, timeout_minutes))
 
 
 if __name__ == "__main__":

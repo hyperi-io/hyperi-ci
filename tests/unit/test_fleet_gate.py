@@ -296,11 +296,14 @@ class TestTheSweepVerdict:
         results = [sweep.Result("ci-test-go-app", sweep.FAIL, "run 1")]
         assert sweep.sweep_verdict(["ci-test-go-app"], results)[0] == 1
 
-    def test_a_timed_out_run_is_a_red_fleet(self) -> None:
+    def test_a_run_still_going_is_inconclusive_not_red(self) -> None:
+        """A run that outlasted the deadline has not failed."""
         results = [sweep.Result("ci-test-go-app", sweep.TIMEOUT, "run 1 still going")]
-        assert sweep.sweep_verdict(["ci-test-go-app"], results)[0] == 1
+        assert sweep.sweep_verdict(["ci-test-go-app"], results)[0] == 2
+        assert sweep.TIMEOUT in sweep.INCONCLUSIVE
 
-    def test_a_failure_outranks_an_unreachable_neighbour(self) -> None:
+    @pytest.mark.parametrize("neighbour", [sweep.UNREACHABLE, sweep.TIMEOUT])
+    def test_a_failure_outranks_an_inconclusive_neighbour(self, neighbour: str) -> None:
         """A proven failure is an answer whatever else could not be read.
 
         Reported as inconclusive, negative-cases prints "it did not prove any
@@ -308,13 +311,13 @@ class TestTheSweepVerdict:
         """
         results = [
             sweep.Result("ci-test-go-app", sweep.FAIL, "run 1"),
-            sweep.Result("ci-test-rust-app", sweep.UNREACHABLE, "gone"),
+            sweep.Result("ci-test-rust-app", neighbour, "gone"),
         ]
         code, lines = sweep.sweep_verdict(
             ["ci-test-go-app", "ci-test-rust-app"], results
         )
         assert code == 1
-        assert any("unreachable" in line for line in lines)
+        assert any(neighbour in line for line in lines)
 
     def test_a_failure_outranks_a_fixture_that_never_ran(self) -> None:
         results = [sweep.Result("ci-test-go-app", sweep.FAIL, "run 1")]
@@ -468,6 +471,17 @@ class TestPollingOneFixtureRun:
         assert [r.state for r in results] == [sweep.FAIL]
         assert "ci / Quality failure" in results[0].detail
         assert job_reads == [36515341852]
+
+    def test_a_run_going_at_the_deadline_keeps_its_id(self, monkeypatch) -> None:
+        results, _ = self._sweep(monkeypatch, [("in_progress", "")] * 20, [])
+        assert results == [
+            sweep.Result(
+                "ci-test-manifests",
+                sweep.TIMEOUT,
+                "run 36515341852 still going",
+                36515341852,
+            )
+        ]
 
 
 class _Clock:
@@ -779,6 +793,165 @@ class TestTheSweepWaitsForTheImageCanary:
         monkeypatch.setenv(sweep.CANARY_TOKEN_ENV, "")
         _, _, calls = self._main(monkeypatch, ["completed"])
         assert calls[0][1] is None
+
+
+class TestSlowRunsAreCollectedUnderAFreshToken:
+    """A run that outlasts the sweep's window is read to a verdict by --collect.
+
+    The App token the sweep reads with lives 60 minutes, so the second read
+    runs in its own step under a freshly minted one.
+    """
+
+    @staticmethod
+    def _names() -> tuple[str, str]:
+        fleet = fixture_fleet.load_fleet()
+        return fleet[0]["name"], fleet[1]["name"]
+
+    @classmethod
+    def _results(cls, states: tuple[str, str]) -> list:
+        return [
+            sweep.Result(
+                name, state, f"run {n}", 100 + n if state == sweep.TIMEOUT else None
+            )
+            for n, (name, state) in enumerate(zip(cls._names(), states, strict=True))
+        ]
+
+    def _first_step(self, monkeypatch, tmp_path, states, defer=False):
+        """main() over a faked sweep. Returns (code, pending file, GITHUB_OUTPUT)."""
+        pending_file = tmp_path / "pending.json"
+        output = tmp_path / "output"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+        monkeypatch.setattr(sweep, "_sweep", lambda *_a: self._results(states))
+        argv = ["sweep-fleet.py", "--only", ",".join(self._names()), "--skip-canary"]
+        if defer:
+            argv += ["--pending-file", str(pending_file)]
+        monkeypatch.setattr(sys, "argv", argv)
+        code = sweep.main()
+        written = pending_file if pending_file.exists() else None
+        return code, written, output.read_text() if output.exists() else ""
+
+    @pytest.mark.parametrize(
+        ("states", "code", "deferred"),
+        [
+            pytest.param((sweep.PASS, sweep.PASS), 0, False, id="all-pass"),
+            pytest.param((sweep.PASS, sweep.TIMEOUT), 0, True, id="slow-run-deferred"),
+            pytest.param(
+                (sweep.FAIL, sweep.TIMEOUT), 0, True, id="failure-waits-for-collect"
+            ),
+            pytest.param((sweep.PASS, sweep.FAIL), 1, False, id="failure-is-red"),
+            pytest.param(
+                (sweep.PASS, sweep.UNREACHABLE), 2, False, id="unreachable-inconclusive"
+            ),
+        ],
+    )
+    def test_the_first_step_defers_only_runs_still_going(
+        self, monkeypatch, tmp_path, capsys, states, code: int, deferred: bool
+    ) -> None:
+        got, written, output = self._first_step(monkeypatch, tmp_path, states, True)
+        out = capsys.readouterr().out
+        assert got == code
+        assert (written is not None) is deferred
+        assert ("pending=true" in output) is deferred
+        assert ("collect step reads them" in out) is deferred
+        assert ("FLEET" in out or "INCONCLUSIVE" in out) is not deferred
+
+    def test_nothing_pending_means_no_file_for_a_collect(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _, written, output = self._first_step(
+            monkeypatch, tmp_path, (sweep.PASS, sweep.PASS), True
+        )
+        assert written is None
+        assert output == ""
+
+    def test_without_a_pending_file_a_slow_run_is_inconclusive(
+        self, monkeypatch, tmp_path, capsys
+    ) -> None:
+        code, written, _ = self._first_step(
+            monkeypatch, tmp_path, (sweep.PASS, sweep.TIMEOUT)
+        )
+        assert (code, written) == (2, None)
+        assert "SWEEP INCONCLUSIVE" in capsys.readouterr().out
+
+    def test_the_pending_file_round_trips(self, tmp_path) -> None:
+        a, b = self._names()
+        settled = [sweep.Result(a, sweep.FAIL, "run 1: ci / Quality failure")]
+        path = tmp_path / "pending.json"
+        sweep.write_pending(path, [a, b], settled, {b: 101})
+        assert sweep.read_pending(path) == ([a, b], settled, {b: 101})
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(None, id="missing"),
+            pytest.param("not json", id="garbled"),
+            pytest.param('{"targets": []}', id="short"),
+        ],
+    )
+    def test_an_unreadable_pending_file_proves_nothing(
+        self, monkeypatch, tmp_path, capsys, content: str | None
+    ) -> None:
+        path = tmp_path / "pending.json"
+        if content is not None:
+            path.write_text(content, encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["sweep-fleet.py", "--collect", str(path)])
+        assert sweep.main() == 2
+        assert "cannot read the pending runs" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        ("settled", "reads", "code", "headline"),
+        [
+            pytest.param(
+                sweep.PASS,
+                [("in_progress", ""), ("completed", "success")],
+                0,
+                "FLEET GREEN",
+                id="slow-but-passing",
+            ),
+            pytest.param(
+                sweep.PASS,
+                [("in_progress", "")],
+                2,
+                "SWEEP INCONCLUSIVE",
+                id="still-going-after-both-windows",
+            ),
+            pytest.param(
+                sweep.PASS,
+                [("completed", "failure")],
+                1,
+                "FLEET RED",
+                id="slow-then-failed",
+            ),
+            pytest.param(
+                sweep.FAIL,
+                [("completed", "success")],
+                1,
+                "FLEET RED",
+                id="first-step-failure-survives",
+            ),
+        ],
+    )
+    def test_the_collect_step_gives_the_combined_verdict(
+        self, monkeypatch, tmp_path, capsys, settled, reads, code, headline
+    ) -> None:
+        a, b = self._names()
+        path = tmp_path / "pending.json"
+        sweep.write_pending(path, [a, b], [sweep.Result(a, settled, "run 1")], {b: 101})
+        answers = list(reads)
+        monkeypatch.setattr(sweep, "time", _Clock())
+        monkeypatch.setattr(
+            sweep,
+            "_run_state",
+            lambda *_a: answers.pop(0) if answers[1:] else answers[0],
+        )
+        monkeypatch.setattr(sweep, "_read_jobs", lambda *_a: [])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["sweep-fleet.py", "--collect", str(path), "--timeout-minutes", "1"],
+        )
+        assert sweep.main() == code
+        assert headline in capsys.readouterr().out
 
 
 class TestSelectingSweepTargets:

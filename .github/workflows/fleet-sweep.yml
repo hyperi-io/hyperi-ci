@@ -52,7 +52,7 @@ on:
       timeout-minutes:
         type: string
         default: "50"
-        description: "How long to wait for the fixture runs. Keep it under 60: the App token the sweep reads runs with expires then."
+        description: "How long each of the two waits lasts (sweep, then collect). Keep it under 60: the App token the sweep reads runs with expires then."
 
 concurrency:
   group: fleet-sweep
@@ -65,9 +65,10 @@ jobs:
   sweep:
     name: Fleet sweep
     runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-    # Above the canary wait plus the sweep's own default, so a hung fixture is
-    # reported by the sweep, with its run id, rather than killed by the job.
-    timeout-minutes: 180
+    # Above the canary wait (90), the sweep (50) and the collect (50) plus setup,
+    # so a hung fixture is reported by the sweep, with its run id, rather than
+    # killed by the job.
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,6 +131,9 @@ jobs:
           permission-contents: read
 
       - name: Run the fleet against main
+        # Exits 0 with `pending=true` when runs are still going at the deadline,
+        # and the collect step below gives the verdict.
+        id: sweep
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
           ONLY: ${{ inputs.only }}
@@ -141,7 +145,32 @@ jobs:
             --only "$ONLY" \
             --language "$LANGUAGE" \
             --timeout-minutes "$TIMEOUT_MINUTES" \
+            --pending-file "$RUNNER_TEMP/sweep-pending.json" \
             --skip-canary
+
+      - name: Mint a fleet collect token
+        # The dispatch token is nearly expired by now. Reading a run needs only
+        # actions: read.
+        id: collect
+        if: ${{ steps.sweep.outputs.pending == 'true' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.fleet.outputs.repos }}
+          permission-actions: read
+
+      - name: Collect slow fixture runs
+        if: ${{ steps.sweep.outputs.pending == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.collect.outputs.token }}
+          # Under the collect token's 60-minute life.
+          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '50' }}
+        run: |
+          uv run --no-sources python scripts/sweep-fleet.py \
+            --timeout-minutes "$TIMEOUT_MINUTES" \
+            --collect "$RUNNER_TEMP/sweep-pending.json"
 
   # ---------------------------------------------------------------------------
   # negative-cases - the half the sweep above cannot prove.
