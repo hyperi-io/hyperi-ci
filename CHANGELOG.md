@@ -3,6 +3,18 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.38](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.37...v2.14.38) (2026-10-31)
+
+### Bug Fixes
+
+* **ci:** read slow fleet sweep runs under a fresh token, and call a timeout inconclusive ([#775](https://github.com/hyperi-io/hyperi-ci/issues/775)) ([4e42fde](https://github.com/hyperi-io/hyperi-ci/commit/4e42fdeb7a380ff2c137b92f7bddba9127f9902f))
+* **container:** build each arch on its own runner and merge by digest ([#769](https://github.com/hyperi-io/hyperi-ci/issues/769)) ([12836e9](https://github.com/hyperi-io/hyperi-ci/commit/12836e9de3ec1d0f3e4f3f9bcf805fe20f4cb55d)), closes [#709](https://github.com/hyperi-io/hyperi-ci/issues/709)
+* **container:** refuse a CI image build for a platform the runner is not ([#778](https://github.com/hyperi-io/hyperi-ci/issues/778)) ([b1b2665](https://github.com/hyperi-io/hyperi-ci/commit/b1b266508e95419ab07776ceac5088f9f02bf540))
+* **init:** scaffold a nightly full-tier schedule into ci.yml ([#777](https://github.com/hyperi-io/hyperi-ci/issues/777)) ([f6dbdd2](https://github.com/hyperi-io/hyperi-ci/commit/f6dbdd24762ed370b6d064b75581471c89fd08c7))
+* **release:** block the tag when Container dies before it resolves ([#766](https://github.com/hyperi-io/hyperi-ci/issues/766)) ([75c9f65](https://github.com/hyperi-io/hyperi-ci/commit/75c9f65af463580e607cc0fc060caf9fdc3732f7)), closes [#764](https://github.com/hyperi-io/hyperi-ci/issues/764)
+* **rust:** install cargo tools from $HOME, not the project ([#774](https://github.com/hyperi-io/hyperi-ci/issues/774)) ([37a1337](https://github.com/hyperi-io/hyperi-ci/commit/37a1337a6d5cd562339d03c67b7ab59c49d74d66))
+* **tools:** pin clickhouse as a native tool ([#776](https://github.com/hyperi-io/hyperi-ci/issues/776)) ([cca23bd](https://github.com/hyperi-io/hyperi-ci/commit/cca23bddd35aa2bfbe514149bbdb66024e0e9fa4))
+
 ## [2.14.37](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.36...v2.14.37) (2026-10-31)
 
 ### Bug Fixes
