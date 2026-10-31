@@ -23,9 +23,7 @@ import os
 
 from hyperi_ci.common import warn
 from hyperi_ci.config import CIConfig, shipped_default
-from hyperi_ci.sizing import usable_mb
-
-WORKERS_ENV = "HYPERCI_TEST_WORKERS"
+from hyperi_ci.sizing import WORKERS_ENV, parse_workers, usable_mb
 
 
 def forced_workers() -> int | None:
@@ -38,11 +36,10 @@ def forced_workers() -> int | None:
     raw = os.environ.get(WORKERS_ENV, "").strip()
     if not raw:
         return None
-    try:
-        return max(0, int(raw))
-    except ValueError:
+    count = parse_workers(raw)
+    if count is None:
         warn(f"{WORKERS_ENV}: '{raw}' is not a number - ignoring it")
-        return None
+    return count
 
 
 def per_worker_mb(config: CIConfig, key: str) -> int:
