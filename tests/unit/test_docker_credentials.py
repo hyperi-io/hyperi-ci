@@ -30,7 +30,7 @@ DOCKER_HUB = {"docker.io", "index.docker.io", "registry-1.docker.io"}
 
 # Jobs allowed a Docker Hub login, and why no repo code can read it there.
 DOCKER_HUB_LOGINS: dict[tuple[str, str], str] = {
-    ("_release-tail.yml", "container"): (
+    ("_release-tail.yml", "container-build"): (
         "authenticates the Dockerfile's base-image pulls; the only repo code "
         "after it is the Dockerfile, whose RUN steps execute inside BuildKit "
         "and never see the client's config.json"
