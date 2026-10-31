@@ -27,6 +27,7 @@ from hyperi_ci.memory import GIB, MemoryLimit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARC = "arc-native-16x32"
+ARC_4 = "arc-native-4x8"
 NS_AMD = "namespace-profile-hyperi-amd64-32x64"
 NS_ARM_16 = "namespace-profile-hyperi-arm64-16x32"
 NS_ARM_32 = "namespace-profile-hyperi-arm64-32x64"
@@ -174,10 +175,38 @@ class TestVerdict:
             assert f"{per_job:.1f}" in got.notes[0]
             assert f"{planned:g}" in got.notes[0]
 
+    @pytest.mark.parametrize(
+        ("jobs", "per_job", "recommended"),
+        [
+            # 16 jobs at 2 GiB on 16x32 is CPU-bound: 4x8 would cut it to 4 jobs.
+            pytest.param(16, 1.5, ARC, id="cpu-bound-build-stays"),
+            pytest.param(None, 1.5, ARC_4, id="jobs-unknown-falls-to-min-jobs"),
+            pytest.param(3, 1.5, ARC_4, id="memory-bound-build-moves-down"),
+            pytest.param(20, 1.5, NS_AMD, id="more-jobs-than-arc-cpus"),
+            pytest.param(48, 1.0, None, id="no-profile-has-the-cpus"),
+        ],
+    )
+    def test_the_recommendation_keeps_the_jobs_the_build_ran(
+        self, jobs: int | None, per_job: float, recommended: str | None
+    ) -> None:
+        settings = FitSettings(
+            0.2, 2, 0.25, (RunnerProfile(ARC_4, "amd64", 4, 8), *SETTINGS.profiles)
+        )
+        got = _verdict(
+            settings=settings,
+            jobs=jobs,
+            per_job_peak_gib=per_job,
+            max_peak_gib=per_job * (jobs or 2),
+        )
+        assert got.recommended == recommended
+        if recommended is None:
+            assert "CPUs" in got.move_reason
+
     def test_move_reason_names_the_numbers_and_the_cost_order(self) -> None:
         got = _verdict(runner_label=NS_AMD)
         assert got.move_reason == (
-            f"per-job peak 5.0 GiB x 2 jobs fits {ARC} (32 GiB), cheaper than {NS_AMD}"
+            f"per-job peak 5.0 GiB x 2 jobs fits {ARC} (16 CPUs, 32 GiB), "
+            f"cheaper than {NS_AMD}"
         )
 
     @pytest.mark.parametrize(

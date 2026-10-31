@@ -387,9 +387,10 @@ build:
     memory_per_job_gib: 2
     # Advice in runner-fit.json on which runner profile holds the Build. It
     # never changes a runner. `profiles` run cheapest first: x64 under 32 cores
-    # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when
-    # `min_jobs` concurrent rustc at the measured per-job peak fit its memory
-    # with `min_headroom` free. `per_job_drift` is the relative gap to
+    # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when it
+    # has a CPU for each cargo job the build ran (at least `min_jobs`) and that
+    # many jobs at the measured per-job peak fit its memory with `min_headroom`
+    # free. `per_job_drift` is the relative gap to
     # `memory_per_job_gib` that earns a note.
     runner_fit:
       min_headroom: 0.2

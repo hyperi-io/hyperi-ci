@@ -1355,6 +1355,7 @@ class TestRunPgoBuildOrchestration:
                 "hyperi_ci.languages.rust.pgo._run_cargo_pgo",
                 return_value=1,
             ) as mock_cargo,
+            patch("hyperi_ci.languages.rust.pgo.log_peak_memory") as marks,
         ):
             rc = run_pgo_build(
                 target="x86_64-unknown-linux-gnu",
@@ -1365,6 +1366,8 @@ class TestRunPgoBuildOrchestration:
         assert rc == 1
         # Only called once (instrument) -- pipeline aborted
         assert mock_cargo.call_count == 1
+        # The failed phase still records its peak, an OOM kill most of all.
+        marks.assert_called_once_with("pgo-instrument")
 
     def test_workload_failure_aborts_pipeline(self, tmp_path) -> None:
         # Create the expected instrumented binary so path check passes
@@ -1380,6 +1383,7 @@ class TestRunPgoBuildOrchestration:
             ),
             patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
             patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=3),
+            patch("hyperi_ci.languages.rust.pgo.log_peak_memory") as marks,
         ):
             rc = run_pgo_build(
                 target="x86_64-unknown-linux-gnu",
@@ -1389,6 +1393,10 @@ class TestRunPgoBuildOrchestration:
             )
         # Hard fail: bad profile data is worse than no PGO
         assert rc == 3
+        assert [c.args[0] for c in marks.call_args_list] == [
+            "pgo-instrument",
+            "pgo-workload",
+        ]
 
     def test_full_pipeline_runs_instrument_workload_optimise(self, tmp_path) -> None:
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
