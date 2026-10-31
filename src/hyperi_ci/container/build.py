@@ -438,6 +438,15 @@ def _sole_child_digest(manifests: object) -> str | None:
     return only if isinstance(only, str) else None
 
 
+def built_natively(ref: str, platform: str) -> bool:
+    """Return True when ``ref``'s provenance shows ``platform`` built on its own arch.
+
+    No provenance, or a registry that cannot be asked, is False.
+    """
+    provenance = _inspect_json(ref, "{{json .Provenance}}")
+    return platform in native_platforms(provenance, frozenset({platform}))
+
+
 def published_image(ref: str) -> PublishedImage | None:
     """Return the image the registry already holds at ``ref``, else None.
 

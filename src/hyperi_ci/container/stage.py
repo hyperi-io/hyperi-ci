@@ -60,6 +60,7 @@ from hyperi_ci.container.build import (
     BuildArgError,
     PublishedImage,
     build_and_push,
+    built_natively,
     imagetools_create_command,
     published_image,
     push_by_digest_output,
@@ -713,6 +714,18 @@ def _merge(
         labels_to_index_annotation_args(spec.labels) if len(platforms) > 1 else []
     )
     sources = [f"{spec.repo}@{digest}" for digest in digests]
+    # Before any tag moves, so an emulated leg never reaches a released tag.
+    emulated = [
+        platform
+        for platform, source in zip(platforms, sources, strict=True)
+        if not built_natively(source, platform)
+    ]
+    if emulated:
+        error(
+            f"The {', '.join(emulated)} leg's provenance does not show it built on "
+            "its own arch, so it is not tagged. Rebuild it on a native runner."
+        )
+        return 1
     if not _create_index(spec.tags, sources, annotations):
         return 1
 

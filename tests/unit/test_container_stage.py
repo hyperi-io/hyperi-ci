@@ -916,6 +916,29 @@ class TestMergeMode:
             "image": f"{_repo()}:v1.2.3@{_INDEX}",
         }
 
+    @pytest.mark.parametrize(
+        "emulated",
+        [
+            pytest.param({"linux/arm64"}, id="arm64-leg-emulated"),
+            pytest.param(set(_BOTH), id="no-provenance-on-either"),
+        ],
+    )
+    def test_a_leg_not_proven_native_is_never_tagged(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        emulated: set[str],
+    ) -> None:
+        self._env(monkeypatch, self._digests(tmp_path, amd64=_AMD, arm64=_ARM), _BOTH)
+        monkeypatch.setattr(
+            stage_module, "built_natively", lambda _ref, p: p not in emulated
+        )
+        assert _mode("release", "merge") == 1
+        # Refused before imagetools create, so no tag moved.
+        assert seams.writes == []
+        assert seams.outputs == {}
+
     def test_one_leg_is_tagged_with_no_annotations(
         self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
