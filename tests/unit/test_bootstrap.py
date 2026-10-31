@@ -185,9 +185,10 @@ class TestNothingUnpinned:
     ) -> dict[str, list]:
         seen: dict[str, list] = {"fetch": [], "digest": [], "run": []}
 
-        def fake_download(name: str, url: str) -> bytes:
+        def fake_download(name: str, url: str, dest: Path, **_kw: object) -> bool:
             seen["fetch"].append((name, url))
-            return payload
+            dest.write_bytes(payload)
+            return True
 
         def fake_digest(name: str, key: str) -> str:
             seen["digest"].append((name, key))
@@ -201,7 +202,7 @@ class TestNothingUnpinned:
         monkeypatch.setattr(bootstrap.platform, "machine", lambda: "x86_64")
         monkeypatch.setattr(native_tools.sys, "platform", "linux")
         monkeypatch.setattr(bootstrap, "_have", lambda _b: True)
-        monkeypatch.setattr(native_tools, "download_artefact", fake_download)
+        monkeypatch.setattr(native_tools, "download_to_file", fake_download)
         monkeypatch.setattr(native_tools, "tool_sha256", fake_digest)
         monkeypatch.setattr(bootstrap, "_run", fake_run)
         monkeypatch.setenv("CARGO_HOME", str(tmp_path))

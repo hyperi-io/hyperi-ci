@@ -241,11 +241,12 @@ def linux_amd64(monkeypatch: pytest.MonkeyPatch) -> dict:
         lambda name, arch: hashlib.sha256(state["payload"]).hexdigest(),
     )
 
-    def _download(name: str, url: str) -> bytes:
+    def _download(name: str, url: str, dest: Path, **_kw: object) -> bool:
         state["urls"].append(url)
-        return state["payload"]
+        dest.write_bytes(state["payload"])
+        return True
 
-    monkeypatch.setattr(native_tools, "download_artefact", _download)
+    monkeypatch.setattr(native_tools, "download_to_file", _download)
     return state
 
 

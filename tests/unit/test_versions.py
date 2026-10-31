@@ -82,6 +82,7 @@ class TestEveryDownloadedToolIsPinnedAndVerifiable:
         "sccache",
         "tofu",
         "kustomize",
+        "clickhouse",
     )
 
     @pytest.mark.parametrize("tool", DOWNLOADED)

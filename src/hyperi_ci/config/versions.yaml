@@ -352,6 +352,18 @@ tools:
     sha256:
       amd64: 06af0a202c2b831207d0173f9c9cdb1b30abceca0747cb3fbb72792d26055c95
       arm64: 0991957191951cb7dddd142403b5bb98a1fcd6378ba0079dddc1e2c309080a7f
+  # native_tools.py streams clickhouse-common-static-<numeric version>-<arch>.tgz
+  # (about 265 MB) and installs its one `clickhouse` binary, plus the
+  # `clickhouse-local` symlink the multi-call binary dispatches on. The digests
+  # are of the .tgz, matched against GitHub's recorded asset digest and a
+  # sha256sum of a full download. Tags read `vYY.M.P.B-stable`, which
+  # `--stable` cannot order, so a bump is by hand: new version plus both digests.
+  clickhouse:
+    version: "v26.10.2.103-stable"
+    repo: ClickHouse/ClickHouse
+    sha256:
+      amd64: ec811478449184dea496ba17c3f76fdd3aeb2013dd5041676bd00041fed98d17
+      arm64: bd59e072630c8884037575c59dad664330fd69c4247da334c9cf1b3f79a1a4c4
 
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could
