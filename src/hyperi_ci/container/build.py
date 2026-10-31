@@ -348,11 +348,47 @@ def pushed_digest(metadata_file: Path) -> str | None:
 
 @dataclass(frozen=True)
 class PublishedImage:
-    """An image the registry already holds at a tag."""
+    """An image the registry already holds at a tag.
+
+    Attributes:
+        digest: The tag's manifest or index digest.
+        revision: The commit it was built from, None when unrecorded.
+        platforms: The ``os/arch`` of each image it holds.
+        native: The platforms its SLSA provenance says were built on their own
+            arch. None when provenance was not read.
+
+    """
 
     digest: str
     revision: str | None
     platforms: frozenset[str]
+    native: frozenset[str] | None = None
+
+
+def _os_arch(platform: str) -> str:
+    """Return ``os/arch`` from a platform that may carry a variant."""
+    return "/".join(platform.split("/")[:2])
+
+
+def native_platforms(provenance: object, platforms: frozenset[str]) -> frozenset[str]:
+    """Return the platforms whose provenance ``builderPlatform`` is their own.
+
+    ``imagetools inspect --format '{{json .Provenance}}'`` keys an index by
+    platform, and gives a single image's provenance unkeyed.
+    """
+    if not isinstance(provenance, dict):
+        return frozenset()
+    entries = provenance
+    if "SLSA" in provenance and len(platforms) == 1:
+        entries = {next(iter(platforms)): provenance}
+    native: set[str] = set()
+    for platform, entry in entries.items():
+        builder = entry
+        for key in ("SLSA", "buildDefinition", "internalParameters", "builderPlatform"):
+            builder = builder.get(key) if isinstance(builder, dict) else None
+        if isinstance(builder, str) and _os_arch(builder) == _os_arch(platform):
+            native.add(platform)
+    return frozenset(native)
 
 
 def _inspect_json(ref: str, template: str) -> dict[str, object] | None:
@@ -438,7 +474,13 @@ def published_image(ref: str) -> PublishedImage | None:
         image = _inspect_json(f"{ref.rpartition(':')[0]}@{child}", "{{json .Image}}")
         if image is not None:
             revision = _config_revision(image)
-    return PublishedImage(digest=digest, revision=revision, platforms=platforms)
+    provenance = _inspect_json(ref, "{{json .Provenance}}")
+    return PublishedImage(
+        digest=digest,
+        revision=revision,
+        platforms=platforms,
+        native=native_platforms(provenance, platforms),
+    )
 
 
 def _index_platforms(manifests: object) -> frozenset[str]:

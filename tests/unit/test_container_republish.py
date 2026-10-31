@@ -29,6 +29,23 @@ def _entry(os_name: str, arch: str) -> dict[str, Any]:
     }
 
 
+def _slsa(builder: str) -> dict[str, Any]:
+    """One platform's ``.Provenance``, built on ``builder``."""
+    return {
+        "SLSA": {
+            "buildDefinition": {"internalParameters": {"builderPlatform": builder}}
+        }
+    }
+
+
+def _built_on(**builders: str) -> dict[str, Any]:
+    """An index's ``.Provenance``, keyed by platform: ``linux_arm64="linux/amd64"``."""
+    return {k.replace("_", "/"): _slsa(v) for k, v in builders.items()}
+
+
+_NATIVE_BOTH = _built_on(linux_amd64="linux/amd64", linux_arm64="linux/arm64")
+
+
 def _inspect(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -37,12 +54,15 @@ def _inspect(
     stderr: str = "",
     image: dict[str, Any] | None = None,
     children: dict[str, dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> list[list[str]]:
     """Fake the registry; ``image`` answers ``.Image`` for ``_REF``."""
     calls: list[list[str]] = []
 
     def fake(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(cmd)
+        if cmd[-1] == "{{json .Provenance}}":
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(provenance), "")
         if cmd[-1] == "{{json .Image}}":
             ref = cmd[-3]
             found = (children or {}).get(ref, image if ref == _REF else None)
@@ -78,8 +98,15 @@ class TestPublishedImage:
             ],
             "annotations": {"org.opencontainers.image.revision": _REVISION},
         }
-        _inspect(monkeypatch, returncode=0, stdout=json.dumps(manifest))
-        assert published_image(_REF) == PublishedImage(_DIGEST, _REVISION, _BOTH)
+        _inspect(
+            monkeypatch,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            provenance=_NATIVE_BOTH,
+        )
+        assert published_image(_REF) == PublishedImage(
+            _DIGEST, _REVISION, _BOTH, native=_BOTH
+        )
 
     def test_an_image_with_no_revision_or_index_still_counts(
         self, monkeypatch: pytest.MonkeyPatch
@@ -91,8 +118,44 @@ class TestPublishedImage:
             image=_config(None),
         )
         assert published_image(_REF) == PublishedImage(
-            _DIGEST, None, frozenset({"linux/amd64"})
+            _DIGEST, None, frozenset({"linux/amd64"}), native=frozenset()
         )
+
+    @pytest.mark.parametrize(
+        ("provenance", "platforms", "native"),
+        [
+            pytest.param(_NATIVE_BOTH, _BOTH, _BOTH, id="both-native"),
+            pytest.param(
+                # dfe-receiver v1.15.58's shape: arm64 built on an amd64 builder.
+                _built_on(linux_amd64="linux/amd64", linux_arm64="linux/amd64"),
+                _BOTH,
+                frozenset({"linux/amd64"}),
+                id="arm64-emulated",
+            ),
+            pytest.param(
+                _built_on(linux_arm64="linux/arm64/v8"),
+                frozenset({"linux/arm64"}),
+                frozenset({"linux/arm64"}),
+                id="builder-variant",
+            ),
+            pytest.param(
+                _slsa("linux/arm64"),
+                frozenset({"linux/arm64"}),
+                frozenset({"linux/arm64"}),
+                id="single-image-unkeyed",
+            ),
+            pytest.param(None, _BOTH, frozenset(), id="no-provenance"),
+            pytest.param({"linux/arm64": {}}, _BOTH, frozenset(), id="no-builder"),
+            pytest.param({"linux/arm64": "x"}, _BOTH, frozenset(), id="malformed"),
+        ],
+    )
+    def test_native_platforms(
+        self,
+        provenance: object,
+        platforms: frozenset[str],
+        native: frozenset[str],
+    ) -> None:
+        assert build.native_platforms(provenance, platforms) == native
 
     def test_a_single_image_reads_its_revision_from_the_config_labels(
         self, monkeypatch: pytest.MonkeyPatch
@@ -108,13 +171,19 @@ class TestPublishedImage:
             returncode=0,
             stdout=json.dumps(manifest),
             image=_config(_REVISION, "arm64"),
+            provenance=_slsa("linux/arm64"),
         )
         assert published_image(_REF) == PublishedImage(
-            _DIGEST, _REVISION, frozenset({"linux/arm64"})
+            _DIGEST,
+            _REVISION,
+            frozenset({"linux/arm64"}),
+            native=frozenset({"linux/arm64"}),
         )
-        assert len(calls) == 2
+        assert len(calls) == 3
 
-    def test_an_index_costs_one_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_an_index_costs_a_manifest_and_a_provenance_lookup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         manifest = {
             "digest": _DIGEST,
             "manifests": [_entry("linux", "amd64"), _entry("linux", "arm64")],
@@ -122,7 +191,7 @@ class TestPublishedImage:
         }
         calls = _inspect(monkeypatch, returncode=0, stdout=json.dumps(manifest))
         published_image(_REF)
-        assert len(calls) == 1
+        assert [c[-1] for c in calls] == ["{{json .Manifest}}", "{{json .Provenance}}"]
 
     def test_an_attested_single_platform_index_reads_its_image_labels(
         self, monkeypatch: pytest.MonkeyPatch
@@ -140,9 +209,13 @@ class TestPublishedImage:
             children={
                 f"ghcr.io/hyperi-io/thing@{child}": _config(_REVISION),
             },
+            provenance=_built_on(linux_amd64="linux/amd64"),
         )
         assert published_image(_REF) == PublishedImage(
-            _DIGEST, _REVISION, frozenset({"linux/amd64"})
+            _DIGEST,
+            _REVISION,
+            frozenset({"linux/amd64"}),
+            native=frozenset({"linux/amd64"}),
         )
 
     @pytest.mark.parametrize(
@@ -204,7 +277,9 @@ def _answer_for(ref: str, digest: str, revision: str) -> Any:
     """Fake registry holding one single-platform image at ``ref``."""
 
     def fake(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if cmd[-1] == "{{json .Image}}":
+        if cmd[-1] == "{{json .Provenance}}":
+            body = _slsa("linux/amd64")
+        elif cmd[-1] == "{{json .Image}}":
             body = _config(revision)
         else:
             body = {"mediaType": "application/vnd.oci.image.manifest.v1+json"}
@@ -351,6 +426,27 @@ class TestARepublishedVersion:
         )
         assert rc == 0
         assert run.built is not reused
+
+    @pytest.mark.parametrize(
+        ("native", "built"),
+        [
+            pytest.param(_BOTH, False, id="native-reused"),
+            pytest.param(frozenset({"linux/amd64"}), True, id="emulated-arm64-rebuilt"),
+            pytest.param(frozenset(), True, id="no-provenance-rebuilt"),
+            pytest.param(None, False, id="provenance-not-read"),
+        ],
+    )
+    def test_an_image_not_proven_native_is_rebuilt(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        native: frozenset[str] | None,
+        built: bool,
+    ) -> None:
+        image = PublishedImage(_DIGEST, _REVISION, _BOTH, native=native)
+        rc, run = _dispatch(monkeypatch, image)
+        assert rc == 0
+        assert run.built is built
 
     @pytest.mark.parametrize("revision", ["0" * 40, None])
     def test_an_image_not_from_this_commit_is_rebuilt(
