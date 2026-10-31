@@ -162,6 +162,15 @@ class TestEveryToolIsPinned:
         assert url.endswith(tail.format(v=version, bare=bare, n=numbers[0]))
 
     @pytest.mark.parametrize("name", sorted(native_tools._TOOLS))
+    @pytest.mark.parametrize("arch", ["amd64", "arm64"])
+    def test_every_placeholder_fills(self, name: str, arch: str) -> None:
+        # A version with no digits leaves {numeric} empty and the URL 404s.
+        url, _ = native_tools._asset_url(name, arch)
+        assert "{" not in url
+        assert "--" not in url
+        assert "-." not in url
+
+    @pytest.mark.parametrize("name", sorted(native_tools._TOOLS))
     def test_the_archive_flag_matches_the_asset(self, name: str) -> None:
         url, _ = native_tools._asset_url(name, "amd64")
         assert native_tools._TOOLS[name].archive == url.endswith((".tar.gz", ".tgz"))
@@ -418,6 +427,23 @@ class TestMultiCallBinaryFromALargeArchive:
             "clickhouse",
             "clickhouse-local",
         ]
+
+    def test_a_failed_link_removes_the_links_made_before_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tool = native_tools.NativeTool(url="https://x/{version}", links=("a", "b"))
+        monkeypatch.setitem(native_tools._TOOLS, "two-links", tool)
+        real_replace = os.replace
+
+        def _second_fails(src: str | Path, dst: str | Path) -> None:
+            if Path(dst).name == "b":
+                raise OSError(errno.EPERM, "Operation not permitted")
+            real_replace(src, dst)
+
+        monkeypatch.setattr(native_tools.os, "replace", _second_fails)
+        with pytest.raises(OSError):
+            native_tools._link_aliases("two-links", tmp_path)
+        assert not (tmp_path / "a").is_symlink()
 
     def test_the_link_dispatches_on_its_own_name(self, tmp_path: Path) -> None:
         native_tools.install_into("clickhouse", tmp_path)

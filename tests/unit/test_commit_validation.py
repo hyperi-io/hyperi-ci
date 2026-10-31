@@ -10,7 +10,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from hyperi_ci.cli import app
 from hyperi_ci.quality import commit_validation as cv
 from hyperi_ci.quality.commit_validation import (
     ValidationResult,
@@ -18,6 +20,27 @@ from hyperi_ci.quality.commit_validation import (
     format_type_list,
     validate_message,
 )
+
+
+@pytest.mark.parametrize(
+    ("message", "code", "says"),
+    [
+        pytest.param("fix: correct the parser", 0, "", id="valid"),
+        pytest.param("fixed the parser", 1, "Computer says no", id="invalid"),
+        pytest.param(None, 1, "Cannot read the commit message file", id="no-file"),
+    ],
+)
+def test_check_commit_reads_a_message_file(
+    tmp_path: Path, message: str | None, code: int, says: str
+) -> None:
+    path = tmp_path / "MSG"
+    if message is not None:
+        path.write_text(message, encoding="utf-8")
+    result = CliRunner().invoke(app, ["check-commit", str(path)])
+    assert result.exit_code == code
+    assert says in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
 
 # ---------------------------------------------------------------------------
 # Valid messages

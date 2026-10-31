@@ -348,14 +348,22 @@ def _link_aliases(name: str, bin_dir: Path) -> None:
     """Point each of the tool's ``links`` at its binary, replacing a stale link.
 
     Raises:
-        OSError: A link could not be made.
+        OSError: A link could not be made. The links made before it are removed.
 
     """
-    for alias in _TOOLS[name].links:
-        staged = bin_dir / f".{alias}.{os.getpid()}.link"
-        staged.unlink(missing_ok=True)
-        staged.symlink_to(name)
-        os.replace(staged, bin_dir / alias)
+    made: list[Path] = []
+    try:
+        for alias in _TOOLS[name].links:
+            staged = bin_dir / f".{alias}.{os.getpid()}.link"
+            staged.unlink(missing_ok=True)
+            staged.symlink_to(name)
+            os.replace(staged, bin_dir / alias)
+            made.append(bin_dir / alias)
+    except OSError:
+        for link in made:
+            with contextlib.suppress(OSError):
+                link.unlink(missing_ok=True)
+        raise
 
 
 def install_into(name: str, bin_dir: Path) -> Path | None:

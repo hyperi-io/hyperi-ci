@@ -700,10 +700,13 @@ _CURL_CONNECT_TIMEOUT = 10
 _CURL_MAX_TIME = 180
 # Seconds past --max-time before the process is killed.
 _CURL_BACKSTOP = 20
-# curl exit codes: an HTTP status of 400 or more under -f, and a transfer past
-# --max-time.
+# curl exit codes: a protocol --proto refuses, an HTTP status of 400 or more
+# under -f, and a transfer past --max-time.
+_CURL_UNSUPPORTED_PROTOCOL = 1
 _CURL_HTTP_ERROR = 22
 _CURL_TIMED_OUT = 28
+# The protocols a fetch and its redirects may use.
+_CURL_PROTOCOLS = "=https"
 
 
 def _redact_url(url: str) -> str:
@@ -740,9 +743,11 @@ def _curl_attempt(cmd: list[str], max_time: int) -> subprocess.CompletedProcess[
 def _curl_retryable(result: subprocess.CompletedProcess[str]) -> bool:
     """Whether a failed curl attempt is worth making again.
 
-    Every failure is, except an HTTP status that asking again cannot change.
-    An HTTP error with no readable status is retried.
+    Every failure is, except a refused protocol and an HTTP status that asking
+    again cannot change. An HTTP error with no readable status is retried.
     """
+    if result.returncode == _CURL_UNSUPPORTED_PROTOCOL:
+        return False
     status = (result.stdout or "").strip()
     if result.returncode != _CURL_HTTP_ERROR or not status.isdigit():
         return True
@@ -765,13 +770,16 @@ def curl_fetch(
 
     A 5xx, 408 or 429, a transfer cut off mid-body, a timeout or any other curl
     failure is retried up to 7 times with :func:`backoff` waits. No retry starts
-    more than 600s after the first attempt. Any other HTTP status is final,
-    because asking again gets the same answer and spends rate limit.
+    more than 600s after the first attempt, or twice ``max_time`` when that is
+    longer, so a slow asset's timed-out attempt is retried once. Any other HTTP
+    status is final, because asking again gets the same answer and spends rate
+    limit.
 
-    A curl that outlives its own ``--max-time`` is killed 20 seconds later and
-    counts as a timeout (exit 28). ``-f`` makes an HTTP error a non-zero exit
-    rather than a saved error page. Each failed attempt logs curl's error line
-    after the URL with any ``user:password@`` removed.
+    Only https is fetched, a redirect included. A curl that outlives its own
+    ``--max-time`` is killed 20 seconds later and counts as a timeout (exit 28).
+    ``-f`` makes an HTTP error a non-zero exit rather than a saved error page.
+    Each failed attempt logs curl's error line after the URL with any
+    ``user:password@`` removed.
 
     Args:
         url: What to fetch.
@@ -791,6 +799,10 @@ def curl_fetch(
     cmd = [
         "curl",
         "-fsS",
+        "--proto",
+        _CURL_PROTOCOLS,
+        "--proto-redir",
+        _CURL_PROTOCOLS,
         *(["-L"] if follow_redirects else []),
         "--connect-timeout",
         str(_CURL_CONNECT_TIMEOUT),
@@ -804,6 +816,7 @@ def curl_fetch(
         url,
     ]
     shown = _redact_url(url)
+    window = max(_CURL_RETRY_MAX_TIME, 2 * max_time)
     started = time.monotonic()
     retry = 0
     while True:
@@ -816,7 +829,7 @@ def curl_fetch(
         retry_starts = time.monotonic() - started + delay
         if (
             retry == _CURL_RETRIES
-            or retry_starts >= _CURL_RETRY_MAX_TIME
+            or retry_starts >= window
             or not _curl_retryable(result)
         ):
             info(f"{shown}: {reason}")
