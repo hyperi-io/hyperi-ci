@@ -1789,9 +1789,13 @@ class TestFirstReleaseAndOrphanGuards:
             "tag-less branch must be tag-head; the else branch must be "
             "the real semantic-release run"
         )
-        # tag-head goes through `gh api` -- the step needs GH_TOKEN.
-        assert "GH_TOKEN" in sr.get("env", {}), (
-            "Tag step must export GH_TOKEN for tag-head's gh api call"
+        # tag-head goes through `gh api` and needs GH_TOKEN, but semantic-release
+        # must see one token variable or it vets auth URLs with a push dry-run.
+        assert 'GH_TOKEN="$GITHUB_TOKEN"' in run[idx_if:idx_tag_head], (
+            "tag-head must get GH_TOKEN on its own command line"
+        )
+        assert "GH_TOKEN" not in sr.get("env", {}), (
+            "semantic-release must see GITHUB_TOKEN alone (issue #738)"
         )
 
 
