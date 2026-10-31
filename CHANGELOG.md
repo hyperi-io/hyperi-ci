@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.40](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.39...v2.14.40) (2026-10-31)
+
+### Bug Fixes
+
+* **container:** refuse to tag a leg not proven native ([#785](https://github.com/hyperi-io/hyperi-ci/issues/785)) ([2871996](https://github.com/hyperi-io/hyperi-ci/commit/2871996ad3219c4639483d9d343b16db2fee69ae))
+* **test:** export the test tier and print the harness log ([#784](https://github.com/hyperi-io/hyperi-ci/issues/784)) ([83960e0](https://github.com/hyperi-io/hyperi-ci/commit/83960e0c29092511dc9f580ee0c983c646d309cb))
+
 ## [2.14.39](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.38...v2.14.39) (2026-10-31)
 
 ### Bug Fixes
