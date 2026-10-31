@@ -9,9 +9,9 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Container builds
 
-The release tail's Container job: when it runs, what scopes it, and how a container failure interacts with the rest of a release.
+The release tail's container jobs: when they run, what scopes them, and how a container failure interacts with the rest of a release.
 
-The `release-tail` builds an OCI image from the repo's own `Dockerfile`, with injected OCI labels, and pushes it to GHCR on a release. A push to main builds and discards the image (`validate` mode). A release pushes multi-arch `:vX`, `:latest` and `:sha-...`. GHCR auth is the job's `GITHUB_TOKEN` with `packages:write`.
+The `release-tail` builds an OCI image from the repo's own `Dockerfile`, with injected OCI labels, and pushes it to GHCR on a release. Three jobs do it: `Container plan`, one `Container (<platform>)` leg per arch on a runner of that arch, and `Container`, which merges the legs. A push to main builds each leg and discards it (`validate` mode). A release pushes each leg by digest, then the merge tags multi-arch `:vX`, `:latest` and `:sha-...`. GHCR auth is each job's `GITHUB_TOKEN` with `packages:write`.
 
 ## Dockerfile-only, resolved before Docker (issue #33)
 
@@ -19,17 +19,17 @@ The `release-tail` builds an OCI image from the repo's own `Dockerfile`, with in
 
 Under `true` a missing Dockerfile fails the stage. The decision is made *before* Docker Buildx boots, so a repo without one never pulls buildkit from Docker Hub or logs in to GHCR.
 
-## Docker Hub login is Container-only (issue #406)
+## Docker Hub login is the legs' only (issue #406)
 
-`docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. Container logs in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
+`docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. The container legs log in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. A fork PR never logs in. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
 
-## Container skips `release.stamp_cmd`
+## The container legs skip `release.stamp_cmd`
 
-Container holds the registry logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`). Build and Prepare run the command instead. Only a CLI release carrying the variable honours it.
+A leg holds the registry logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`). Build and Prepare run the command instead. Only a CLI release carrying the variable honours it.
 
 On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here. It can write `$GITHUB_ENV` or `$GITHUB_PATH`, or leave a process running for the steps after the logins, so ordering the stamp before them is not enough alone. The variable, unlike the flag, does not break the workflow on those older CLIs.
 
-The job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` from the build artefact.
+Each container job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` from the build artefact.
 
 ## Repo-named paths stay in the checkout
 
@@ -70,9 +70,9 @@ release:
 
 ## Release outcome when Container fails (issues #33, #102)
 
-Tag & Release reads `needs.container.outputs.ships-container` (`_release-tail.yml`). A project that ships **no** container is decoupled from Container's result (`always()`). A registry hiccup turns the run red, but the crate/PyPI/npm package and GitHub Release still ship and the tag is cut.
+Tag & Release reads `needs.container-plan.outputs.ships-container` (`_release-tail.yml`). Only an explicit `'false'`, a project the plan resolved as shipping **no** container, is decoupled from the container jobs (`always()`). A registry hiccup turns the run red, but the crate/PyPI/npm package and GitHub Release still ship and the tag is cut. A plan that died before resolving leaves the output empty, which blocks the tag (issue #764).
 
-A project that **does** ship a container treats the image as the deliverable, so Tag & Release also requires `needs.container.result == 'success'`. Without that gate, dfe-loader v1.18.19 cut a tag and GitHub Release while a Docker Hub 502 failed the container build. `latest` then pointed at a version GHCR never had, and anything pinning from that release got an image that did not exist.
+A project that **does** ship a container treats the image as the deliverable, so Tag & Release also requires the merge job, `needs.container.result`, to be `success`. Without that gate, dfe-loader v1.18.19 cut a tag and GitHub Release while a Docker Hub 502 failed the container build. `latest` then pointed at a version GHCR never had, and anything pinning from that release got an image that did not exist.
 
 ## Tag & Release runs no repo code (issue #409)
 
@@ -94,13 +94,15 @@ The build and prepared artefacts come from jobs that ran repo code, so Tag & Rel
 
 ## Native per-arch builds (issue #709)
 
-`HYPERCI_CONTAINER_MODE` splits the one multi-platform build into a plan, one leg per platform on a runner of that arch, and a merge. Unset, `run container` does the single build above.
+`HYPERCI_CONTAINER_MODE` sets which of the three jobs the stage is. The release tail always sets it. Unset, `run container` does one multi-platform build, as a local `hyperi-ci run container` does.
+
+In CI every mode refuses to build a platform that is not the runner's own arch, before buildx starts. BuildKit would otherwise fall back to its bundled QEMU, and a multi-arch build on one x64 runner built arm64 that way. A local build may still cross-build.
 
 | Mode | Reads | Does |
 |---|---|---|
-| `plan` | the release env | Writes `build`, `platforms` (a JSON list), `push`, `reuse` and `created`. Builds nothing. With `HYPERCI_CONTAINER_RESOLVE_ONLY` also set, a CLI release without the mode only resolves |
-| `leg` | `HYPERCI_CONTAINER_PLATFORM`, `HYPERCI_CONTAINER_CREATED`, and `HYPERCI_CONTAINER_DIGEST_DIR` on a push | Builds that one platform. A push goes by digest with no tag, and the digest lands in `<dir>/<arch>` (`linux/arm64` is `arm64`). A push with no digest fails |
-| `merge` | `HYPERCI_CONTAINER_DIGEST_DIR`, `HYPERCI_CONTAINER_PLATFORMS`, `HYPERCI_CONTAINER_REUSE`, `HYPERCI_CONTAINER_CREATED` | Fails when the digest files and the platforms differ, naming both. Runs one `imagetools create` with every tag and, for two or more platforms, the index annotations. Reads the index back and fails unless it carries this commit and every platform, then sets `image` and `digest` |
+| `plan` | the release env | Writes `build`, `platforms` (a JSON list), `push`, `reuse` and `created`. Builds nothing. The workflow also sets `HYPERCI_CONTAINER_RESOLVE_ONLY`, so a CLI too old to know plan mode only resolves, and the plan step fails on its missing outputs |
+| `leg` | `HYPERCI_CONTAINER_PLATFORM`, `HYPERCI_CONTAINER_CREATED`, and `HYPERCI_CONTAINER_DIGEST_DIR` on a push | Builds that one platform. A push goes by digest with no tag, and the digest lands in `<dir>/<arch>` (`linux/arm64` is `arm64`). A push with no digest fails. Refuses more than one registry |
+| `merge` | `HYPERCI_CONTAINER_DIGEST_DIR`, `HYPERCI_CONTAINER_PLATFORMS`, `HYPERCI_CONTAINER_REUSE`, `HYPERCI_CONTAINER_CREATED` | Fails when the digest files and the platforms differ, naming both. Runs one `imagetools create` with every tag and, for two or more platforms, the index annotations. Reads the index back and fails unless it carries this commit and every platform, then sets `image` and `digest`. Refuses a validate run and more than one registry |
 
 Every mode takes the version, push mode and tags from the same env as the single build. `created` comes from the plan, so every image of one release carries one timestamp. With `reuse` true the merge re-points the existing image instead.
 
