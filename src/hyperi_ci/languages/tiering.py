@@ -27,6 +27,9 @@ TEST_TIER_KEY = "test.tier"
 # The key ``stage_test`` puts the resolved tier under in a handler's ``extra_env``.
 TEST_TIER_ENV = "TEST_TIER"
 
+# The resolved tier, exported to every test process so a harness can read it.
+TIER_EXPORT_ENV = "HYPERCI_TEST_TIER"
+
 
 class SuiteTier(StrEnum):
     """The two test tiers."""

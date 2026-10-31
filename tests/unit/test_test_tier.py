@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +138,59 @@ class TestInvalidValueFailsLoudly:
         assert "--tier applies to the test stage" in result.output
 
 
+class TestShowTestLogs:
+    @pytest.mark.parametrize(
+        ("globs", "files", "shown", "warned"),
+        [
+            pytest.param(
+                ["target/tmp/shared-services-*.log"],
+                {"target/tmp/shared-services-1.log": "started clickhouse x1\n"},
+                ["started clickhouse x1"],
+                False,
+                id="harness-log",
+            ),
+            pytest.param(["*.log"], {}, [], False, id="no-match"),
+            pytest.param(None, {"a.log": "x\n"}, [], False, id="unset"),
+            pytest.param(["/etc/*"], {}, [], True, id="absolute-pattern"),
+            pytest.param(["../*.log"], {}, [], True, id="outside-root"),
+        ],
+    )
+    def test_prints_matching_logs_under_the_root(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        globs: object,
+        files: dict[str, str],
+        shown: list[str],
+        warned: bool,
+    ) -> None:
+        root = tmp_path / "project"
+        root.mkdir()
+        (tmp_path / "escape.log").write_text("secret\n", encoding="utf-8")
+        for name, body in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(body, encoding="utf-8")
+        warnings: list[str] = []
+        monkeypatch.setattr(dispatch, "warn", warnings.append)
+        dispatch.show_test_logs(globs, root)
+        out = capsys.readouterr().out
+        assert all(line in out for line in shown)
+        assert "secret" not in out
+        assert bool(warnings) is warned
+
+    def test_a_long_log_keeps_its_tail(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        body = "\n".join(f"line {n}" for n in range(1000)) + "\n"
+        (tmp_path / "h.log").write_text(body, encoding="utf-8")
+        dispatch.show_test_logs(["h.log"], tmp_path)
+        out = capsys.readouterr().out
+        assert "line 999" in out
+        assert "line 599\n" not in out
+        assert "line 600" in out
+
+
 class TestTheTierReachesTheHandler:
     @staticmethod
     def _capture(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
@@ -154,13 +208,16 @@ class TestTheTierReachesTheHandler:
         monkeypatch.setattr(dispatch, "_dispatch_to_handler", _handler)
         return seen
 
-    def test_stage_test_passes_the_resolved_tier(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("tier", ["core", "full"])
+    def test_stage_test_passes_and_exports_the_resolved_tier(
+        self, monkeypatch: pytest.MonkeyPatch, tier: str
     ) -> None:
         seen = self._capture(monkeypatch)
-        config = CIConfig(_raw={"test": {"tier": "full"}})
+        config = CIConfig(_raw={"test": {"tier": tier}})
         assert dispatch.stage_test("python", config) == 0
-        assert seen[0][tiering.TEST_TIER_ENV] == "full"
+        assert seen[0][tiering.TEST_TIER_ENV] == tier
+        # Every test process inherits it, set by config alone with no --tier.
+        assert os.environ[tiering.TIER_EXPORT_ENV] == tier
 
     def test_rust_features_still_travel_beside_it(
         self, monkeypatch: pytest.MonkeyPatch

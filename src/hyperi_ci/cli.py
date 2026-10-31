@@ -48,7 +48,7 @@ from hyperi_ci import __version__
 from hyperi_ci.config import CIConfig, ConfigError, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
-from hyperi_ci.languages.tiering import SuiteTier
+from hyperi_ci.languages.tiering import TIER_EXPORT_ENV, SuiteTier
 from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV
 from hyperi_ci.version_source import build_version
 
@@ -160,7 +160,7 @@ _TIER_HELP = (
 def _apply_test_tier(tier: SuiteTier | None) -> None:
     """Hand ``--tier`` to the config cascade, above the env var it overwrites."""
     if tier is not None:
-        os.environ["HYPERCI_TEST_TIER"] = tier.value
+        os.environ[TIER_EXPORT_ENV] = tier.value
 
 
 @app.command()
