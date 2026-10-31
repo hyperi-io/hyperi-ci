@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.37](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.36...v2.14.37) (2026-10-31)
+
+### Bug Fixes
+
+* **ci:** mint the fleet sweep's token after the canary wait ([#771](https://github.com/hyperi-io/hyperi-ci/issues/771)) ([c4c85d8](https://github.com/hyperi-io/hyperi-ci/commit/c4c85d82ffa68db905d570fbfe90fd9f098ec0d0))
+* **container:** add plan, leg and merge build modes ([#768](https://github.com/hyperi-io/hyperi-ci/issues/768)) ([e1eb8bd](https://github.com/hyperi-io/hyperi-ci/commit/e1eb8bd5bf917bfebcce8ee93962cb781caa7735)), closes [#709](https://github.com/hyperi-io/hyperi-ci/issues/709)
+* **rust:** record each Build's runner fit ([#767](https://github.com/hyperi-io/hyperi-ci/issues/767)) ([9b623dc](https://github.com/hyperi-io/hyperi-ci/commit/9b623dc2de365dd4c31f51a667360b21902aa918))
+* **test:** let the pytest plugin answer -n auto before xdist does ([#770](https://github.com/hyperi-io/hyperi-ci/issues/770)) ([78c855e](https://github.com/hyperi-io/hyperi-ci/commit/78c855e2b237ce8bdd17a3945f031ece41f0f14f))
+
 ## [2.14.36](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.35...v2.14.36) (2026-10-30)
 
 ### Bug Fixes
