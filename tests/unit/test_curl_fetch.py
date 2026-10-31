@@ -562,6 +562,84 @@ class TestDownloadArtefact:
         assert errors == ["Failed to download tool (curl exit 28)"]
 
 
+class TestDownloadToFile:
+    @pytest.fixture
+    def errors(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        logged: list[str] = []
+        monkeypatch.setattr(common, "error", logged.append)
+        return logged
+
+    @pytest.mark.parametrize(
+        ("rc", "status", "body", "ok", "message"),
+        [
+            (0, "200", b"BODY", True, None),
+            (22, "404", None, False, "Failed to download tool (curl exit 22)"),
+            (
+                22,
+                "404",
+                b"half a body",
+                False,
+                "Failed to download tool (curl exit 22)",
+            ),
+            (0, "200", b"", False, "Failed to download tool (curl exit 0)"),
+            (0, "200", None, False, "Failed to download tool (curl exit 0)"),
+        ],
+        ids=["body", "http-error", "partial-body", "empty-body", "no-file"],
+    )
+    def test_a_body_is_kept_and_anything_else_leaves_no_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        errors: list[str],
+        tmp_path: Path,
+        rc: int,
+        status: str,
+        body: bytes | None,
+        ok: bool,
+        message: str | None,
+    ) -> None:
+        _fake_curl(monkeypatch, rc=rc, status=status, body=body)
+        dest = tmp_path / "asset"
+        assert common.download_to_file("tool", "https://x.invalid", dest) is ok
+        assert dest.is_file() is ok
+        assert errors == ([message] if message else [])
+
+    def test_the_body_is_never_read_into_memory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _fake_curl(monkeypatch, body=b"BODY")
+
+        def refuse(*_a: object, **_k: object) -> bytes:
+            raise AssertionError("the download was read whole")
+
+        monkeypatch.setattr(Path, "read_bytes", refuse)
+        assert common.download_to_file("tool", "https://x.invalid", tmp_path / "a")
+
+    def test_max_time_moves_the_limit(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        calls = _fake_curl(monkeypatch)
+        common.download_to_file("tool", "https://x.invalid", tmp_path / "a")
+        common.download_to_file(
+            "tool", "https://x.invalid", tmp_path / "b", max_time=600
+        )
+        (default, _), (raised, kwargs) = calls
+        assert _contains(default, ["--max-time", "180"])
+        assert _contains(raised, ["--max-time", "600"])
+        assert kwargs["timeout"] > 600
+
+    def test_a_missing_curl_is_named_and_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch, errors: list[str], tmp_path: Path
+    ) -> None:
+        def missing(*_a: object, **_k: object) -> None:
+            raise FileNotFoundError(2, "No such file or directory", "curl")
+
+        monkeypatch.setattr(common, "run_cmd", missing)
+        assert not common.download_to_file("tool", "https://x.invalid", tmp_path / "a")
+        assert errors == [
+            "Failed to download tool ([Errno 2] No such file or directory: 'curl')"
+        ]
+
+
 def _curl_argvs(source: str) -> list[tuple[int, str]]:
     """Return ``(line, enclosing function)`` for each list or tuple led by curl."""
     found: list[tuple[int, str]] = []

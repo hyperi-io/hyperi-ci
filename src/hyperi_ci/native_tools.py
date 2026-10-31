@@ -27,17 +27,19 @@ missing one fails the stage with install advice.
 
 import contextlib
 import hashlib
-import io
 import os
 import platform
+import re
 import shutil
 import sys
 import tarfile
 import tempfile
+import zlib
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import IO
 
-from hyperi_ci.common import download_artefact, error, info, is_ci, run_cmd, warn
+from hyperi_ci.common import download_to_file, error, info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.upgrade import CACHE_DIR
@@ -51,11 +53,19 @@ class NativeTool:
     """One tool's Linux release asset.
 
     ``url`` is a format string over ``{version}`` (verbatim from versions.yaml),
-    ``{bare}`` (without the leading ``v``), ``{arch}`` and ``{asset}``. ``arch``
-    maps ``amd64`` / ``arm64`` to the spelling of the digest keys in
-    versions.yaml, and ``asset`` overrides it for the URL alone. With
-    ``archive`` set the asset is a ``.tar.gz`` holding one regular file named
-    after the tool, otherwise it is the binary itself.
+    ``{bare}`` (without the leading ``v``), ``{numeric}`` (the dotted numbers
+    alone, so ``v26.10.2.103-stable`` gives ``26.10.2.103``), ``{arch}`` and
+    ``{asset}``. ``arch`` maps ``amd64`` / ``arm64`` to the spelling of the
+    digest keys in versions.yaml, and ``asset`` overrides it for the URL alone.
+    With ``archive`` set the asset is a ``.tar.gz`` or ``.tgz`` holding one
+    regular file named after the tool, otherwise it is the binary itself.
+
+    ``member`` is the path inside the archive to the binary, as its trailing
+    components, when a plain file name is not unique there. It defaults to the
+    tool's name.
+
+    ``links`` names extra files installed beside the binary as symlinks to it,
+    for a multi-call binary that dispatches on its own name.
 
     ``probe`` confirms the installed binary runs. Only a tool with one is
     offered to ``test.native_tools``.
@@ -65,10 +75,18 @@ class NativeTool:
     archive: bool = True
     arch: dict[str, str] | None = None
     asset: dict[str, str] | None = None
+    member: str | None = None
+    links: tuple[str, ...] = ()
     probe: tuple[str, ...] = ()
 
 
 _MUSL_ARCH = {"amd64": "x86_64", "arm64": "aarch64"}
+
+# The ClickHouse tarball is about 265 MB and holds an 890 MB binary, which the
+# 180s default cannot move on a slow link.
+_DOWNLOAD_MAX_TIME = 600
+# Bytes read or written at a time, so no asset is ever held whole in memory.
+_CHUNK = 1024 * 1024
 
 _TOOLS: dict[str, NativeTool] = {
     "alint": NativeTool(
@@ -77,6 +95,15 @@ _TOOLS: dict[str, NativeTool] = {
             "{version}/alint-{version}-{arch}-unknown-linux-musl.tar.gz"
         ),
         arch=_MUSL_ARCH,
+    ),
+    "clickhouse": NativeTool(
+        url=(
+            "https://github.com/ClickHouse/ClickHouse/releases/download/"
+            "{version}/clickhouse-common-static-{numeric}-{arch}.tgz"
+        ),
+        member="usr/bin/clickhouse",
+        links=("clickhouse-local",),
+        probe=("local", "--version"),
     ),
     "gitleaks": NativeTool(
         url=(
@@ -141,6 +168,8 @@ _TOOLS: dict[str, NativeTool] = {
     ),
 }
 
+_NUMERIC = re.compile(r"\d+(?:\.\d+)*")
+
 # platform.machine() -> the arch every table entry is keyed on.
 _ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 
@@ -192,10 +221,12 @@ def _asset_url(name: str, arch: str) -> tuple[str, str]:
     """
     tool = _TOOLS[name]
     version = tool_version(name)
+    numeric = _NUMERIC.match(version.removeprefix("v"))
     key = (tool.arch or {}).get(arch, arch)
     url = tool.url.format(
         version=version,
         bare=version.removeprefix("v"),
+        numeric=numeric[0] if numeric else "",
         arch=key,
         asset=(tool.asset or {}).get(arch, key),
     )
@@ -215,37 +246,14 @@ def _pinned_digest(name: str, arch: str) -> str:
     return tool_sha256(name, key).strip().lower()
 
 
-def _from_archive(name: str, url: str, payload: bytes) -> bytes | None:
-    """Return the one regular file named ``name`` in a ``.tar.gz``, or None after logging.
-
-    Two regular files with the tool's name are refused rather than settled by
-    archive order. Symlinks and directories never count.
-    """
-    try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            members = [
-                m
-                for m in archive.getmembers()
-                if m.isfile() and Path(m.name).name == name
-            ]
-            if len(members) > 1:
-                paths = ", ".join(m.name for m in members)
-                error(
-                    f"  {name}: {len(members)} files named '{name}' in {url}: {paths}"
-                )
-                return None
-            extracted = archive.extractfile(members[0]) if members else None
-            data = extracted.read() if extracted else b""
-    except (tarfile.TarError, OSError):
-        data = b""
-    if not data:
-        error(f"  {name}: no '{name}' file in {url}")
-        return None
-    return data
+def _sha256_file(path: Path) -> str:
+    """Return the sha256 of ``path``, read in chunks."""
+    with path.open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
-def _pinned_binary(name: str, arch: str) -> bytes | None:
-    """Download ``name`` for ``arch`` and return the binary, or None after logging why.
+def _fetch_pinned(name: str, arch: str, dest: Path) -> bool:
+    """Download ``name`` for ``arch`` into ``dest``, False after logging why not.
 
     A pinned URL is not integrity: a release asset can be re-uploaded under the
     same tag, and these bytes are exec'd in every consumer's CI. The digest
@@ -253,24 +261,108 @@ def _pinned_binary(name: str, arch: str) -> bytes | None:
     """
     url, _ = _asset_url(name, arch)
     expected = _pinned_digest(name, arch)
-    payload = download_artefact(name, url)
-    if payload is None:
-        return None
-
-    got = hashlib.sha256(payload).hexdigest()
+    if not download_to_file(name, url, dest, max_time=_DOWNLOAD_MAX_TIME):
+        return False
+    try:
+        got = _sha256_file(dest)
+    except OSError as exc:
+        error(f"  {name}: cannot read the download back: {exc}")
+        return False
     if got != expected:
         error(
             f"  {name}: SHA256 mismatch - refusing to install "
             f"(expected {expected}, got {got})"
         )
+        return False
+    return True
+
+
+def _archive_member(
+    name: str, url: str, archive: tarfile.TarFile
+) -> tarfile.TarInfo | None:
+    """Return the one regular file at the tool's member path, or None after logging.
+
+    Two regular files that match are refused rather than settled by archive
+    order. Symlinks and directories never count.
+    """
+    wanted = (_TOOLS[name].member or name).split("/")
+    members = [
+        m
+        for m in archive.getmembers()
+        if m.isfile() and PurePosixPath(m.name).parts[-len(wanted) :] == tuple(wanted)
+    ]
+    if len(members) > 1:
+        paths = ", ".join(m.name for m in members)
+        error(f"  {name}: {len(members)} files named '{name}' in {url}: {paths}")
         return None
+    if not members or not members[0].size:
+        error(f"  {name}: no '{name}' file in {url}")
+        return None
+    return members[0]
+
+
+def _open_binary(
+    name: str, url: str, asset: Path, stack: contextlib.ExitStack
+) -> IO[bytes] | None:
+    """Open the tool's bytes in the download for streaming, None after logging."""
     if not _TOOLS[name].archive:
-        return payload
-    return _from_archive(name, url, payload)
+        return stack.enter_context(asset.open("rb"))
+    archive = stack.enter_context(tarfile.open(asset, "r:gz"))
+    member = _archive_member(name, url, archive)
+    return archive.extractfile(member) if member else None
+
+
+def _write_binary(name: str, url: str, asset: Path, bin_dir: Path) -> Path | None:
+    """Stream the tool out of the verified ``asset`` into ``bin_dir``.
+
+    The bytes go to a unique temp name and are then renamed: no truncated
+    binary, no overwritten running copy, no clash between concurrent installs,
+    and a failed write leaves any copy already there untouched.
+    """
+    binary = bin_dir / name
+    partial: Path | None = None
+    try:
+        with contextlib.ExitStack() as stack:
+            source = _open_binary(name, url, asset, stack)
+            if source is None:
+                return None
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(
+                dir=bin_dir, prefix=f".{name}.", suffix=".partial"
+            )
+            partial = Path(tmp)
+            with os.fdopen(fd, "wb") as out:
+                shutil.copyfileobj(source, out, _CHUNK)
+        partial.chmod(0o755)
+        os.replace(partial, binary)
+    except (OSError, EOFError, tarfile.TarError, zlib.error) as exc:
+        error(f"  {name}: cannot write {binary}: {exc}")
+        if partial is not None:
+            with contextlib.suppress(OSError):
+                partial.unlink(missing_ok=True)
+        return None
+    return binary
+
+
+def _link_aliases(name: str, bin_dir: Path) -> None:
+    """Point each of the tool's ``links`` at its binary, replacing a stale link.
+
+    Raises:
+        OSError: A link could not be made.
+
+    """
+    for alias in _TOOLS[name].links:
+        staged = bin_dir / f".{alias}.{os.getpid()}.link"
+        staged.unlink(missing_ok=True)
+        staged.symlink_to(name)
+        os.replace(staged, bin_dir / alias)
 
 
 def install_into(name: str, bin_dir: Path) -> Path | None:
     """Write the pinned ``name`` into ``bin_dir``, replacing any copy there.
+
+    The download lands in a scratch directory and is hashed in chunks, then the
+    binary is streamed out of it, so no step holds the asset in memory.
 
     Args:
         name: A key of the tool registry.
@@ -280,34 +372,27 @@ def install_into(name: str, bin_dir: Path) -> Path | None:
         The binary's path, or None after logging why there is none: a host
         other than Linux x86_64 or aarch64, a failed download, a digest
         mismatch, an archive without the binary, or a directory that cannot be
-        written.
+        written. A failed install leaves no new binary or link behind.
 
     """
     arch = _linux_arch()
     if arch is None:
         error(f"  {name}: no pinned build for {sys.platform} {platform.machine()}")
         return None
-    data = _pinned_binary(name, arch)
-    if data is None:
+    url, _ = _asset_url(name, arch)
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-tool-") as scratch:
+        asset = Path(scratch) / "asset"
+        if not _fetch_pinned(name, arch, asset):
+            return None
+        binary = _write_binary(name, url, asset, bin_dir)
+    if binary is None:
         return None
-
-    # Unique temp name then rename: no truncated binary, no overwritten running
-    # copy, no clash between concurrent installs.
-    binary = bin_dir / name
-    partial: Path | None = None
     try:
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=bin_dir, prefix=f".{name}.", suffix=".partial")
-        partial = Path(tmp)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-        partial.chmod(0o755)
-        os.replace(partial, binary)
+        _link_aliases(name, bin_dir)
     except OSError as exc:
-        error(f"  {name}: cannot write {binary}: {exc}")
-        if partial is not None:
-            with contextlib.suppress(OSError):
-                partial.unlink(missing_ok=True)
+        error(f"  {name}: cannot link {', '.join(_TOOLS[name].links)}: {exc}")
+        with contextlib.suppress(OSError):
+            binary.unlink(missing_ok=True)
         return None
     return binary
 
@@ -326,10 +411,12 @@ def _cached_copy_ok(name: str, binary: Path, expected: str) -> bool:
     """
     if not binary.is_file():
         return False
+    if not all((binary.parent / alias).is_file() for alias in _TOOLS[name].links):
+        return False
     if _TOOLS[name].archive:
         return True
     try:
-        got = hashlib.sha256(binary.read_bytes()).hexdigest()
+        got = _sha256_file(binary)
     except OSError:
         return False
     if got == expected:

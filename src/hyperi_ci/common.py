@@ -891,6 +891,38 @@ def download_artefact(name: str, url: str) -> bytes | None:
     return body
 
 
+def download_to_file(
+    name: str, url: str, dest: Path, *, max_time: int = _CURL_MAX_TIME
+) -> bool:
+    """Fetch a release artefact into ``dest`` without reading it into memory.
+
+    Use this over :func:`download_artefact` for anything past a few MB. A failed
+    fetch leaves no ``dest`` behind.
+
+    Args:
+        name: What is being fetched, for the error line.
+        url: Where from.
+        dest: File the body is written to.
+        max_time: Seconds one attempt may take in all, for an asset the default
+            cannot move.
+
+    Returns:
+        True when ``dest`` holds a non-empty body, else False after logging why.
+
+    """
+    try:
+        result = curl_fetch(url, dest, max_time=max_time)
+    except OSError as exc:
+        error(f"Failed to download {name} ({exc})")
+        return False
+    if result.returncode == 0 and dest.is_file() and dest.stat().st_size > 0:
+        return True
+    error(f"Failed to download {name} (curl exit {result.returncode})")
+    with contextlib.suppress(OSError):
+        dest.unlink(missing_ok=True)
+    return False
+
+
 URL_ATTEMPTS = 4
 
 # HTTPError and URLError are both OSError, and a truncated response raises an
