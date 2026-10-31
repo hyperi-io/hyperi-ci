@@ -108,7 +108,7 @@ It holds the arch, runner label, CPU model, CPU budget, memory limit and its sou
 The verdict advises and never changes a runner or fails a Build. The `build.rust.runner_fit` tunables set it:
 
 - `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing.
-- `recommended` is the first profile in `profiles` order, for this arch, that holds `min_jobs` jobs at the per-job peak with `min_headroom` free. Order the profiles cheapest first.
+- `recommended` is the first profile in `profiles` order, for this arch, with a CPU for each cargo job the build ran (at least `min_jobs`) and the memory for that many jobs at the per-job peak with `min_headroom` free. A build that used every CPU is never told to move to fewer. Order the profiles cheapest first.
 - `move` is true when that differs from the runner used, and `move_reason` says how.
 - A per-job peak further than `per_job_drift` from `build.rust.memory_per_job_gib` adds a note naming both.
 

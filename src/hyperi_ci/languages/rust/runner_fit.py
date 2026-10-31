@@ -225,8 +225,13 @@ def verdict(
     limit_gib: float | None,
     memory_per_job_gib: float | None,
     settings: FitSettings | None,
+    jobs: int | None = None,
 ) -> Verdict:
     """Judge whether the runner fit the build and which profile would.
+
+    The recommendation keeps the build's parallelism: the cheapest profile
+    with a CPU for each cargo job it ran, and the memory for that many jobs,
+    never fewer than ``min_jobs``.
 
     Args:
         arch: ``amd64`` or ``arm64``.
@@ -236,6 +241,7 @@ def verdict(
         limit_gib: The memory limit the build ran under, or None.
         memory_per_job_gib: The configured per-job plan, or None.
         settings: The tunables, or None when the block was malformed.
+        jobs: The cargo jobs the build ran, or None when unknown.
 
     Returns:
         The verdict. ``unknown`` names what is missing and still carries a
@@ -267,12 +273,15 @@ def verdict(
     if per_job_peak_gib is None:
         return Verdict(status, f"{reason}, no per-job peak", headroom=headroom)
 
-    needed = per_job_peak_gib * settings.min_jobs
+    wanted_jobs = max(settings.min_jobs, jobs or 0)
+    needed = per_job_peak_gib * wanted_jobs
     chosen = next(
         (
             p
             for p in settings.profiles
-            if p.arch == arch and p.memory_gib * (1 - settings.min_headroom) >= needed
+            if p.arch == arch
+            and p.cpus >= wanted_jobs
+            and p.memory_gib * (1 - settings.min_headroom) >= needed
         ),
         None,
     )
@@ -292,8 +301,8 @@ def verdict(
             headroom=headroom,
             needed_gib=needed,
             move_reason=(
-                f"no {arch} profile holds {needed:.1f} GiB "
-                f"at {settings.min_headroom:.0%} headroom"
+                f"no {arch} profile has {wanted_jobs} CPUs and holds "
+                f"{needed:.1f} GiB at {settings.min_headroom:.0%} headroom"
             ),
             notes=tuple(notes),
         )
@@ -301,8 +310,8 @@ def verdict(
     move_reason = ""
     if move:
         move_reason = (
-            f"per-job peak {per_job_peak_gib:.1f} GiB x {settings.min_jobs} jobs "
-            f"fits {chosen.label} ({chosen.memory_gib:g} GiB), "
+            f"per-job peak {per_job_peak_gib:.1f} GiB x {wanted_jobs} jobs "
+            f"fits {chosen.label} ({chosen.cpus} CPUs, {chosen.memory_gib:g} GiB), "
             f"{_against(runner_label, chosen, settings)}"
         )
     return Verdict(
@@ -376,6 +385,7 @@ def build_record(
         limit_gib=limit.gib if limit is not None else None,
         memory_per_job_gib=planned,
         settings=parse_settings(config.setting("build.rust.runner_fit")),
+        jobs=jobs,
     )
     return {
         "schema": SCHEMA,

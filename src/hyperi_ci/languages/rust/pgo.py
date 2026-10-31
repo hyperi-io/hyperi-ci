@@ -163,10 +163,11 @@ def run_pgo_build(
             _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
         }
         rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
+    # Before the failure return: an OOM-killed rustc is the peak the record needs.
+    log_peak_memory("pgo-instrument")
     if rc != 0:
         error(f"PGO instrumented build failed for {target}")
         return rc
-    log_peak_memory("pgo-instrument")
 
     instrumented_bin = _instrumented_binary_path(
         cwd, target, binary_name, variant="pgo"
@@ -187,10 +188,10 @@ def run_pgo_build(
         instrumented_bin,
         cwd=cwd,
     )
+    log_peak_memory("pgo-workload")
     if rc != 0:
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
-    log_peak_memory("pgo-workload")
 
     # With BOLT on, this compile is also the one BOLT rewrites, so it links
     # through lld with relocations kept and no second compile is needed.
@@ -203,10 +204,10 @@ def run_pgo_build(
         cwd=cwd,
         extra_env=optimize_env,
     )
+    log_peak_memory("pgo-optimize")
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
         return rc
-    log_peak_memory("pgo-optimize")
     if outcome:
         outcome.pgo_applied = True
 
