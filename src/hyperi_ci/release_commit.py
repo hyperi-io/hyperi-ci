@@ -253,7 +253,8 @@ def _supplement_entry(
     A null sha removes a path in the tree API. The rendered changelog must name
     the version, because a forced bump skips semantic-release and prints the
     supplement into nothing. The branch must still carry the file, because the
-    API rejects deleting a path the base tree lacks.
+    API rejects deleting a path the base tree lacks, and carry it unchanged,
+    because a supplement edited since this checkout is the next release's.
     """
     if not (root / SUPPLEMENT).is_file():
         return []
@@ -266,8 +267,15 @@ def _supplement_entry(
     if version not in rendered:
         info(f"release-commit: no v{version} entry in {CHANGELOG} -- {SUPPLEMENT} kept")
         return []
-    if _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"]) is None:
+    remote = _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"])
+    if remote is None:
         info(f"release-commit: {SUPPLEMENT} is not on {branch} -- leaving it alone")
+        return []
+    if remote.get("sha") != _local_blob(root, SUPPLEMENT):
+        warn(
+            f"release-commit: {SUPPLEMENT} changed on {branch} since this checkout "
+            "-- keeping it for the next release"
+        )
         return []
     return [{"path": SUPPLEMENT, "mode": "100644", "type": "blob", "sha": None}]
 

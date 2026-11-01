@@ -5,6 +5,8 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
+
 import pytest
 
 from hyperi_ci.config import CIConfig
@@ -30,6 +32,36 @@ class TestWindowsIsRefused:
         assert build.run(config) == 1
         assert "Windows targets are not supported" in errors[0]
         assert not (tmp_path / "dist").exists()
+
+
+class TestEnvOverridesReachTheBuild:
+    """GO_VERSION_PKG, GO_BINARY_NAME and GO_BUILD_TAGS come from the process env."""
+
+    def test_documented_env_vars_reach_go_build(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(build.shutil, "which", lambda _name: "/usr/bin/go")
+        monkeypatch.setattr(build, "_detect_version", lambda: "1.2.3")
+        monkeypatch.setenv("GO_VERSION_PKG", "example.com/app/version")
+        monkeypatch.setenv("GO_BINARY_NAME", "app")
+        monkeypatch.setenv("GO_BUILD_TAGS", "netgo")
+        monkeypatch.setenv("GO_MAIN_PKG", "./cmd/app")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "abc1234\n", "")
+
+        monkeypatch.setattr(build.subprocess, "run", fake_run)
+        config = CIConfig(_raw={"build": {"golang": {"targets": ["linux/amd64"]}}})
+
+        assert build.run(config) == 0
+        (cmd,) = [c for c in calls if c[:2] == ["go", "build"]]
+        ldflags = cmd[cmd.index("-ldflags") + 1]
+        assert "-X 'example.com/app/version.Version=1.2.3'" in ldflags
+        assert cmd[cmd.index("-tags") + 1] == "netgo"
+        assert cmd[cmd.index("-o") + 1] == "dist/app-linux-amd64"
 
 
 class TestTargetShortcuts:
