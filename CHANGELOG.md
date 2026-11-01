@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.43](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.42...v2.14.43) (2026-11-01)
+
+### Bug Fixes
+
+* **quality:** find compose files kept in a compose/ directory ([#795](https://github.com/hyperi-io/hyperi-ci/issues/795)) ([11494c7](https://github.com/hyperi-io/hyperi-ci/commit/11494c7026ba879813bb9c43d1522b314d51e382))
+* refuse a publish the declared classification forbids ([#793](https://github.com/hyperi-io/hyperi-ci/issues/793)) ([c745748](https://github.com/hyperi-io/hyperi-ci/commit/c745748ec7f18051bab9344da16ce5c40ee79d26))
+* **release-notes:** print notes with portable shell ([#798](https://github.com/hyperi-io/hyperi-ci/issues/798)) ([8d3245c](https://github.com/hyperi-io/hyperi-ci/commit/8d3245cfccb282fdf95886752ea0b0b7d235e1e8))
+* **rust:** find cargo subcommands where cargo does ([#797](https://github.com/hyperi-io/hyperi-ci/issues/797)) ([2d4f29c](https://github.com/hyperi-io/hyperi-ci/commit/2d4f29c864ea3e9a82cd6bd2ac843654e0bb9a6e))
+* **rust:** install unixODBC for crates that link odbc-sys ([#796](https://github.com/hyperi-io/hyperi-ci/issues/796)) ([3e42a85](https://github.com/hyperi-io/hyperi-ci/commit/3e42a85d902b7191b9b0030a575453a70a250982))
+* **security:** keep repo files out of the release token's reach ([#790](https://github.com/hyperi-io/hyperi-ci/issues/790)) ([3df086d](https://github.com/hyperi-io/hyperi-ci/commit/3df086de18294b53c3560379a1f1c1f81d46cfe4))
+
 ## [2.14.42](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.41...v2.14.42) (2026-11-01)
 
 ### Bug Fixes
