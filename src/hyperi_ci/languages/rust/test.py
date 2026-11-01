@@ -12,6 +12,7 @@ the profile's ``default-filter`` leaves out. In a root-package workspace every
 command takes ``--workspace``, or cargo would test the root package alone.
 """
 
+import os
 import re
 import shutil
 from contextlib import nullcontext
@@ -167,8 +168,11 @@ def _scope_args(features: str, *, workspace: bool) -> list[str]:
 
 
 def _has_nextest() -> bool:
-    """Check if cargo-nextest is installed."""
-    return shutil.which("cargo-nextest") is not None
+    """Check whether cargo can run nextest, from PATH or ``$CARGO_HOME/bin``."""
+    if shutil.which("cargo-nextest"):
+        return True
+    cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+    return (cargo_home / "bin" / "cargo-nextest").is_file()
 
 
 def _announce_degradation() -> None:

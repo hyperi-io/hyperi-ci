@@ -15,6 +15,7 @@ import pytest
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust.test import (
     _build_test_cmd,
+    _has_nextest,
     _note_coverage_runner,
     _resolve_runner,
     _run_coverage,
@@ -39,6 +40,31 @@ def _no_nextest(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def _have_nextest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(f"{MODULE}._has_nextest", lambda: True)
+
+
+@pytest.mark.parametrize(
+    ("on_path", "in_cargo_home", "expected"),
+    [
+        pytest.param(True, False, True, id="on_path"),
+        pytest.param(False, True, True, id="cargo_home_off_path"),
+        pytest.param(False, False, False, id="absent"),
+    ],
+)
+def test_nextest_is_found_where_cargo_looks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    on_path: bool,
+    in_cargo_home: bool,
+    expected: bool,
+) -> None:
+    monkeypatch.setattr(
+        f"{MODULE}.shutil.which", lambda name: "/usr/bin/x" if on_path else None
+    )
+    monkeypatch.setenv("CARGO_HOME", str(tmp_path))
+    if in_cargo_home:
+        (tmp_path / "bin").mkdir()
+        (tmp_path / "bin" / "cargo-nextest").write_text("")
+    assert _has_nextest() is expected
 
 
 class TestRunnerResolution:

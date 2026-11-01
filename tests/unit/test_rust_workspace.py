@@ -360,6 +360,7 @@ def tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Tools:
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.run_cmd", rec.doc)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr(f"{QUALITY}._ensure_cargo_hack", lambda: True)
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)
     monkeypatch.setattr(f"{QUALITY}._package_lib_map", lambda *_a: {})
     monkeypatch.setattr(f"{QUALITY}.osv_scanner.run", lambda *_a, **_k: True)
