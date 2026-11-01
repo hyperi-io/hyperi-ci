@@ -131,6 +131,27 @@ def static_libs() -> dict[str, dict[str, str]]:
     return pins
 
 
+def static_libs_release() -> tuple[str, dict[str, str]]:
+    """Return the pinned static-libs release tag and its archive sha256 per target triple.
+
+    Raises:
+        KeyError: The ``static_libs_release`` tag or digests are missing.
+
+    """
+    spec = _data().get("static_libs_release")
+    tag = spec.get("tag") if isinstance(spec, dict) else None
+    if not isinstance(tag, str) or not tag:
+        raise KeyError(
+            f"`static_libs_release.tag` is missing from {VERSIONS_FILE.name}"
+        )
+    digests = spec.get("sha256") if isinstance(spec, dict) else None
+    if not isinstance(digests, dict) or not digests:
+        raise KeyError(
+            f"`static_libs_release.sha256` is missing from {VERSIONS_FILE.name}"
+        )
+    return tag, {str(k): str(v) for k, v in digests.items()}
+
+
 def runtime_version(name: str) -> str:
     """Return a language runtime pin (``python``, ``node``, ``rust``, ``go``).
 

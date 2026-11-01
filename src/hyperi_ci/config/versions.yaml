@@ -478,6 +478,15 @@ static_libs:
     commit: c6c9973cf1b25394c58e0cade13a36f386856f77
     sha256: e6b61de61d3282879a88e4ee3d9f634a8b05bf78a9198dfc25c4820c0c9ed231
 
+# The Static libs release a Rust build with `build.rust.static_libs` links, and
+# each archive's sha256, matched against the release's .sha256 files and
+# GitHub's asset digests. Moves when the pins above publish a new release.
+static_libs_release:
+  tag: static-libs-rdkafka2.16.0-openssl3.5.9-f87f317c3a39
+  sha256:
+    x86_64-unknown-linux-gnu: e00ca47ad334607e4ce4231506bc5ec3c16cd33293c60946ebb5b31d65a6236d
+    aarch64-unknown-linux-gnu: bb0724afe40bb2d2b983f647c62bf62d73bc6b219227f336fcf5014c9c320f0e
+
 # Upstream capabilities we WANT but that are not ready yet.
 #
 # `--stable` prints these on every run, so the decision resurfaces at each

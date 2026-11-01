@@ -291,6 +291,108 @@ class TestPublish:
         assert sum(a.endswith(".tar.gz") for a in create) == len(sl._TRIPLES)
 
 
+class TestFetchRelease:
+    """A Rust build fetches the pinned release's prefix for its own target."""
+
+    _TRIPLE = "x86_64-unknown-linux-gnu"
+
+    def test_the_shipped_release_pin_covers_both_arches(self) -> None:
+        tag, digests = versions.static_libs_release()
+        assert tag.startswith("static-libs-rdkafka")
+        assert set(digests) == set(sl._TRIPLES.values())
+        assert all(len(d) == 64 for d in digests.values())
+
+    @staticmethod
+    def _release(
+        monkeypatch: pytest.MonkeyPatch, data: bytes, digest: str
+    ) -> list[str]:
+        urls: list[str] = []
+
+        def fake_fetch(
+            url: str, dest: Path, **_: object
+        ) -> subprocess.CompletedProcess[str]:
+            urls.append(url)
+            dest.write_bytes(data)
+            return subprocess.CompletedProcess([url], 0, "200", "")
+
+        monkeypatch.setattr(sl, "curl_fetch", fake_fetch)
+        monkeypatch.setattr(
+            sl,
+            "static_libs_release",
+            lambda: ("static-libs-x", {TestFetchRelease._TRIPLE: digest}),
+        )
+        return urls
+
+    @staticmethod
+    def _archive(*, with_rdkafka: bool = True) -> bytes:
+        members = {f"hyperi-static-libs/lib/{a}": b"!<arch>\n" for a in sl._ARCHIVES}
+        if not with_rdkafka:
+            del members["hyperi-static-libs/lib/librdkafka.a"]
+        members["hyperi-static-libs/lib/pkgconfig/rdkafka.pc"] = b"Libs: -lrdkafka\n"
+        return _tarball(members)
+
+    def test_a_good_archive_gives_its_prefix(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        data = self._archive()
+        urls = self._release(monkeypatch, data, hashlib.sha256(data).hexdigest())
+        prefix = sl.fetch(self._TRIPLE, tmp_path)
+        assert prefix is not None
+        assert prefix.name == "hyperi-static-libs"
+        assert (prefix / "lib" / "librdkafka.a").is_file()
+        assert urls == [
+            "https://github.com/hyperi-io/hyperi-ci/releases/download/static-libs-x/"
+            f"hyperi-static-libs-{self._TRIPLE}.tar.gz"
+        ]
+
+    @pytest.mark.parametrize(
+        ("triple", "wrong_digest", "with_rdkafka"),
+        [
+            pytest.param(
+                "aarch64-unknown-linux-gnu", False, True, id="unpinned-triple"
+            ),
+            pytest.param(_TRIPLE, True, True, id="digest-mismatch"),
+            pytest.param(_TRIPLE, False, False, id="incomplete-prefix"),
+        ],
+    )
+    def test_a_bad_release_gives_no_prefix(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        triple: str,
+        wrong_digest: bool,
+        with_rdkafka: bool,
+    ) -> None:
+        data = self._archive(with_rdkafka=with_rdkafka)
+        digest = "0" * 64 if wrong_digest else hashlib.sha256(data).hexdigest()
+        self._release(monkeypatch, data, digest)
+        assert sl.fetch(triple, tmp_path) is None
+
+    @pytest.mark.parametrize(
+        ("existing", "want"),
+        [
+            pytest.param(None, "/p/lib/pkgconfig", id="unset"),
+            pytest.param(
+                "/usr/lib/pkgconfig", "/p/lib/pkgconfig:/usr/lib/pkgconfig", id="kept"
+            ),
+        ],
+    )
+    def test_link_env_puts_the_prefix_first(
+        self, monkeypatch: pytest.MonkeyPatch, existing: str | None, want: str
+    ) -> None:
+        if existing is None:
+            monkeypatch.delenv("PKG_CONFIG_PATH", raising=False)
+        else:
+            monkeypatch.setenv("PKG_CONFIG_PATH", existing)
+        env = sl.link_env(Path("/p"))
+        assert env == {
+            "PKG_CONFIG_PATH": want,
+            "RDKAFKA_STATIC": "1",
+            "OPENSSL_STATIC": "1",
+            "OPENSSL_DIR": "/p",
+        }
+
+
 class TestBuild:
     def test_an_existing_prefix_is_refused(self, tmp_path: Path) -> None:
         prefix = tmp_path / "prefix"

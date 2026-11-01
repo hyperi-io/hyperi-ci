@@ -420,6 +420,11 @@ build:
     # debian:trixie). Packaging fails a binary needing newer GLIBC_ symbols.
     # Unset reports the binary's need without failing.
     # glibc_max: "2.41"
+    # Link librdkafka, OpenSSL, zstd and zlib statically from the pinned
+    # static-libs release (docs/languages/rust-static-libs.md). The app keeps
+    # rdkafka's `dynamic-linking` feature, and packaging fails a binary that
+    # still needs librdkafka, libssl, libcrypto, libsasl2 or libcurl.
+    # static_libs: false
 
   golang:
     targets:
