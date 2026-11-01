@@ -450,6 +450,34 @@ tools:
     npm: conventional-changelog-conventionalcommits
     pin: .github/actions/setup-semantic-release/action.yml
 
+# C libraries `hyperi-ci static-libs build` compiles into one static-only
+# prefix, which a Rust app links through rdkafka-sys's pkg-config path. Built in
+# this order, each against the ones before it.
+#
+# No release-age cooldown here: each takes the newest upstream release.
+# OpenSSL stays on its current LTS line. `sha256` is the source archive's, from
+# the project's own checksum file or GitHub's asset digest. librdkafka publishes
+# neither, so its digest is of the tag archive, with `commit` pinning the tag.
+static_libs:
+  openssl:
+    version: "3.5.9"
+    lts: "3.5"
+    url: https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz
+    sha256: 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+  zlib:
+    version: "1.3.2"
+    url: https://github.com/madler/zlib/releases/download/v{version}/zlib-{version}.tar.gz
+    sha256: bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+  zstd:
+    version: "1.5.7"
+    url: https://github.com/facebook/zstd/releases/download/v{version}/zstd-{version}.tar.gz
+    sha256: eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+  librdkafka:
+    version: "2.16.0"
+    url: https://github.com/confluentinc/librdkafka/archive/refs/tags/v{version}.tar.gz
+    commit: c6c9973cf1b25394c58e0cade13a36f386856f77
+    sha256: e6b61de61d3282879a88e4ee3d9f634a8b05bf78a9198dfc25c4820c0c9ed231
+
 # Upstream capabilities we WANT but that are not ready yet.
 #
 # `--stable` prints these on every run, so the decision resurfaces at each

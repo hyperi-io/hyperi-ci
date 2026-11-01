@@ -108,6 +108,29 @@ def runtime_sha256(name: str, arch: str) -> str:
     return _sha256(runtimes.get(name), f"runtimes.{name}", arch)
 
 
+def static_libs() -> dict[str, dict[str, str]]:
+    """Return the ``static_libs:`` pins in build order, each with its fields as strings.
+
+    Raises:
+        KeyError: The section is missing, or an entry lacks a version, url or
+            sha256.
+
+    """
+    section = _data().get("static_libs")
+    if not isinstance(section, dict) or not section:
+        raise KeyError(f"`static_libs` is missing from {VERSIONS_FILE.name}")
+    pins: dict[str, dict[str, str]] = {}
+    for name, spec in section.items():
+        fields = spec if isinstance(spec, dict) else {}
+        for field in ("version", "url", "sha256"):
+            if not fields.get(field):
+                raise KeyError(
+                    f"`static_libs.{name}.{field}` is missing from {VERSIONS_FILE.name}"
+                )
+        pins[name] = {key: str(value) for key, value in fields.items()}
+    return pins
+
+
 def runtime_version(name: str) -> str:
     """Return a language runtime pin (``python``, ``node``, ``rust``, ``go``).
 
