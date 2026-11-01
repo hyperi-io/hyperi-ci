@@ -166,7 +166,15 @@ class TestReleaseNotesSupplement:
         return secret
 
     @pytest.mark.parametrize(
-        "layout", ["file", "missing", "file-symlink", "dir-symlink", "directory"]
+        "layout",
+        [
+            "file",
+            "missing",
+            "file-symlink",
+            "dir-symlink",
+            "parent-symlink",
+            "directory",
+        ],
     )
     def test_only_a_regular_file_in_the_repo_is_printed(
         self, tmp_path: Path, layout: str
@@ -174,7 +182,14 @@ class TestReleaseNotesSupplement:
         repo = tmp_path / "repo"
         notes_dir = repo / ".github" / "release-notes"
         secret = self._secret(tmp_path)
-        if layout == "dir-symlink":
+        if layout == "parent-symlink":
+            repo.mkdir()
+            (secret.parent / "release-notes").mkdir()
+            (secret.parent / "release-notes" / "NEXT.md").write_text(
+                "TOKEN=hunter2\n", encoding="utf-8"
+            )
+            (repo / ".github").symlink_to(secret.parent)
+        elif layout == "dir-symlink":
             (repo / ".github").mkdir(parents=True)
             (secret.parent / "NEXT.md").write_text("TOKEN=hunter2\n", encoding="utf-8")
             notes_dir.symlink_to(secret.parent)
