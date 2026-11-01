@@ -9,6 +9,7 @@ delegates the manifest stamp to the detected language."""
 
 import shlex
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,12 @@ from typer.testing import CliRunner
 from hyperi_ci import config as config_module
 from hyperi_ci.cli import app
 from hyperi_ci.config import load_config
-from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV, stamp_paths, stamp_version
+from hyperi_ci.stamp import (
+    SKIP_STAMP_CMD_ENV,
+    replace_toml_table_version,
+    stamp_paths,
+    stamp_version,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -228,6 +234,39 @@ class TestRustManifestStamp:
         assert 'version = "1.2.3"' in txt
         # dependency pin must be untouched
         assert 'foo = "1.2.3"' in txt
+
+    @pytest.mark.parametrize(
+        ("manifest", "want"),
+        [
+            pytest.param(
+                "[package]\nname = 'x'\nversion = '0.0.0'\n",
+                "version = '1.2.3'",
+                id="single-quoted",
+            ),
+            pytest.param(
+                '[package]\nname = "x"\n  version = "0.0.0"\n',
+                '  version = "1.2.3"',
+                id="indented",
+            ),
+            pytest.param(
+                '[ package ]\nname = "x"\nversion = "0.0.0"\n',
+                'version = "1.2.3"',
+                id="spaced-header",
+            ),
+        ],
+    )
+    def test_every_valid_spelling_is_stamped(
+        self, tmp_path: Path, manifest: str, want: str
+    ) -> None:
+        (tmp_path / "Cargo.toml").write_text(manifest)
+        stamp_version("1.2.3", project_dir=tmp_path)
+        text = (tmp_path / "Cargo.toml").read_text()
+        assert want in text
+        assert tomllib.loads(text)["package"]["version"] == "1.2.3"
+
+    def test_a_version_in_a_dependency_table_is_never_touched(self) -> None:
+        text = '[package]\nname = "x"\n\n[dependencies.foo]\nversion = "9.9.9"\n'
+        assert replace_toml_table_version(text, "package", "1.2.3") == text
 
     def test_stamps_workspace_package_version(self, tmp_path) -> None:
         (tmp_path / "Cargo.toml").write_text(

@@ -189,6 +189,30 @@ class TestHappyPath:
 class TestTheNotesSupplement:
     """One hand-written supplement reaches exactly one release."""
 
+    @pytest.fixture(autouse=True)
+    def _checkout_blob(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The checkout's supplement is the blob the branch carries, unless a test says not."""
+        real = release_commit._local_blob
+        monkeypatch.setattr(
+            release_commit,
+            "_local_blob",
+            lambda root, name: (
+                "supplement-sha" if name == SUPPLEMENT else real(root, name)
+            ),
+        )
+
+    def test_one_edited_on_the_branch_since_the_checkout_is_kept(
+        self, api: _Api, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Notes written for the next release must outlive an older one finishing."""
+        self._write(project)
+        monkeypatch.setattr(
+            release_commit, "_local_blob", lambda _root, _name: "older-sha"
+        )
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        assert SUPPLEMENT not in {entry["path"] for entry in tree}
+
     @staticmethod
     def _write(project: Path) -> None:
         path = project / SUPPLEMENT

@@ -21,6 +21,7 @@ which holds registry credentials.
 
 import re
 import shlex
+import tomllib
 from pathlib import Path, PurePosixPath
 
 from hyperi_ci.common import error, info, run_cmd, warn
@@ -41,22 +42,44 @@ def replace_toml_table_version(text: str, table: str, version: str) -> str:
 
     Scoped to the named table (e.g. ``package``, ``workspace.package``,
     ``project``), from its header to the next ``[`` header. Never inserts, so a
-    dynamic-version project with no ``version`` key is left untouched.
+    dynamic-version project with no ``version`` key is left untouched. Either
+    quote style and an indented key are rewritten, keeping the file's quote.
+
+    Raises:
+        ValueError: The table has a ``version`` the rewrite did not reach.
+
     """
     pattern = re.compile(
-        r"(?ms)^\[" + re.escape(table) + r"\].*?(?=^\[|\Z)",
+        r"(?ms)^\[[ \t]*" + re.escape(table) + r"[ \t]*\].*?(?=^\[|\Z)",
     )
     match = pattern.search(text)
     if not match:
         return text
     block = match.group(0)
     new_block = re.sub(
-        r'(?m)^(version\s*=\s*)"[^"]*"',
-        rf'\g<1>"{version}"',
+        r"""(?m)^([ \t]*version[ \t]*=[ \t]*)(["'])[^"'\n]*\2""",
+        rf"\g<1>\g<2>{version}\g<2>",
         block,
         count=1,
     )
-    return text[: match.start()] + new_block + text[match.end() :]
+    stamped = text[: match.start()] + new_block + text[match.end() :]
+    _check_stamped(stamped, table, version)
+    return stamped
+
+
+def _check_stamped(text: str, table: str, version: str) -> None:
+    """Raise when ``table`` still declares a version other than ``version``."""
+    try:
+        node: object = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return
+    for part in table.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    found = node.get("version") if isinstance(node, dict) else None
+    if isinstance(found, str) and found != version:
+        raise ValueError(
+            f"[{table}] version is still {found!r} after stamping {version!r}"
+        )
 
 
 # language -> (module path, function name), lazy-imported so one language's
