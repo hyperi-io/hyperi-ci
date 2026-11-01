@@ -42,7 +42,8 @@ def isolated_tool_home(tmp_path, monkeypatch):
 
     The PGO pipeline symlinks versioned LLVM tools into ``~/.local/bin`` and
     prepends it to PATH, which on a developer box would rewrite what
-    ``-fuse-ld=lld`` resolves to outside the test run.
+    ``-fuse-ld=lld`` resolves to outside the test run. A developer's own
+    ``CARGO_TARGET_DIR`` would move every binary path the tests expect.
     """
     monkeypatch.setattr(
         "hyperi_ci.languages.rust.pgo.Path.home", lambda: tmp_path / "home"
@@ -50,6 +51,7 @@ def isolated_tool_home(tmp_path, monkeypatch):
     monkeypatch.setattr(pgo, "_BOLT_LINKER_DIR", tmp_path / "bolt-linker")
     monkeypatch.setenv("PATH", os.environ["PATH"])
     monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+    monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
 
 
 def _make_profile(
@@ -1255,8 +1257,7 @@ class TestReleaseDir:
 
     TARGET = "x86_64-unknown-linux-gnu"
 
-    def test_defaults_to_target_under_the_project(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    def test_defaults_to_target_under_the_project(self, tmp_path) -> None:
         assert _release_dir(tmp_path, self.TARGET) == (
             tmp_path / "target" / self.TARGET / "release"
         )
@@ -1290,8 +1291,7 @@ class TestInstallBoltOutput:
     TARGET = "x86_64-unknown-linux-gnu"
 
     @pytest.fixture
-    def release(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    def release(self, tmp_path):
         release = tmp_path / "target" / self.TARGET / "release"
         release.mkdir(parents=True)
         (release / "app").write_bytes(b"pgo-only cargo output")
