@@ -96,6 +96,13 @@ _TOOLS: dict[str, NativeTool] = {
         ),
         arch=_MUSL_ARCH,
     ),
+    "crane": NativeTool(
+        url=(
+            "https://github.com/google/go-containerregistry/releases/download/"
+            "{version}/go-containerregistry_Linux_{arch}.tar.gz"
+        ),
+        arch={"amd64": "x86_64", "arm64": "arm64"},
+    ),
     "clickhouse": NativeTool(
         url=(
             "https://github.com/ClickHouse/ClickHouse/releases/download/"

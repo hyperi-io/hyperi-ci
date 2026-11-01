@@ -196,7 +196,9 @@ def buildx_command(
         cmd.extend(["--metadata-file", str(metadata_file)])
 
     if output is not None:
-        cmd.extend(["--output", output])
+        # The merge refuses a leg with no provenance, and buildx attaches none
+        # by default to an OCI-layout export.
+        cmd.extend(["--output", output, "--provenance", "mode=min"])
 
     if push:
         cmd.append("--push")
@@ -289,7 +291,12 @@ def build_and_push(
         error("docker buildx build failed")
         return returncode
 
-    action = "pushed" if push or output is not None else "validated"
+    if output is not None and output.startswith("type=oci"):
+        action = "exported"
+    elif push or output is not None:
+        action = "pushed"
+    else:
+        action = "validated"
     if tags:
         success(f"Built and {action}: {tags[0]}")
     else:

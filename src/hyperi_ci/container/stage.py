@@ -35,10 +35,12 @@ import json
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from hyperi_ci import native_tools
 from hyperi_ci.ci_env import is_ci, machine_arch
 from hyperi_ci.common import (
     ReleaseVersionError,
@@ -96,8 +98,9 @@ _DIST_CONTEXT_COPY = re.compile(r"(?m)^\s*(?:COPY|ADD)\s+(?!--from[=\s])[^\n]*\b
 
 PLAN = "plan"
 LEG = "leg"
+PUSH = "push"
 MERGE = "merge"
-_MODES = (PLAN, LEG, MERGE)
+_MODES = (PLAN, LEG, PUSH, MERGE)
 
 _SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -646,6 +649,9 @@ def _plan(spec: _ImageSpec, *, binary_backed: bool) -> int:
         push="true" if push else "false",
         reuse="true" if reuse else "false",
         created=created,
+        # The workflow refuses a CLI that does not write this, as its legs would
+        # push with a token that cannot write.
+        legs="oci",
     )
     return 0
 
@@ -760,8 +766,10 @@ def _dispatch_build(
     created = os.environ.get("HYPERCI_CONTAINER_CREATED", "").strip() or None
     digest_env = os.environ.get("HYPERCI_CONTAINER_DIGEST_DIR", "").strip()
     digest_dir = Path(digest_env) if digest_env else None
+    oci_env = os.environ.get("HYPERCI_CONTAINER_OCI_DIR", "").strip()
+    oci_dir = Path(oci_env) if oci_env else None
 
-    if mode in (LEG, MERGE) and len(registry_bases) != 1:
+    if mode in (LEG, PUSH, MERGE) and len(registry_bases) != 1:
         error(f"{mode} mode pushes to one registry, not {registry_bases}")
         return 1
     if mode == LEG:
@@ -769,19 +777,20 @@ def _dispatch_build(
             "HYPERCI_CONTAINER_PLATFORM": leg_platform,
             "HYPERCI_CONTAINER_CREATED": created,
         }
-        if push_mode != VALIDATE:
+        if push_mode != VALIDATE and oci_dir is None:
             needed["HYPERCI_CONTAINER_DIGEST_DIR"] = digest_env
         unset = [name for name, value in needed.items() if not value]
         if unset:
             error(f"Leg mode needs {', '.join(unset)} set")
             return 1
     merge_platforms: list[str] = []
-    if mode == MERGE:
+    if mode in (PUSH, MERGE):
         raw_platforms = os.environ.get("HYPERCI_CONTAINER_PLATFORMS", "").strip()
-        if digest_dir is None or not raw_platforms:
+        if digest_dir is None or not raw_platforms or (mode == PUSH and not oci_dir):
+            extra = " and HYPERCI_CONTAINER_OCI_DIR" if mode == PUSH else ""
             error(
-                "Merge mode needs HYPERCI_CONTAINER_DIGEST_DIR and "
-                "HYPERCI_CONTAINER_PLATFORMS set"
+                f"{mode.capitalize()} mode needs HYPERCI_CONTAINER_DIGEST_DIR, "
+                f"HYPERCI_CONTAINER_PLATFORMS{extra} set"
             )
             return 1
         parsed = _merge_platforms(raw_platforms)
@@ -801,6 +810,10 @@ def _dispatch_build(
 
     if mode == PLAN:
         return _plan(spec, binary_backed=binary_backed)
+    if mode == PUSH and digest_dir is not None and oci_dir is not None:
+        return _push_legs(
+            spec.repo, oci_dir=oci_dir, digest_dir=digest_dir, platforms=merge_platforms
+        )
     if mode == MERGE and digest_dir is not None:
         reuse = os.environ.get("HYPERCI_CONTAINER_REUSE", "").strip() == "true"
         return _merge(
@@ -829,10 +842,20 @@ def _dispatch_build(
     rewrote = effective_dockerfile != dockerfile_path
 
     push = push_mode != VALIDATE
+    # An exporting leg holds no registry write. Push mode sends its archive on.
+    export = mode == LEG and push and oci_dir is not None
     # A leg pushes by digest alone, so the merge applies every tag at once.
-    by_digest = mode == LEG and push
+    by_digest = mode == LEG and push and not export
+    output = None
+    if export and oci_dir is not None:
+        oci_dir.mkdir(parents=True, exist_ok=True)
+        output = f"type=oci,dest={oci_dir / f'{_digest_name(leg_platform)}.tar'}"
+    elif by_digest:
+        output = push_by_digest_output(spec.repo)
     scratch = tempfile.TemporaryDirectory(prefix="hyperi-ci-buildx-")
-    metadata_file = Path(scratch.name) / "metadata.json" if push else None
+    metadata_file = (
+        Path(scratch.name) / "metadata.json" if push and not export else None
+    )
     attempts, retry_delay = retry_settings(spec.container_cfg)
     try:
         rc = build_and_push(
@@ -842,11 +865,11 @@ def _dispatch_build(
             platforms=platforms,
             labels=spec.labels,
             build_args=spec.build_args if spec.build_args else None,
-            push=push and not by_digest,
+            push=push and not (by_digest or export),
             metadata_file=metadata_file,
             attempts=attempts,
             retry_delay=retry_delay,
-            output=push_by_digest_output(spec.repo) if by_digest else None,
+            output=output,
         )
         if rc == 0 and by_digest and metadata_file is not None and digest_dir:
             rc = _write_leg_digest(
@@ -885,11 +908,52 @@ def _refuse_emulation(platforms: list[str], machine: str | None = None) -> bool:
     return bool(foreign)
 
 
+def _push_legs(
+    repo: str, *, oci_dir: Path, digest_dir: Path, platforms: list[str]
+) -> int:
+    """Push each leg's OCI archive with crane and record its digest for the merge.
+
+    Runs on the publish runner, so the legs that built the archives never hold
+    a registry write. The layout holds one entry, buildx's index of the image
+    and its provenance, which crane pushes as is. ``--index`` would wrap it in
+    a second index whose child names no platform.
+    """
+    crane = native_tools.ci_binary("crane")
+    if crane is None:
+        error("crane is not available, so the container legs cannot be pushed")
+        return 1
+    for platform in platforms:
+        archive = oci_dir / f"{_digest_name(platform)}.tar"
+        with tempfile.TemporaryDirectory(prefix="hyperi-ci-oci-") as scratch:
+            layout = Path(scratch) / "layout"
+            refs = Path(scratch) / "refs"
+            try:
+                # The "data" filter refuses absolute paths, ".." and links out.
+                # nosemgrep: trailofbits.python.tarfile-extractall-traversal.tarfile-extractall-traversal
+                with tarfile.open(archive) as tar:
+                    tar.extractall(layout, filter="data")
+            except (OSError, tarfile.TarError) as exc:
+                error(f"Cannot read the {platform} archive {archive}: {exc}")
+                return 1
+            cmd = [crane, "push", "--image-refs", str(refs)]
+            result = run_cmd([*cmd, str(layout), repo], check=False, capture=True)
+            if result.returncode != 0:
+                error(f"crane could not push the {platform} image: {result.stderr}")
+                return 1
+            ref = refs.read_text(encoding="utf-8").strip() if refs.is_file() else ""
+        digest = ref.rpartition("@")[2]
+        if _write_leg_digest(
+            digest_dir, platform, digest if digest.startswith("sha256:") else None
+        ):
+            return 1
+    return 0
+
+
 def _write_leg_digest(digest_dir: Path, platform: str, digest: str | None) -> int:
     """Write ``digest`` to ``digest_dir/<arch>`` for the merge, returning an exit code."""
     if digest is None:
         error(
-            f"buildx recorded no digest for the {platform} image, so the merge "
+            f"The push reported no digest for the {platform} image, so the merge "
             "would have nothing to name"
         )
         return 1

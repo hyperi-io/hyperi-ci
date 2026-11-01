@@ -8,6 +8,7 @@
 import json
 import re
 import subprocess
+import tarfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -609,6 +610,7 @@ _MODE_ENV = (
     "HYPERCI_CONTAINER_PLATFORMS",
     "HYPERCI_CONTAINER_REUSE",
     "HYPERCI_CONTAINER_RESOLVE_ONLY",
+    "HYPERCI_CONTAINER_OCI_DIR",
 )
 
 
@@ -686,7 +688,7 @@ class TestModeSelection:
         monkeypatch.setenv("HYPERCI_CONTAINER_MODE", "split")
         assert run(_ci_config(container={"enabled": True}), language="python") == 1
         assert seams.builds == []
-        assert "plan, leg, merge" in errors[0]
+        assert "plan, leg, push, merge" in errors[0]
 
     @pytest.mark.parametrize("resolve_only", [True, False])
     def test_plan_writes_every_output_with_or_without_resolve_only(
@@ -701,7 +703,14 @@ class TestModeSelection:
         assert seams.builds == []
         assert seams.outputs["build"] == "true"
         assert json.loads(seams.outputs["platforms"]) == _BOTH
-        assert set(seams.outputs) == {"build", "platforms", "push", "reuse", "created"}
+        assert set(seams.outputs) == {
+            "build",
+            "platforms",
+            "push",
+            "reuse",
+            "created",
+            "legs",
+        }
 
     def test_plan_for_a_library_builds_nothing_and_plans_nothing(
         self, seams: _Seams, monkeypatch: pytest.MonkeyPatch
@@ -735,6 +744,7 @@ class TestPlanMode:
         assert json.loads(seams.outputs["platforms"]) == platforms
         assert seams.outputs["push"] == push
         assert seams.outputs["reuse"] == "false"
+        assert seams.outputs["legs"] == "oci"
         assert re.fullmatch(
             r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", seams.outputs["created"]
         )
@@ -823,6 +833,80 @@ class TestLegMode:
         assert built["push"] is False
         assert built["output"] is None
         assert built["metadata_file"] is None
+
+
+class TestExportAndPush:
+    def test_an_exporting_leg_writes_an_oci_archive_and_pushes_nothing(
+        self, seams: _Seams, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        oci = tmp_path / "oci"
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORM", "linux/arm64")
+        monkeypatch.setenv("HYPERCI_CONTAINER_CREATED", _CREATED)
+        monkeypatch.setenv("HYPERCI_CONTAINER_OCI_DIR", str(oci))
+        assert _mode("release", "leg") == 0
+        (built,) = seams.builds
+        assert built["output"] == f"type=oci,dest={oci / 'arm64.tar'}"
+        assert built["push"] is False
+        assert built["metadata_file"] is None
+        assert seams.writes == []
+
+    @staticmethod
+    def _archive(oci: Path, arch: str) -> None:
+        layout = oci.parent / f"layout-{arch}"
+        layout.mkdir(parents=True)
+        (layout / "index.json").write_text("{}", encoding="utf-8")
+        oci.mkdir(exist_ok=True)
+        with tarfile.open(oci / f"{arch}.tar", "w") as tar:
+            tar.add(layout / "index.json", arcname="index.json")
+
+    @pytest.mark.parametrize(
+        ("archives", "crane", "crane_rc", "ref", "rc"),
+        [
+            pytest.param(["amd64", "arm64"], True, 0, "@" + _ARM, 0, id="both-pushed"),
+            pytest.param(["amd64"], True, 0, "@" + _ARM, 1, id="missing-archive"),
+            pytest.param(["amd64", "arm64"], False, 0, "", 1, id="no-crane"),
+            pytest.param(["amd64", "arm64"], True, 1, "", 1, id="crane-fails"),
+            pytest.param(["amd64", "arm64"], True, 0, "", 1, id="no-digest"),
+        ],
+    )
+    def test_push_mode_sends_each_archive_on_and_records_its_digest(
+        self,
+        seams: _Seams,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        archives: list[str],
+        crane: bool,
+        crane_rc: int,
+        ref: str,
+        rc: int,
+    ) -> None:
+        oci, digests = tmp_path / "oci", tmp_path / "digests"
+        for arch in archives:
+            self._archive(oci, arch)
+        monkeypatch.setenv("HYPERCI_CONTAINER_OCI_DIR", str(oci))
+        monkeypatch.setenv("HYPERCI_CONTAINER_DIGEST_DIR", str(digests))
+        monkeypatch.setenv("HYPERCI_CONTAINER_PLATFORMS", json.dumps(_BOTH))
+        monkeypatch.setattr(
+            stage_module.native_tools,
+            "ci_binary",
+            lambda _name: "/bin/crane" if crane else None,
+        )
+        pushed: list[list[str]] = []
+
+        def _crane(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            pushed.append(cmd)
+            refs = Path(cmd[cmd.index("--image-refs") + 1])
+            refs.write_text(f"{_repo()}{ref}\n", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, crane_rc, "", "denied")
+
+        monkeypatch.setattr(stage_module, "run_cmd", _crane)
+        assert _mode("release", "push") == rc
+        if rc == 0:
+            # No --index: that wraps buildx's index in one whose child has no platform.
+            assert [c[:2] for c in pushed] == [["/bin/crane", "push"]] * 2
+            assert not any("--index" in c for c in pushed)
+            assert all(c[-1] == _repo() for c in pushed)
+            assert (digests / "arm64").read_text(encoding="utf-8") == f"{_ARM}\n"
 
 
 class TestNoEmulation:

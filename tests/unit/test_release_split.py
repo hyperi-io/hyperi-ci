@@ -412,7 +412,7 @@ class TestCommitBackFailureIsRecorded:
 
 
 class TestContainerRunsNoRepoCode:
-    """The Container job logs in to Docker Hub and GHCR with a packages:write token.
+    """The Container leg logs in to Docker Hub and GHCR, then builds the repo.
 
     These tests hold the workflow side: the stamp passes the switch that skips
     ``release.stamp_cmd``, the checkout keeps no token, uv and Python come up
@@ -425,8 +425,13 @@ class TestContainerRunsNoRepoCode:
 
     @pytest.fixture
     def steps(self) -> list[dict[str, Any]]:
-        # The per-arch leg builds the repo's Dockerfile with packages:write.
+        # The per-arch leg builds the repo's Dockerfile.
         return _jobs()["container-build"]["steps"]
+
+    def test_the_leg_cannot_write_the_registry(self) -> None:
+        """The leg exports an OCI archive, and the merge job pushes it."""
+        assert _jobs()["container-build"]["permissions"]["packages"] == "read"
+        assert _jobs()["container"]["permissions"]["packages"] == "write"
 
     @staticmethod
     def _index(steps: list[dict[str, Any]], prefix: str) -> list[int]:

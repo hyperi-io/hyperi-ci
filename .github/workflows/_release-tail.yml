@@ -247,11 +247,11 @@ jobs:
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
-      - name: Refuse a CLI without plan mode
-        # Its legs would ignore the mode and push a full tagged multi-arch image.
-        if: steps.resolve.outputs.build == 'true' && steps.plan.outputs.platforms == ''
+      - name: Refuse a CLI without OCI-export legs
+        # Its legs would push from the leg runner, whose token cannot write.
+        if: steps.resolve.outputs.build == 'true' && steps.plan.outputs.legs != 'oci'
         run: |
-          echo "::error::The hyperi-ci CLI wrote no container plan, so it predates per-arch legs. Clear HYPERCI_INSTALL_OVERRIDE or pin a newer release."
+          echo "::error::The hyperi-ci CLI predates legs that export an OCI archive for the publish runner to push. Clear HYPERCI_INSTALL_OVERRIDE or pin a newer release."
           exit 1
 
   container-build:
@@ -264,15 +264,17 @@ jobs:
     # GH_RUNNER_ARM64_CONTAINER goes ahead of the Build legs' GH_RUNNER_ARM64, so a
     # Dockerfile's COPY and apt steps need not take a large Rust Build profile.
     runs-on: ${{ matrix.platform == 'linux/arm64' && ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-24.04-arm' || vars.GH_RUNNER_ARM64_CONTAINER || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm') || ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
+    # Read only: a leg exports an OCI archive and container-push, on the publish
+    # runner, holds the write, so no leg runner is trusted with one.
     permissions:
       contents: read
-      packages: write
+      packages: read
     strategy:
-      # One leg dying must not cancel another that is pushing.
+      # One leg dying must not cancel another.
       fail-fast: false
       matrix:
         platform: ${{ fromJson(needs.container-plan.outputs.platforms) }}
-    # This job holds registry logins and a packages:write token, so its stamp skips
+    # This job holds registry logins, so its stamp skips
     # release.stamp_cmd (Build and Prepare run it). The skip needs a CLI release
     # that carries it: on an older CLI, or under a HYPERCI_INSTALL_OVERRIDE pin,
     # stamp_cmd still runs here and can write $GITHUB_ENV or $GITHUB_PATH or leave a
@@ -359,8 +361,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: GHCR login
-        # GITHUB_TOKEN with job-level packages:write can create repo-owned packages
-        # on first push.
+        # packages:read only, for a Dockerfile that pulls a private GHCR base image.
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -403,13 +404,13 @@ jobs:
           done
 
       - name: Build container
-        # A push run pushes this platform by digest alone, and the merge job tags it.
+        # A push run exports this platform as an OCI archive, which container-push sends on.
         id: build
         env:
           HYPERCI_CONTAINER_MODE: leg
           HYPERCI_CONTAINER_PLATFORM: ${{ matrix.platform }}
           HYPERCI_CONTAINER_CREATED: ${{ needs.container-plan.outputs.created }}
-          HYPERCI_CONTAINER_DIGEST_DIR: ${{ runner.temp }}/container-digests
+          HYPERCI_CONTAINER_OCI_DIR: ${{ runner.temp }}/container-oci
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
           # Authoritative image-tag version, the value Build stamps and
           # Tag-and-Release releases. The VERSION file fallback is stale on a
@@ -417,15 +418,16 @@ jobs:
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
-      - name: Upload the leg's digest
+      - name: Upload the leg's OCI archive
         # Named by matrix index because a platform holds a `/`, which an artifact name may not.
         if: needs.container-plan.outputs.push == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: container-digest-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/container-digests/
+          name: container-oci-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/container-oci/
           if-no-files-found: error
           retention-days: 1
+          compression-level: 0
 
   container:
     name: Container
@@ -500,13 +502,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Download the leg digests
+      - name: Download the leg OCI archives
         if: needs.container-plan.outputs.reuse != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: container-digest-*
-          path: ${{ runner.temp }}/container-digests
+          pattern: container-oci-*
+          path: ${{ runner.temp }}/container-oci
           merge-multiple: true
+
+      - name: Push the legs by digest
+        # Here, on the publish runner, so the leg runners never hold the write.
+        if: needs.container-plan.outputs.reuse != 'true'
+        env:
+          HYPERCI_CONTAINER_MODE: push
+          HYPERCI_CONTAINER_PLATFORMS: ${{ needs.container-plan.outputs.platforms }}
+          HYPERCI_CONTAINER_OCI_DIR: ${{ runner.temp }}/container-oci
+          HYPERCI_CONTAINER_DIGEST_DIR: ${{ runner.temp }}/container-digests
+          HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} run container
 
       - name: Guard -- the branch has not moved past this release
         # Last step before the tags, which go on ahead of the git tag: semantic-release
@@ -518,7 +532,7 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          before: pushing the container image, so nothing was published
+          before: tagging the container image, so no tag was published
           version: ${{ inputs.next-version }}
 
       - name: Merge the legs into one tagged image
