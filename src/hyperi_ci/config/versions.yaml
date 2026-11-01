@@ -365,6 +365,15 @@ tools:
       amd64: ec811478449184dea496ba17c3f76fdd3aeb2013dd5041676bd00041fed98d17
       arm64: bd59e072630c8884037575c59dad664330fd69c4247da334c9cf1b3f79a1a4c4
 
+  # Pushes the container legs' OCI archives from the publish runner, so no leg
+  # holds a registry write credential. Digests are of the release .tar.gz.
+  crane:
+    version: "v0.22.1"
+    repo: google/go-containerregistry
+    sha256:
+      x86_64: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+      arm64: 898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110
+
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could
   # break the gate in every repo at once with nothing in any diff to show for

@@ -84,8 +84,26 @@ class TestIndexAnnotations:
 
 
 class TestPushByDigest:
-    def test_a_by_digest_build_carries_the_output_and_no_tag_or_push(self) -> None:
-        output = push_by_digest_output("ghcr.io/hyperi-io/app")
+    def test_the_by_digest_output(self) -> None:
+        assert push_by_digest_output("ghcr.io/hyperi-io/app") == (
+            "type=image,name=ghcr.io/hyperi-io/app,push-by-digest=true,"
+            "name-canonical=true,push=true"
+        )
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            pytest.param(
+                push_by_digest_output("ghcr.io/hyperi-io/app"), id="by-digest"
+            ),
+            pytest.param("type=oci,dest=/oci/arm64.tar", id="oci-export"),
+        ],
+    )
+    def test_a_leg_carries_its_output_and_provenance_and_no_tag_or_push(
+        self, output: str
+    ) -> None:
+        # The merge refuses a leg without provenance, and an OCI export gets none
+        # unless asked.
         cmd = buildx_command(
             dockerfile_path=Path("Dockerfile"),
             context="ctx",
@@ -96,19 +114,27 @@ class TestPushByDigest:
             metadata_file=Path("meta.json"),
             output=output,
         )
-        assert output == (
-            "type=image,name=ghcr.io/hyperi-io/app,push-by-digest=true,"
-            "name-canonical=true,push=true"
-        )
-        assert cmd[-5:] == [
+        assert cmd[-7:] == [
             "--metadata-file",
             "meta.json",
             "--output",
             output,
+            "--provenance",
+            "mode=min",
             "ctx",
         ]
         assert "--tag" not in cmd
         assert "--push" not in cmd
+
+    def test_a_build_without_an_exporter_asks_for_no_provenance(self) -> None:
+        cmd = buildx_command(
+            dockerfile_path=Path("Dockerfile"),
+            tags=["ghcr.io/hyperi-io/app:v1"],
+            platforms=["linux/amd64"],
+            labels={},
+            push=True,
+        )
+        assert "--provenance" not in cmd
 
     @pytest.mark.parametrize(
         ("annotations", "want"),

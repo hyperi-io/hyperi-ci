@@ -11,7 +11,7 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 The release tail's container jobs: when they run, what scopes them, and how a container failure interacts with the rest of a release.
 
-The `release-tail` builds an OCI image from the repo's own `Dockerfile`, with injected OCI labels, and pushes it to GHCR on a release. Three jobs do it: `Container plan`, one `Container (<platform>)` leg per arch on a runner of that arch, and `Container`, which merges the legs. A push to main builds each leg and discards it (`validate` mode). A release pushes each leg by digest, then the merge tags multi-arch `:vX`, `:latest` and `:sha-...`. GHCR auth is each job's `GITHUB_TOKEN` with `packages:write`.
+The `release-tail` builds an OCI image from the repo's own `Dockerfile`, with injected OCI labels, and pushes it to GHCR on a release. Three jobs do it: `Container plan`, one `Container (<platform>)` leg per arch on a runner of that arch, and `Container`, which merges the legs. A push to main builds each leg and discards it (`validate` mode). On a release each leg exports an OCI archive, and the merge job, on the publish runner, pushes each by digest and then tags multi-arch `:vX`, `:latest` and `:sha-...`. GHCR auth is each job's `GITHUB_TOKEN`: `packages:read` on the legs, `packages:write` on the merge. So a leg runner, an ARC pod or a Namespace VM, never holds a registry write.
 
 ## Dockerfile-only, resolved before Docker (issue #33)
 
@@ -25,7 +25,7 @@ Under `true` a missing Dockerfile fails the stage. The decision is made *before*
 
 ## The container legs skip `release.stamp_cmd`
 
-A leg holds the registry logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`). Build and Prepare run the command instead. Only a CLI release carrying the variable honours it.
+A leg holds the registry logins, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`). Build and Prepare run the command instead. Only a CLI release carrying the variable honours it.
 
 On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here. It can write `$GITHUB_ENV` or `$GITHUB_PATH`, or leave a process running for the steps after the logins, so ordering the stamp before them is not enough alone. The variable, unlike the flag, does not break the workflow on those older CLIs.
 
@@ -94,14 +94,15 @@ The build and prepared artefacts come from jobs that ran repo code, so Tag & Rel
 
 ## Native per-arch builds (issue #709)
 
-`HYPERCI_CONTAINER_MODE` sets which of the three jobs the stage is. The release tail always sets it. Unset, `run container` does one multi-platform build, as a local `hyperi-ci run container` does.
+`HYPERCI_CONTAINER_MODE` sets what the stage does in each of the three jobs. The release tail always sets it. Unset, `run container` does one multi-platform build, as a local `hyperi-ci run container` does.
 
 In CI every mode refuses to build a platform that is not the runner's own arch, before buildx starts. BuildKit would otherwise fall back to its bundled QEMU, and a multi-arch build on one x64 runner built arm64 that way. A local build may still cross-build.
 
 | Mode | Reads | Does |
 |---|---|---|
-| `plan` | the release env | Writes `build`, `platforms` (a JSON list), `push`, `reuse` and `created`. Builds nothing. The workflow also sets `HYPERCI_CONTAINER_RESOLVE_ONLY`, so a CLI too old to know plan mode only resolves, and the plan step fails on its missing outputs |
-| `leg` | `HYPERCI_CONTAINER_PLATFORM`, `HYPERCI_CONTAINER_CREATED`, and `HYPERCI_CONTAINER_DIGEST_DIR` on a push | Builds that one platform. A push goes by digest with no tag, and the digest lands in `<dir>/<arch>` (`linux/arm64` is `arm64`). A push with no digest fails. Refuses more than one registry |
+| `plan` | the release env | Writes `build`, `platforms` (a JSON list), `push`, `reuse`, `created` and `legs=oci`. Builds nothing. The workflow fails a plan with no `legs=oci`, because that CLI's legs would push from a runner that cannot write. The workflow also sets `HYPERCI_CONTAINER_RESOLVE_ONLY`, so a CLI too old to know plan mode only resolves, and the plan step fails on its missing outputs |
+| `leg` | `HYPERCI_CONTAINER_PLATFORM`, `HYPERCI_CONTAINER_CREATED`, and on a push `HYPERCI_CONTAINER_OCI_DIR` or `HYPERCI_CONTAINER_DIGEST_DIR` | Builds that one platform. With `OCI_DIR` a push writes `<dir>/<arch>.tar` (`linux/arm64` is `arm64`) and pushes nothing. Either way the build asks for `--provenance mode=min`, because buildx attaches none to an OCI export by default and the merge refuses a leg without it. Without it a push goes by digest with no tag, and the digest lands in `<dir>/<arch>`. A push with no digest fails. Refuses more than one registry |
+| `push` | `HYPERCI_CONTAINER_OCI_DIR`, `HYPERCI_CONTAINER_DIGEST_DIR`, `HYPERCI_CONTAINER_PLATFORMS` | Pushes each platform's archive by digest with crane. The archive's one entry is buildx's index of the image and its provenance, pushed as is, never wrapped with `--index`, whose extra index names no platform. It writes the digest to `<digest dir>/<arch>` for the merge. Fails on a missing archive, a crane failure, or a digest crane did not report. crane is a pinned native tool in `versions.yaml` |
 | `merge` | `HYPERCI_CONTAINER_DIGEST_DIR`, `HYPERCI_CONTAINER_PLATFORMS`, `HYPERCI_CONTAINER_REUSE`, `HYPERCI_CONTAINER_CREATED` | Fails when the digest files and the platforms differ, naming both. Fails, before any tag moves, on a leg whose SLSA provenance `builderPlatform` is not its own platform, or that has no provenance. Runs one `imagetools create` with every tag and, for two or more platforms, the index annotations. Reads the index back and fails unless it carries this commit and every platform, then sets `image` and `digest`. Refuses a validate run and more than one registry |
 
 Every mode takes the version, push mode and tags from the same env as the single build. `created` comes from the plan, so every image of one release carries one timestamp. With `reuse` true the merge re-points the existing image instead.
