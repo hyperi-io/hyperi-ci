@@ -224,3 +224,14 @@
   apt_packages:
     - libonig-dev
     - pkg-config
+
+# --- unixODBC (odbc-sys) ---
+# odbc-sys links libodbc, used by odbc-api and arrow-odbc.
+- name: unixodbc
+  patterns:
+    - odbc-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: unixodbc-dev
+  apt_packages:
+    - unixodbc-dev
