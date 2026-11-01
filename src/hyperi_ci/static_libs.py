@@ -44,6 +44,8 @@ _REFUSED_LINKS = ("sasl2", "curl")
 # Shared objects a binary linked against the prefix must not still need.
 STATIC_ONLY = ("librdkafka", "libssl", "libcrypto", "libsasl2", "libcurl")
 MANIFEST = "hyperi-static-libs.json"
+# Where scripts/update-versions.py looks for each pin's next release.
+_UPDATER_FIELDS = frozenset({"repo", "tag_prefix"})
 RELEASE_URL = "https://github.com/hyperi-io/hyperi-ci/releases/download/{tag}/{asset}"
 
 
@@ -326,9 +328,14 @@ def release_tag() -> str:
     """Return the GitHub release tag for the current pins and build recipes.
 
     It names librdkafka and OpenSSL and ends in a digest of every pin and every
-    recipe, so a changed flag gets a new release rather than a re-upload.
+    recipe, so a changed flag gets a new release rather than a re-upload. The
+    fields the version updater reads upstream from do not change the build, so
+    they stay out of the digest.
     """
-    pins = static_libs()
+    pins = {
+        name: {k: v for k, v in pin.items() if k not in _UPDATER_FIELDS}
+        for name, pin in static_libs().items()
+    }
     placeholder = Path("/prefix")
     recipes = {name: [s.argv for s in _recipe(name, placeholder, 1)] for name in pins}
     material = json.dumps({"pins": pins, "recipes": recipes}, sort_keys=True)

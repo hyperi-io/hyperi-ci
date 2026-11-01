@@ -44,6 +44,8 @@ The source versions and digests are `static_libs:` in `src/hyperi_ci/config/vers
 
 These pins take no release-age cooldown: each moves to the newest upstream release, OpenSSL on its current LTS line. They are mature, widely used libraries, so staying current outweighs the delay. Checksum verification, the LTS line and the recorded digests still apply.
 
+Nobody edits these pins by hand. `scripts/update-versions.py --auto-update`, which the Versions audit workflow runs, reads each pin's `repo` releases (`tag_prefix` strips the tag down to the version, `lts` keeps OpenSSL on its line) and writes the newest version with its digest and, for librdkafka, the tag's commit. Once that bump merges, the Static libs workflow publishes the new release, and the next audit run finds it and moves `static_libs_release` to it with the archive digests GitHub recorded. `repo` and `tag_prefix` stay out of the release tag's digest, because they change what the updater reads, not what is built.
+
 The release tag names librdkafka and OpenSSL and ends in a digest of every pin and every build recipe, for example `static-libs-rdkafka2.16.0-openssl3.5.9-<digest>`. A changed pin or flag publishes a new release. An unchanged one publishes nothing, and an existing release is never re-uploaded, because a rebuild is not byte-identical. Releases are never marked latest.
 
 Each release carries three assets per Rust target triple (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`), each built natively on its own GitHub-hosted Ubuntu 24.04 runner:
