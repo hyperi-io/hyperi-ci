@@ -188,6 +188,9 @@ def _gate_run(
     tag: str = "",
     from_head: str = "",
     bump: str = "auto",
+    private: str = "false",
+    env: dict[str, str] | None = None,
+    returncode: int = 0,
 ) -> tuple[dict[str, str], str]:
     return _run_step(
         "gate",
@@ -197,8 +200,11 @@ def _gate_run(
             "inputs.tag": tag,
             "inputs.from-head": from_head,
             "inputs.bump": bump,
+            "github.event.repository.private": private,
         },
         repo,
+        env=env,
+        returncode=returncode,
     )
 
 
@@ -496,6 +502,75 @@ class TestAForcedBump:
         )
         assert not planted.exists()
         assert "::error::Invalid bump" in stdout
+
+
+class TestTheClassificationGate:
+    """A declared internal repo, or a private product, never publishes."""
+
+    @pytest.mark.parametrize(
+        ("config", "dotfile", "private", "env", "refused"),
+        [
+            pytest.param("", "", "true", {}, "", id="undeclared_private"),
+            pytest.param("internal", "", "false", {}, "internal", id="internal"),
+            pytest.param("hyperi", "", "false", {}, "internal", id="internal_alias"),
+            pytest.param("", "internal", "false", {}, "internal", id="dotfile"),
+            pytest.param("product", "", "true", {}, "product", id="private_product"),
+            pytest.param("product", "", "false", {}, "", id="public_product"),
+            pytest.param("general-oss", "", "true", {}, "", id="oss"),
+            pytest.param("fork", "", "true", {}, "", id="fork"),
+            pytest.param("interal", "", "false", {}, "interal", id="misspelt"),
+            pytest.param(
+                "internal",
+                "",
+                "false",
+                {"HYPERCI_CLASSIFICATION": "general-oss"},
+                "",
+                id="env_override",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("trigger", ["trailer", "dispatch"])
+    def test_a_publish_run(
+        self,
+        released_head: Path,
+        config: str,
+        dotfile: str,
+        private: str,
+        env: dict[str, str],
+        refused: str,
+        trigger: str,
+    ) -> None:
+        if config:
+            (released_head / ".hyperi-ci.yaml").write_text(
+                f"classification: {config}\n", encoding="utf-8"
+            )
+        if dotfile:
+            (released_head / ".hyperi-classification").write_text(
+                f"{dotfile}\n", encoding="utf-8"
+            )
+        event = "push" if trigger == "trailer" else "workflow_dispatch"
+        outputs, stdout = _gate_run(
+            event,
+            released_head,
+            from_head="true" if trigger == "dispatch" else "",
+            private=private,
+            env=env,
+            returncode=1 if refused else 0,
+        )
+        if refused:
+            assert outputs == {}
+            assert "::error title=classification::" in stdout
+            assert refused in stdout
+        else:
+            assert outputs == {"will-publish": "true"}
+
+    def test_a_validate_only_run_is_not_checked(self, released_head: Path) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(
+            "classification: internal\n", encoding="utf-8"
+        )
+        outputs, stdout = _gate_run("push", released_head, ref=_FEATURE)
+        assert outputs == {"will-publish": "false"}
+        assert "classification" not in stdout
 
 
 _SEMREL_GATED = "steps.firstparent.outputs.first-parent != 'true'"

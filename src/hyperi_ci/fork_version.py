@@ -16,28 +16,22 @@ its own message under :mod:`hyperi_ci.release_rules`. A prerelease branch keeps
 semantic-release.
 
 Stdlib-only, importing nothing from the package but ``classification``,
-``commit_range``, ``project_config``, ``release_rules`` and ``version_source``,
-because the predict-version composite loads it by path where hyperi-ci is not
-installed.
+``commit_range``, ``release_rules`` and ``version_source``, because the
+predict-version composite loads it by path where hyperi-ci is not installed.
 """
 
-import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
-from hyperi_ci.classification import resolve
+from hyperi_ci.classification import resolve_checkout
 from hyperi_ci.commit_range import git_log, last_version_tag
-from hyperi_ci.project_config import read_project_config
 from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, default_type_bump
 from hyperi_ci.version_source import seed_version
 
 #: The canonical classification that versions from first-parent commits.
 FORK = "fork"
-
-# `hyperi-ci config` lets this variable replace the file's `classification`.
-_ENV_OVERRIDE = "HYPERCI_CLASSIFICATION"
 
 _STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
@@ -81,14 +75,8 @@ def check_fork(root: Path) -> ForkCheck:
         and says so in ``warning``.
 
     """
-    project = read_project_config(root)
-    merged: dict[str, Any] = dict(project.data or {})
-    if _ENV_OVERRIDE in os.environ:
-        merged["classification"] = os.environ[_ENV_OVERRIDE]
-    unreadable = project.unreadable if _ENV_OVERRIDE not in os.environ else ""
-
     try:
-        resolution = resolve(merged, root)
+        resolution, unreadable = resolve_checkout(root)
     except (ValueError, OSError) as exc:
         return ForkCheck(
             False, "classification unreadable", f"{exc} Read as undeclared."

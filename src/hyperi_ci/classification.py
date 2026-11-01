@@ -23,9 +23,12 @@ read as public OSS.
 """
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from hyperi_ci.project_config import read_project_config
 
 # The only values the GitHub org custom property accepts or a marker holds.
 CANONICAL: tuple[str, ...] = ("internal", "product", "fork", "general-oss")
@@ -57,6 +60,9 @@ SOURCE_CONFIG: str = ".hyperi-ci.yaml"
 SOURCE_DOTFILE: str = DOTFILE_NAME
 SOURCE_ORG: str = "github-org-property"
 SOURCE_UNDECLARED: str = "undeclared"
+
+# `hyperi-ci config` lets this variable replace the file's `classification`.
+ENV_OVERRIDE: str = "HYPERCI_CLASSIFICATION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +219,54 @@ def resolve(raw_config: dict, project_dir: Path) -> Resolution:
         return _declared(from_file, SOURCE_DOTFILE)
 
     return Resolution("", SOURCE_UNDECLARED, MOST_RESTRICTIVE)
+
+
+def resolve_checkout(root: Path) -> tuple[Resolution, str]:
+    """Resolve a checkout's classification the way ``hyperi-ci config`` does.
+
+    Reads ``.hyperi-ci.yaml`` itself, for callers with no merged config such as
+    the predict-version composite.
+
+    Args:
+        root: The checkout root.
+
+    Returns:
+        The Resolution, and why ``.hyperi-ci.yaml`` could not be read, else "".
+        An unreadable config leaves only the dotfile to answer.
+
+    Raises:
+        ValueError: A marker holds a value outside the canonical set.
+        OSError: A marker could not be read.
+
+    """
+    if ENV_OVERRIDE in os.environ:
+        return resolve({"classification": os.environ[ENV_OVERRIDE]}, root), ""
+    project = read_project_config(root)
+    return resolve(dict(project.data or {}), root), project.unreadable
+
+
+def publish_refusal(resolution: Resolution, repo_private: bool) -> str:
+    """Say why a repo's DECLARED category may not publish, else "".
+
+    An undeclared repo is not refused, though its effective category is
+    ``internal``, because most of the fleet declares nothing.
+
+    Args:
+        resolution: The repo's classification.
+        repo_private: Whether the GitHub repo is private.
+
+    Returns:
+        The reason, or "" when the repo may publish.
+
+    """
+    if resolution.value == "internal":
+        return f"classification internal ({resolution.source}) is never published"
+    if resolution.value == "product" and repo_private:
+        return (
+            f"classification product ({resolution.source}) publishes only once "
+            "the repo is public"
+        )
+    return ""
 
 
 def _declared(value: str, source: str) -> Resolution:
