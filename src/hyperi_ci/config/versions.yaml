@@ -59,11 +59,11 @@ tools:
   # honours only the first config file, contradicting its own help text
   # (0.14.0 rejects multiple `-c` and fixes the contract).
   alint:
-    version: "v0.17.0"
+    version: "v0.20.1"
     repo: asamarts/alint
     sha256:
-      x86_64: aae46539226955795bc7c51adf4832d2503bf7419f87ad0ac15185092d42708a
-      aarch64: 3f8acc1c30cb8959bce53d4a23d77906935cc679ef13c855297c3e39bd464504
+      x86_64: 5e74739ff65afa5ebcce067942430cf6794bed1cce402ac28b08c17eff570fcd
+      aarch64: 48d9bd4f4e871356db287b4dd01404a9b2bc52e6776ce9d3fdfe06214a00f5d9
   gitleaks:
     version: v8.30.1
     repo: gitleaks/gitleaks
@@ -153,26 +153,26 @@ tools:
   # code runs, so it cannot read this file. update-versions.py writes those
   # mirrors; never hand-edit a marked line.
   osv-scanner:
-    version: v2.6.0
+    version: "v2.7.0"
     repo: google/osv-scanner
     pin: .github/actions/setup-osv-scanner/action.yml
     sha256:
-      amd64: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
-      arm64: 2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4
+      amd64: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+      arm64: 4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7
   golangci-lint:
-    version: "v2.14.0"
+    version: "v2.15.0"
     repo: golangci/golangci-lint
     pin: .github/actions/setup-go-tools/action.yml
     sha256:
-      amd64: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
-      arm64: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+      amd64: 9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+      arm64: b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
   gosec:
-    version: v2.29.0
+    version: "v2.30.0"
     repo: securego/gosec
     pin: .github/actions/setup-go-tools/action.yml
     sha256:
-      amd64: 6431b119741c1f4a50fdfcf94e782e16b9e642afc8c7fa9b5d39d48bf3003095
-      arm64: c71244ec8d37488fd479d0d26990968fee03ece48b305d8224ac0c1ebd66e87c
+      amd64: 3fcce2c4e802ff4169217874602a7df355e9a37bcb6ffaa34b08f3d5f336cdfb
+      arm64: 0867994920453070a5d6a713e35921a3058473e5c3bf777fdd5a2d6f95313fda
   # No prebuilt binaries upstream (golang/vuln releases carry no assets), so
   # this one is still `go install` - but pinned, not @latest. Small pure-Go
   # module, so the compile costs seconds.
@@ -182,7 +182,7 @@ tools:
   # this pin current across four minors. The tags carry the truth; each one's
   # date comes from the commit it points at.
   govulncheck:
-    version: v1.8.0
+    version: "v1.9.0"
     repo: golang/vuln
     release_source: tags
     pin: .github/actions/setup-go-tools/action.yml
@@ -225,16 +225,16 @@ tools:
   # Upstream publishes a `.sha256` per asset - these were cross-checked against
   # it at pin time.
   cargo-nextest:
-    version: 0.9.146
+    version: "0.9.149"
     repo: nextest-rs/nextest
     tag_prefix: cargo-nextest-
     pin: .github/actions/setup-nextest/action.yml
     sha256:
       # Linux is musl (static) on both arches; macOS ships one universal build,
       # so `macos` is a platform key here rather than an arch.
-      amd64: b64617e8640624e8f9ba99819e37d7971154e97836d7ae4774fed4715501a6aa
-      arm64: 62ae8b4ad034704f67417f8ed8b897566d82359ab44952729b925fb37eeb7622
-      macos: 39785160b3c2f6ed9a765049cf4fa79f3b39aa02eb7598a5a0e2a1a0b9ffb9a8
+      amd64: d65c7f14bcb5c1566d1ecd534c5da8dedb81ba58586e478b0ab81c877d2bd8ad
+      arm64: 533c9b431c2bb1dcb216e02e474263db0cdcd556373b72cc34830fb417058a6b
+      macos: 47b9941765a9ff94e304a3fe5444ac1c7593da655525b8b69f8f2b31a9217507
   # Coverage for the TEST job, not quality -- `test.coverage` was honoured up
   # to the point a tool would run and then found none, so coverage had never
   # run on any repo (issue #140). Chosen over cargo-tarpaulin because
@@ -284,11 +284,11 @@ tools:
   # RUSTC_WRAPPER=sccache and no CI step installs it. musl on both arches.
   # Digests cross-checked against upstream's `.sha256` files at pin time.
   sccache:
-    version: v0.18.0
+    version: "v0.19.0"
     repo: mozilla/sccache
     sha256:
-      x86_64: 45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89
-      aarch64: 2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a
+      x86_64: aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd
+      aarch64: 3e47fc4a71b1ddd1b4294a0de9d34498922fdf41e3cd0bda5df3954e3d6deb9d
   # The bake runs this rustup-init from static.rust-lang.org/rustup/archive/
   # rather than the sh.rustup.rs script. The toolchains it then installs still
   # track the channels in bootstrap.yaml. Bare-semver tags and no GitHub
@@ -332,26 +332,26 @@ tools:
   # bare semver on the v2 branch and the repo cuts no GitHub Releases, so
   # `--stable` reads the tags.
   aws-cli:
-    version: 2.37.10
+    version: "2.38.5"
     repo: aws/aws-cli
     release_source: tags
   # lint-iac fetches these two through native_tools.py on Linux CI when the
   # runner has none. Digests cross-checked against upstream's SHA256SUMS and
   # checksums.txt at pin time.
   tofu:
-    version: "v1.13.1"
+    version: "v1.13.2"
     repo: opentofu/opentofu
     sha256:
-      amd64: 378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
-      arm64: 9c1ef375aa1852db0b2888aa921b640c71f8140d4682aa4fec99378a64fa7dc3
+      amd64: ac05d9952662c7db28dd57e93f0a68018837bfdf9342384ec0987977c16a9645
+      arm64: 88e2d9e3f94f97b76ab2faf55ade87578f56aed19c5e45fa139d70e994366d1f
   # MONOREPO like rustsec: api/, kyaml/ and cmd/config/ tag from the same repo.
   kustomize:
-    version: "v5.8.2"
+    version: "v5.8.3"
     repo: kubernetes-sigs/kustomize
     tag_prefix: kustomize/
     sha256:
-      amd64: 06af0a202c2b831207d0173f9c9cdb1b30abceca0747cb3fbb72792d26055c95
-      arm64: 0991957191951cb7dddd142403b5bb98a1fcd6378ba0079dddc1e2c309080a7f
+      amd64: cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
+      arm64: 9867b76482cfc6d25b546abc1d2b5a32bd137505aba640649b4b378f64f6d68f
   # native_tools.py streams clickhouse-common-static-<numeric version>-<arch>.tgz
   # (about 265 MB) and installs its one `clickhouse` binary, plus the
   # `clickhouse-local` symlink the multi-call binary dispatches on. The digests
@@ -372,7 +372,7 @@ tools:
   # reads PyPI's own upload times and applies the same 7-day cooldown. Python
   # reads these through hyperi_ci.versions, so there is no `pin:` and no copy.
   semgrep:
-    version: "1.179.0"
+    version: "1.182.1"
     pypi: semgrep
   pip-audit:
     version: 2.10.1
@@ -386,15 +386,15 @@ tools:
     pypi: vulture
     pin: .github/workflows/ci.yml
   ty:
-    version: "0.0.84"
+    version: "0.0.91"
     pypi: ty
   checkov:
-    version: "3.3.23"
+    version: "3.3.30"
     pypi: checkov
   # lint-iac's ansible dimension. ansible-galaxy runs from the ansible-lint
   # environment, so the ansible-core it installs with matches the linter's.
   ansible-lint:
-    version: 26.9.0
+    version: "26.10.1"
     pypi: ansible-lint
   yamllint:
     version: 1.38.0
