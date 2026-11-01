@@ -1,0 +1,87 @@
+# Project:   HyperI CI
+# File:      .github/workflows/static-libs.yml
+# Purpose:   Build the static librdkafka/OpenSSL prefix per arch and publish it
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Each arch builds on its own hosted runner, never emulated. A PR builds only.
+# A push to main or a dispatch also publishes a `static-libs-*` release, unless
+# that tag already exists. The tag digests every pin and recipe, so an unchanged
+# build publishes nothing.
+
+name: Static libs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/hyperi_ci/config/versions.yaml
+      - src/hyperi_ci/static_libs.py
+      - .github/workflows/static-libs.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - src/hyperi_ci/config/versions.yaml
+      - src/hyperi_ci/static_libs.py
+      - .github/workflows/static-libs.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # 24.04 pinned, not -latest: the archives must match the glibc the Rust
+        # apps build against.
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Build the static prefix
+        run: uv run --no-sources hyperi-ci static-libs build --prefix "${{ runner.temp }}/hyperi-static-libs" --out "${{ runner.temp }}/static-libs-out"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: static-libs-${{ matrix.runner }}
+          path: ${{ runner.temp }}/static-libs-out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: static-libs-*
+          path: ${{ runner.temp }}/static-libs-out
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: uv run --no-sources hyperi-ci static-libs publish --dir "${{ runner.temp }}/static-libs-out" --target "${{ github.sha }}"

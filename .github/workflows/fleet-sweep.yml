@@ -38,6 +38,7 @@ on:
       - '!.github/workflows/ci.yml'
       - '!.github/workflows/fleet-sweep.yml'
       - '!.github/workflows/gate-audit.yml'
+      - '!.github/workflows/static-libs.yml'
       - '!.github/workflows/versions-audit.yml'
   workflow_dispatch:
     inputs:

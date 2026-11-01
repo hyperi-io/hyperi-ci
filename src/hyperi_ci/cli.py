@@ -1562,6 +1562,51 @@ def runner_report_cmd(
     raise typer.Exit(rc)
 
 
+static_libs_app = typer.Typer(help="Static librdkafka, OpenSSL, zstd and zlib")
+app.add_typer(static_libs_app, name="static-libs")
+
+
+@static_libs_app.command(name="build")
+def static_libs_build_cmd(
+    prefix: Annotated[
+        Path, typer.Option("--prefix", help="Install directory, which must not exist")
+    ],
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for the archive and its .sha256")
+    ],
+    work: Annotated[
+        Path | None,
+        typer.Option("--work", help="Scratch directory, a temporary one by default"),
+    ] = None,
+) -> None:
+    """Build the versions.yaml static_libs pins into one prefix and archive it."""
+    import tempfile
+
+    from hyperi_ci.static_libs import build, package
+
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-static-libs-") as scratch:
+        rc = build(prefix.resolve(), (work or Path(scratch)).resolve())
+    if rc != 0:
+        raise typer.Exit(rc)
+    package(prefix.resolve(), out.resolve())
+
+
+@static_libs_app.command(name="publish")
+def static_libs_publish_cmd(
+    out: Annotated[
+        Path, typer.Option("--dir", help="Directory holding every arch's build output")
+    ],
+    target: Annotated[str, typer.Option("--target", help="Commit to tag")],
+) -> None:
+    """Create the static-libs GitHub release, unless its tag already exists."""
+    from hyperi_ci.gh import require_gh
+    from hyperi_ci.static_libs import publish
+
+    if not require_gh():
+        raise typer.Exit(1)
+    raise typer.Exit(publish(out.resolve(), target=target))
+
+
 vendor_app = typer.Typer(help="Mirror files one way from another repo at a pinned ref")
 app.add_typer(vendor_app, name="vendor")
 
