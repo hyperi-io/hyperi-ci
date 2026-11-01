@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.42](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.41...v2.14.42) (2026-11-01)
+
+### Bug Fixes
+
+* **deps:** bump the static-libs pins from upstream with no cooldown ([#789](https://github.com/hyperi-io/hyperi-ci/issues/789)) ([0ab099d](https://github.com/hyperi-io/hyperi-ci/commit/0ab099d42924adf18e010d5f41f5b077153b1bb0))
+* stamp every version spelling, read Go env, keep edited notes ([#792](https://github.com/hyperi-io/hyperi-ci/issues/792)) ([b77e7f9](https://github.com/hyperi-io/hyperi-ci/commit/b77e7f99ded985d8b4ba52656a2c4fcc060fcd16))
+
 ## [2.14.41](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.40...v2.14.41) (2026-11-01)
 
 ### Bug Fixes
