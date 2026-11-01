@@ -20,6 +20,16 @@ rdkafka-sys's own static build bundles an older librdkafka (4.10.0 bundles 2.12.
 
 The resulting binary needs only libc, libm, libgcc_s and the loader. `readelf -d` shows no librdkafka, libssl, libsasl2 or libcurl.
 
+An app turns it on in `.hyperi-ci.yaml`:
+
+```yaml
+build:
+  rust:
+    static_libs: true
+```
+
+The Build job then downloads the `static_libs_release` archive pinned in versions.yaml for its own target triple, checks its sha256, unpacks it, and sets the variables above for cargo. The prefix goes ahead of any `PKG_CONFIG_PATH` the runner already has. Packaging fails a binary that still needs librdkafka, libssl, libcrypto, libsasl2 or libcurl. Quality and Test keep linking the system librdkafka the runner image installs.
+
 ## What is built
 
 librdkafka is configured with SSL, zstd and zlib, and without GSSAPI (libsasl2) or curl. SCRAM and the callback form of OAUTHBEARER are built in. The OIDC token fetch, which needs curl, is not. Its mklove `configure` runs with `--no-download`, so it fetches nothing the pins do not cover.

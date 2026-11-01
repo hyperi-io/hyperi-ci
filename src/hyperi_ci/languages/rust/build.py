@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from hyperi_ci import static_libs
 from hyperi_ci.common import (
     announce,
     error,
@@ -161,9 +162,16 @@ def _check_glibc(binary: Path, glibc_max: tuple[int, int] | None) -> bool:
 
 
 def _verify_binary(
-    binary: Path, target: str, glibc_max: tuple[int, int] | None = None
+    binary: Path,
+    target: str,
+    glibc_max: tuple[int, int] | None = None,
+    static_only: tuple[str, ...] = (),
 ) -> bool:
-    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it."""
+    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it.
+
+    A dynamic dependency named by a ``static_only`` prefix fails the check, as
+    that library was meant to be linked in.
+    """
     errors = 0
     info("    --- Post-build verification ---")
 
@@ -213,10 +221,18 @@ def _verify_binary(
             info(f"    OK: Dynamic deps ({len(deps)}): {' '.join(deps)}")
         else:
             info("    INFO: Statically linked (no dynamic deps)")
+        if static_only and (leaked := [d for d in deps if d.startswith(static_only)]):
+            error(
+                f"    Still needs {' '.join(leaked)} at runtime, though "
+                "build.rust.static_libs links it in"
+            )
+            errors += 1
         if not _check_glibc(binary, glibc_max):
             errors += 1
-    elif glibc_max is not None:
-        error("    readelf is not on PATH, so build.rust.glibc_max cannot be checked")
+    elif glibc_max is not None or static_only:
+        error(
+            "    readelf is not on PATH, so the binary's dynamic deps cannot be checked"
+        )
         errors += 1
 
     for flag in ("--version", "--help"):
@@ -468,6 +484,7 @@ def _package_binaries(
     binary_names: list[str],
     version: str,
     glibc_max: tuple[int, int] | None = None,
+    static_only: tuple[str, ...] = (),
 ) -> int:
     """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
@@ -504,7 +521,7 @@ def _package_binaries(
                 f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
             )
 
-            if not _verify_binary(output_path, target, glibc_max):
+            if not _verify_binary(output_path, target, glibc_max, static_only):
                 error(f"Post-build verification failed for {output_path}")
                 return 1
 
@@ -757,9 +774,17 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
 
     # A skipped Tier 2 stage fails the release rather than shipping it green.
     strict = truthy(config.get("build.rust.optimize.strict", True))
+    static = truthy(config.get("build.rust.static_libs", False))
     bolt_targets: list[str] = []
     for target in targets:
         with group(f"Build: {target}"):
+            target_env = extra
+            if static:
+                prefix = static_libs.fetch(target)
+                if prefix is None:
+                    error(f"build.rust.static_libs is on and {target} has no prefix")
+                    return 1
+                target_env = {**extra, **static_libs.link_env(prefix)}
             profile = None
             outcome = None
             if base_profile:
@@ -771,7 +796,12 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 log_profile(profile)
                 outcome = OptimizationOutcome(allocator=profile.allocator)
             rc = _build_for_target(
-                target, features, all_features, extra, profile=profile, outcome=outcome
+                target,
+                features,
+                all_features,
+                target_env,
+                profile=profile,
+                outcome=outcome,
             )
             if rc != 0:
                 error(f"Build failed for target: {target}")
@@ -803,6 +833,7 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 binary_names,
                 version,
                 _parse_glibc_max(config.get("build.rust.glibc_max")),
+                static_libs.STATIC_ONLY if static else (),
             )
             if rc != 0:
                 return rc

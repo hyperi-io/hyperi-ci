@@ -31,7 +31,8 @@ from pathlib import Path
 
 from hyperi_ci.common import curl_fetch, error, info, run_cmd
 from hyperi_ci.gh import gh_run
-from hyperi_ci.versions import static_libs
+from hyperi_ci.upgrade import CACHE_DIR
+from hyperi_ci.versions import static_libs, static_libs_release
 
 _TRIPLES = {
     "x86_64": "x86_64-unknown-linux-gnu",
@@ -40,7 +41,10 @@ _TRIPLES = {
 _ARCHIVES = ("libssl.a", "libcrypto.a", "libz.a", "libzstd.a", "librdkafka.a")
 # A link the static binary must not carry at runtime.
 _REFUSED_LINKS = ("sasl2", "curl")
+# Shared objects a binary linked against the prefix must not still need.
+STATIC_ONLY = ("librdkafka", "libssl", "libcrypto", "libsasl2", "libcurl")
 MANIFEST = "hyperi-static-libs.json"
+RELEASE_URL = "https://github.com/hyperi-io/hyperi-ci/releases/download/{tag}/{asset}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +246,54 @@ def build(prefix: Path, work: Path, *, jobs: int | None = None) -> int:
         newline="\n",
     )
     return 0
+
+
+def fetch(triple: str, cache_dir: Path = CACHE_DIR) -> Path | None:
+    """Download and unpack the pinned release's prefix for ``triple``.
+
+    The archive is checked against its versions.yaml digest before anything is
+    unpacked, and is unpacked afresh each time, so nothing cached is trusted.
+
+    Returns:
+        The prefix, or None after logging why there is none.
+
+    """
+    tag, digests = static_libs_release()
+    if triple not in digests:
+        error(f"static-libs: {tag} pins no archive for {triple}")
+        return None
+    asset = f"hyperi-static-libs-{triple}.tar.gz"
+    pin = {
+        "version": tag,
+        "url": RELEASE_URL.format(tag=tag, asset=asset),
+        "sha256": digests[triple],
+    }
+    work = cache_dir / "static-libs" / tag / triple
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    prefix = _fetch_source("download", pin, work)
+    if prefix is None:
+        return None
+    if problems := _check(prefix):
+        error(f"static-libs: {asset} is incomplete: {', '.join(problems)}")
+        return None
+    info(f"static-libs: {tag} for {triple} at {prefix}")
+    return prefix
+
+
+def link_env(prefix: Path) -> dict[str, str]:
+    """Return the variables that make a Rust build link ``prefix`` statically.
+
+    The prefix goes first on any ``PKG_CONFIG_PATH`` already set, so it wins
+    over a system librdkafka and the rest still resolve.
+    """
+    paths = [str(prefix / "lib" / "pkgconfig"), os.environ.get("PKG_CONFIG_PATH", "")]
+    return {
+        "PKG_CONFIG_PATH": os.pathsep.join(p for p in paths if p),
+        "RDKAFKA_STATIC": "1",
+        "OPENSSL_STATIC": "1",
+        "OPENSSL_DIR": str(prefix),
+    }
 
 
 def package(prefix: Path, out_dir: Path) -> Path:
