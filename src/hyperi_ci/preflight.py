@@ -64,7 +64,7 @@ _REQUIREMENTS: dict[str, Requirement] = {
         destination="Cloudflare R2",
         variables=("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"),
         blocking=False,
-        consequence="binaries reach GitHub Releases but not downloads.hyperi.io",
+        consequence="a release with binaries in dist/ fails at the R2 upload",
     ),
 }
 

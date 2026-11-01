@@ -110,12 +110,86 @@ class TestPackageJson:
         assert "::error::" in result.stdout
         assert not (tmp_path / ".releaserc.json").exists()
 
+    def test_a_symlink_to_code_is_refused_and_never_run(self, tmp_path: Path) -> None:
+        marker = tmp_path / "ran"
+        (tmp_path / "evil.cjs").write_text(
+            f'require("fs").writeFileSync({json.dumps(str(marker))}, "x");'
+            " module.exports = {};",
+            encoding="utf-8",
+        )
+        (tmp_path / "package.json").symlink_to("evil.cjs")
+        result = _run(tmp_path)
+        assert result.returncode == 1
+        assert "symlink" in result.stdout
+        assert not marker.exists()
+
+    @pytest.mark.parametrize("body", ["{not json", "", "[]", "null"])
+    def test_a_package_json_that_is_not_an_object(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        (tmp_path / "package.json").write_text(body, encoding="utf-8")
+        result = _run(tmp_path)
+        # Invalid JSON fails closed. Valid JSON that is not an object holds no key.
+        assert result.returncode == (1 if body in ("{not json", "") else 0)
+
     def test_a_package_json_without_one_is_left_alone(self, tmp_path: Path) -> None:
         body = json.dumps({"name": "x", "version": "1.0.0"})
         (tmp_path / "package.json").write_text(body, encoding="utf-8")
         assert _run(tmp_path).returncode == 0
         assert (tmp_path / "package.json").read_text(encoding="utf-8") == body
         assert _installed(tmp_path) == _CENTRAL
+
+
+class TestReleaseNotesSupplement:
+    """The Tag job prints NEXT.md into the notes, so only a real file inside the repo counts."""
+
+    @staticmethod
+    def _notes(workspace: Path) -> subprocess.CompletedProcess[str]:
+        (exec_plugin,) = [
+            p for p in _CENTRAL["plugins"] if p[0] == "@semantic-release/exec"
+        ]
+        return subprocess.run(
+            ["sh", "-c", exec_plugin[1]["generateNotesCmd"]],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+    @staticmethod
+    def _secret(tmp_path: Path) -> Path:
+        secret = tmp_path / "outside" / "secret"
+        secret.parent.mkdir()
+        secret.write_text("TOKEN=hunter2\n", encoding="utf-8")
+        return secret
+
+    @pytest.mark.parametrize(
+        "layout", ["file", "missing", "file-symlink", "dir-symlink", "directory"]
+    )
+    def test_only_a_regular_file_in_the_repo_is_printed(
+        self, tmp_path: Path, layout: str
+    ) -> None:
+        repo = tmp_path / "repo"
+        notes_dir = repo / ".github" / "release-notes"
+        secret = self._secret(tmp_path)
+        if layout == "dir-symlink":
+            (repo / ".github").mkdir(parents=True)
+            (secret.parent / "NEXT.md").write_text("TOKEN=hunter2\n", encoding="utf-8")
+            notes_dir.symlink_to(secret.parent)
+        else:
+            notes_dir.mkdir(parents=True)
+        if layout == "file":
+            (notes_dir / "NEXT.md").write_text("Upgrade notes\n", encoding="utf-8")
+        elif layout == "file-symlink":
+            (notes_dir / "NEXT.md").symlink_to(secret)
+        elif layout == "directory":
+            (notes_dir / "NEXT.md").mkdir()
+        result = self._notes(repo)
+        assert result.returncode == 0
+        assert result.stdout == ("Upgrade notes\n" if layout == "file" else "")
+        assert "hunter2" not in result.stdout
 
 
 class TestTheConfigDirectory:

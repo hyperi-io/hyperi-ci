@@ -92,10 +92,27 @@ runs:
           echo "::error::package.yaml or .config/config.* is a cosmiconfig meta config, which semantic-release reads ahead of the central config. Remove it."
           exit 1
         fi
-        if [ -f package.json ] && node -e 'const p = require("./package.json"); process.exit("release" in p || "cosmiconfig" in p ? 0 : 1)'
+        # Parsed from its bytes, never require()d: require follows a symlink and
+        # loads a .js or .cjs target as code.
+        if [ -L package.json ]
         then
-          echo "::error::package.json has a 'release' or 'cosmiconfig' key, which semantic-release would load ahead of the central config. Remove it."
+          echo "::error::package.json is a symlink. The release job reads it, so it must be a regular file."
           exit 1
+        fi
+        if [ -f package.json ]
+        then
+          rc=0
+          node -e 'let p; try { p = JSON.parse(require("fs").readFileSync("package.json", "utf8")); } catch { process.exit(2); } process.exit(p !== null && typeof p === "object" && ("release" in p || "cosmiconfig" in p) ? 0 : 1)' || rc=$?
+          if [ "$rc" -eq 0 ]
+          then
+            echo "::error::package.json has a 'release' or 'cosmiconfig' key, which semantic-release would load ahead of the central config. Remove it."
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]
+          then
+            echo "::error::package.json is not valid JSON, so whether it carries a release config cannot be checked."
+            exit 1
+          fi
         fi
         cp "$GITHUB_ACTION_PATH/default.releaserc.json" .releaserc.json
         echo "Using the central tagger-only .releaserc.json"
