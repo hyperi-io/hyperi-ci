@@ -236,6 +236,7 @@ def test_the_cap_reaches_a_quality_cargo_call(
     monkeypatch.setattr(quality_common, "run_cmd", rec.run)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr(f"{QUALITY}._ensure_cargo_hack", lambda: True)
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)
     monkeypatch.setattr(f"{QUALITY}._package_lib_map", lambda *_a: {})
     monkeypatch.setattr(f"{QUALITY}.osv_scanner.run", lambda *_a, **_k: True)

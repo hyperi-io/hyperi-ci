@@ -42,7 +42,7 @@ from hyperi_ci.languages.rust._manifest import (
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
-from hyperi_ci.tools import matches_pin, version_output
+from hyperi_ci.tools import matches_pin
 from hyperi_ci.versions import tool_version
 
 # A target entry of its own joins the repo's and the runner's target rustflags,
@@ -334,10 +334,19 @@ def _names_a_package_scope(args: list[str]) -> bool:
 
 
 def _cargo_hack_version() -> str | None:
-    """What ``cargo hack --version`` prints, or None when cargo-hack is absent."""
-    if not shutil.which("cargo-hack"):
+    """What ``cargo hack --version`` prints, or None when cargo cannot run it.
+
+    Asked of cargo, not PATH: cargo also finds subcommands in ``$CARGO_HOME/bin``.
+    """
+    try:
+        result = run_cmd(
+            ["cargo", "hack", "--version"], check=False, capture=True, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return None
-    return version_output(["cargo", "hack", "--version"])
+    if result.returncode != 0:
+        return None
+    return (result.stdout or "").strip() or None
 
 
 def _ensure_cargo_hack() -> bool:
@@ -371,11 +380,17 @@ def _ensure_cargo_hack() -> bool:
         return False
 
     after = _cargo_hack_version()
-    if not after or not matches_pin(pinned, after):
+    if not after:
+        error(
+            f"  feature_matrix: installed cargo-hack {pinned}, but cargo still "
+            "cannot run `cargo hack`, so the matrix would check nothing"
+        )
+        return False
+    if not matches_pin(pinned, after):
         # cargo install wrote the pin, but another cargo-hack still answers first.
         warn(
             f"  feature_matrix: installed cargo-hack {pinned}, but `cargo hack` "
-            f"still reports '{(after or 'nothing').splitlines()[0]}' -- check PATH"
+            f"still reports '{after.splitlines()[0]}' -- check PATH"
         )
     return True
 
