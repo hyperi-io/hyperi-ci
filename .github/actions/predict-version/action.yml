@@ -184,7 +184,17 @@ runs:
         FROM_HEAD: ${{ inputs.from-head }}
         BUMP: ${{ inputs.bump }}
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
       run: |
+        # Every publish passes the declared-classification check first. A
+        # refusal fails Plan, so no tag, container or registry upload follows.
+        publish() {
+          # The value is a command and its arguments, so it is split on purpose.
+          # shellcheck disable=SC2086
+          $CONFIG_PYTHON "$GITHUB_ACTION_PATH/classification_gate.py" || exit 1
+          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+        }
+
         # A schedule runs on main's HEAD, so the trailer check below would
         # publish any HEAD still carrying `Release: true`. A scheduled run
         # tests; releasing stays a push or a dispatch.
@@ -230,7 +240,7 @@ runs:
               exit 0
             fi
           fi
-          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          publish
           echo "::notice::Triggered by workflow_dispatch -- publish run"
           exit 0
         fi
@@ -260,7 +270,7 @@ runs:
         # same set in Python; this runs where hyperi-ci is not installed.
         msg=$(git log -1 --format=%B HEAD)
         if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
-          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          publish
           echo "::notice::Release trailer detected -- this run tags and publishes"
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"

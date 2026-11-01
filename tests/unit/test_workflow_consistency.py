@@ -636,6 +636,14 @@ class TestMainOnlyPublishGate:
         action = yaml.safe_load(path.read_text(encoding="utf-8"))
         return next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
 
+    def test_every_publish_passes_the_classification_gate(self) -> None:
+        run = str(self._gate_step()["run"])
+        publish = run[run.index("publish() {") : run.index("\n}\n")]
+        assert "classification_gate.py" in publish
+        assert run.count('echo "will-publish=true"') == 1
+        assert 'echo "will-publish=true"' in publish
+        assert run.count("\n  publish\n") == 2
+
     def test_push_publish_requires_a_release_ref(self) -> None:
         step = self._gate_step()
         run = str(step["run"])

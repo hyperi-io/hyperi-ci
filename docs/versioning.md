@@ -137,6 +137,8 @@ holding a webhook URL. The URL never goes in config -- config is committed.
 
 ## Before the release starts
 
+Plan refuses a release from a repo whose DECLARED classification forbids publishing. That means `internal`, or `product` while the GitHub repo is private. The refusal fails Plan, so nothing is tagged, pushed or uploaded. It reads `.hyperi-ci.yaml`, then `.hyperi-classification`, and honours `HYPERCI_CLASSIFICATION`. An undeclared repo still publishes. A misspelt marker does not.
+
 `hyperi-ci preflight` runs in the plan job on a release run: semantic-release's
 `verifyConditions` equivalent. It checks only the destinations the project
 actually publishes to, and blocks only where the handler hard-fails without the
