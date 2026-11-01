@@ -509,17 +509,23 @@ class _Resolution:
         digests: Tool name -> the sha256 per asset key written with that version.
         manual: Tools with a newer soaked release that need a hand bump.
         lookup_failures: Tools whose upstream could not be read.
+        static_libs: static_libs name -> the fields written (version, sha256,
+            commit).
+        static_release: The static_libs_release tag and per-triple digests to
+            write, or None.
     """
 
     tools: dict[str, str] = field(default_factory=dict)
     digests: dict[str, dict[str, str]] = field(default_factory=dict)
     manual: int = 0
     lookup_failures: int = 0
+    static_libs: dict[str, dict[str, str]] = field(default_factory=dict)
+    static_release: tuple[str, dict[str, str]] | None = None
 
     @property
     def writes(self) -> int:
         """Pins --auto-update would rewrite in versions.yaml."""
-        return len(self.tools)
+        return len(self.tools) + len(self.static_libs) + bool(self.static_release)
 
 
 def _release_digests(repo: str, tag: str) -> dict[str, str] | None:
@@ -572,6 +578,130 @@ def _bumped_digests(spec: dict, new_version: str) -> tuple[dict[str, str] | None
             return None, f"{new_version} carries no digest for {new_asset}"
         out[str(key)] = bumped[new_asset]
     return out, ""
+
+
+def _downloaded_sha256(url: str) -> str | None:
+    """Download ``url`` and return its sha256, or None when it cannot be fetched."""
+    import hashlib
+    import tempfile
+
+    from hyperi_ci.common import curl_fetch
+
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-static-libs-") as scratch:
+        dest = Path(scratch) / "download"
+        if curl_fetch(url, dest).returncode != 0:
+            return None
+        with dest.open("rb") as fh:
+            return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def _tag_commit(repo: str, tag: str) -> str | None:
+    """Return the commit ``tag`` names, through an annotated tag, or None."""
+    ref = _gh_json(f"/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag, safe='')}")
+    obj = ref.get("object") if isinstance(ref, dict) else None
+    if isinstance(obj, dict) and obj.get("type") == "tag":
+        tag_obj = _gh_json(f"/repos/{repo}/git/tags/{obj.get('sha')}")
+        obj = tag_obj.get("object") if isinstance(tag_obj, dict) else None
+    sha = obj.get("sha") if isinstance(obj, dict) else None
+    return sha if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
+def _newest_static_lib(spec: dict) -> tuple[dict[str, str] | None, str]:
+    """Return the newest upstream release of one `static_libs:` pin, or why not.
+
+    No cooldown: these pins take each release as it ships. `lts` holds OpenSSL
+    to its LTS line. The digest is GitHub's for a release asset, else the
+    project's `.sha256` asset, else, for a tag archive, the download's own.
+
+    Returns:
+        The fields to write (version, sha256, and commit where the pin has
+        one), None when the pin is current or cannot be resolved, and a status
+        word: `ok`, `current` or `lookup-failed`.
+
+    """
+    repo, prefix = str(spec.get("repo") or ""), str(spec.get("tag_prefix") or "v")
+    releases = _gh_json(f"/repos/{repo}/releases?per_page=50") if repo else None
+    if not isinstance(releases, list):
+        return None, "lookup-failed"
+    line = str(spec.get("lts") or "")
+    candidates = [
+        {
+            **rel,
+            "tag_name": rel["tag_name"].removeprefix(prefix),
+            "tag": rel["tag_name"],
+        }
+        for rel in releases
+        if isinstance(rel, dict)
+        and str(rel.get("tag_name", "")).startswith(prefix)
+        and (not line or rel["tag_name"].removeprefix(prefix).startswith(line + "."))
+    ]
+    best = _select_pinned_release(candidates, datetime.now(UTC), cooldown_days=0)
+    if best is None:
+        return None, "lookup-failed"
+    version, tag = str(best["tag_name"]), str(best["tag"])
+    if version == str(spec.get("version")):
+        return None, "current"
+    url = str(spec.get("url") or "").format(version=version)
+    digest: str | None
+    if "/releases/download/" in url:
+        asset = url.rsplit("/", 1)[1]
+        recorded = _release_digests(repo, tag) or {}
+        digest = recorded.get(asset)
+        if digest is None and f"{asset}.sha256" in {
+            a.get("name") for a in best.get("assets") or []
+        }:
+            digest = _published_sha256(f"{url}.sha256")
+    else:
+        digest = _downloaded_sha256(url)
+    if digest is None:
+        return None, "lookup-failed"
+    fields = {"version": version, "sha256": digest}
+    if "commit" in spec:
+        commit = _tag_commit(repo, tag)
+        if commit is None:
+            return None, "lookup-failed"
+        fields["commit"] = commit
+    return fields, "ok"
+
+
+def _published_sha256(url: str) -> str | None:
+    """Return the digest in a project's published `<asset>.sha256` file, or None."""
+    import tempfile
+
+    from hyperi_ci.common import curl_fetch
+
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-static-libs-") as scratch:
+        dest = Path(scratch) / "sha256"
+        if curl_fetch(url, dest).returncode != 0:
+            return None
+        text = dest.read_text(encoding="utf-8", errors="replace")
+    first = text.split()[0].lower() if text.split() else ""
+    return first if _SHA256_RE.fullmatch(first) else None
+
+
+def _published_static_release(versions: dict) -> tuple[str, dict[str, str]] | None:
+    """Return the static-libs release built from the current pins, when not yet pinned.
+
+    The Static libs workflow publishes a release named for a digest of the
+    pins, so a pin bump lands first and the release pin follows on the next run.
+    """
+    from hyperi_ci.static_libs import release_tag
+
+    tag = release_tag()
+    pinned = versions.get("static_libs_release") or {}
+    if pinned.get("tag") == tag:
+        return None
+    recorded = _release_digests("hyperi-io/hyperi-ci", tag)
+    if not recorded:
+        return None
+    suffix = ".tar.gz"
+    prefix = "hyperi-static-libs-"
+    digests = {
+        name.removeprefix(prefix).removesuffix(suffix): digest
+        for name, digest in recorded.items()
+        if name.startswith(prefix) and name.endswith(suffix)
+    }
+    return (tag, digests) if digests else None
 
 
 def _resolve(versions: dict, now: datetime) -> _Resolution:
@@ -639,6 +769,25 @@ def _resolve(versions: dict, now: datetime) -> _Resolution:
         else:
             print(f"  {label}: {cur_version} -> {latest}")
             res.tools[name] = latest
+
+    print("\nStatic libs (newest release, no cooldown)...")
+    for name, spec in (versions.get("static_libs") or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        fields, status = _newest_static_lib(spec)
+        cur_version = spec.get("version")
+        if status == "lookup-failed":
+            print(f"  {name}: {cur_version} (COULD NOT CHECK -- treat as unknown)")
+            res.lookup_failures += 1
+        elif fields is None:
+            print(f"  {name}: {cur_version} (up to date)")
+        else:
+            print(f"  {name}: {cur_version} -> {fields['version']} (sha256 checked)")
+            res.static_libs[name] = fields
+    # The release for these pins exists only once a bump has merged and published.
+    if not res.static_libs and (published := _published_static_release(versions)):
+        print(f"  static_libs_release -> {published[0]}")
+        res.static_release = published
 
     print()
     for name, spec in (versions.get("runtimes") or {}).items():
@@ -1077,6 +1226,44 @@ def _set_tool_version_in_yaml(
     return "".join(out)
 
 
+def _set_section_fields(
+    text: str, section: str, fields: dict[str, str], *, entry: str | None = None
+) -> str:
+    """Rewrite `key: value` lines inside one top-level section, or one entry of it.
+
+    A field nests one level below its parent, so `sha256.<triple>` rewrites the
+    `<triple>:` line under `sha256:`. Line edits keep the file's comments.
+    """
+    base = "  " if entry is None else "    "
+    out: list[str] = []
+    in_section = in_entry = entry is None
+    parent = ""
+    for line in text.splitlines(keepends=True):
+        if re.match(rf"^{re.escape(section)}:\s*$", line):
+            in_section, in_entry = True, entry is None
+            out.append(line)
+            continue
+        if in_section and re.match(r"^\S", line):
+            in_section = in_entry = False
+        if in_section and entry is not None and re.match(r"^  \S", line):
+            in_entry = re.match(rf"^  {re.escape(entry)}:\s*$", line) is not None
+        if in_section and in_entry:
+            if m := re.match(rf"^{base}([\w-]+):(\s*)(.*)$", line):
+                parent = m[1] if not m[3].strip() else ""
+                if m[1] in fields:
+                    value = fields[m[1]]
+                    quoted = f'"{value}"' if m[1] == "version" else value
+                    out.append(f"{base}{m[1]}: {quoted}\n")
+                    continue
+            elif parent and (m := re.match(rf"^{base}  ([\w-]+):\s*\S+\s*$", line)):
+                key = f"{parent}.{m[1]}"
+                if key in fields:
+                    out.append(f"{base}  {m[1]}: {fields[key]}\n")
+                    continue
+        out.append(line)
+    return "".join(out)
+
+
 def _unwritten(text: str, res: _Resolution) -> list[str]:
     """Name every resolved version or digest the rewritten SSOT does not carry.
 
@@ -1084,8 +1271,19 @@ def _unwritten(text: str, res: _Resolution) -> list[str]:
     pass with its version bumped and its old digest kept, which fails the
     install closed only at job time.
     """
-    tools = (yaml.safe_load(text) or {}).get("tools") or {}
+    data = yaml.safe_load(text) or {}
+    tools = data.get("tools") or {}
     missing: list[str] = []
+    for name, fields in res.static_libs.items():
+        spec = (data.get("static_libs") or {}).get(name) or {}
+        for key, value in fields.items():
+            if str(spec.get(key)) != value:
+                missing.append(f"SSOT write: static_libs.{name}.{key} is not {value}")
+    if res.static_release:
+        tag, digests = res.static_release
+        spec = data.get("static_libs_release") or {}
+        if spec.get("tag") != tag or (spec.get("sha256") or {}) != digests:
+            missing.append(f"SSOT write: static_libs_release is not {tag}")
     for name, version in res.tools.items():
         spec = tools.get(name) or {}
         if str(spec.get("version")) != version:
@@ -1126,6 +1324,16 @@ def _auto_update(versions: dict) -> int:
     for tool_name, tool_version in res.tools.items():
         yaml_content = _set_tool_version_in_yaml(
             yaml_content, tool_name, tool_version, res.digests.get(tool_name)
+        )
+    for lib, fields in res.static_libs.items():
+        yaml_content = _set_section_fields(
+            yaml_content, "static_libs", fields, entry=lib
+        )
+    if res.static_release:
+        tag, digests = res.static_release
+        release_fields = {"tag": tag} | {f"sha256.{k}": v for k, v in digests.items()}
+        yaml_content = _set_section_fields(
+            yaml_content, "static_libs_release", release_fields
         )
     _VERSIONS_FILE.write_text(yaml_content, encoding="utf-8", newline="\n")
 

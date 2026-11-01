@@ -216,6 +216,23 @@ class TestReleaseTag:
         assert tag == sl.release_tag()
         assert not tag.startswith("v")
 
+    @pytest.mark.parametrize(
+        ("field", "value", "moves"),
+        [
+            pytest.param("repo", "someone/else", False, id="updater-repo"),
+            pytest.param("tag_prefix", "release-", False, id="updater-prefix"),
+            pytest.param("sha256", "0" * 64, True, id="source-digest"),
+        ],
+    )
+    def test_only_build_inputs_move_the_tag(
+        self, monkeypatch: pytest.MonkeyPatch, field: str, value: str, moves: bool
+    ) -> None:
+        before = sl.release_tag()
+        pins = versions.static_libs()
+        pins["zlib"] = {**pins["zlib"], field: value}
+        monkeypatch.setattr(sl, "static_libs", lambda: pins)
+        assert (sl.release_tag() != before) is moves
+
     def test_a_changed_recipe_gets_a_new_tag(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
