@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.41](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.40...v2.14.41) (2026-11-01)
+
+### Bug Fixes
+
+* **rust:** build static librdkafka and OpenSSL for the Rust apps ([#787](https://github.com/hyperi-io/hyperi-ci/issues/787)) ([a48d2e1](https://github.com/hyperi-io/hyperi-ci/commit/a48d2e1572174f0f3839a8e516f11e575c765e52))
+* **rust:** link the static-libs release when an app opts in ([#788](https://github.com/hyperi-io/hyperi-ci/issues/788)) ([6025be3](https://github.com/hyperi-io/hyperi-ci/commit/6025be3425139a643555f2bbc837384e8a2ea9c9))
+
 ## [2.14.40](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.39...v2.14.40) (2026-10-31)
 
 ### Bug Fixes
