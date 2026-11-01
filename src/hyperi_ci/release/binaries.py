@@ -436,20 +436,28 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     """Publish dist/ to the R2 versioned prefix and, usually, ``latest/``.
 
     ``latest/`` is left alone when a higher stable ``v*`` tag exists, so an
-    older tag cannot move it backwards. Skips with a warning when
-    R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY is unset.
+    older tag cannot move it backwards. With artefacts to upload, a missing
+    R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY fails the publish, because R2 is
+    the only binary destination by default and the release would ship none.
 
     Returns:
         Exit code (0 = success).
 
     """
+    artifacts = _collect_artifacts(exclude_python=exclude_python)
+    if not artifacts:
+        warn("No artifacts found in dist/ -- skipping R2 binary publish")
+        return 0
+
     access_key = os.environ.get("R2_ACCESS_KEY_ID")
     secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
-        warn(
-            "R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY not set -- skipping R2 binary publish"
+        error(
+            "R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY not set, so the binaries in "
+            "dist/ reach no destination. Set both, or route `release.destinations."
+            "binaries` elsewhere."
         )
-        return 0
+        return 1
 
     mask(secret_key)
 
@@ -457,11 +465,6 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     if not ensure_aws_cli():
         error(missing_tool_notice("aws"))
         return 1
-
-    artifacts = _collect_artifacts(exclude_python=exclude_python)
-    if not artifacts:
-        warn("No artifacts found in dist/ -- skipping R2 binary publish")
-        return 0
 
     org = load_org_config()
     endpoint = org.r2_endpoint

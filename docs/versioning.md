@@ -147,7 +147,7 @@ credential.
 | crates.io | **blocks** -- `cargo publish` cannot authenticate |
 | npm | **blocks** -- `npm publish` cannot authenticate |
 | PyPI | warns -- the upload falls back to OIDC trusted publishing |
-| Cloudflare R2 | warns -- binaries reach GitHub Releases but not downloads.hyperi.io |
+| Cloudflare R2 | warns here, because a repo with no binaries in `dist/` never uploads. A release that has binaries fails at the R2 upload, since R2 is the only binary destination by default |
 
 A Rust binary app is never asked for a crates.io token: its publish handler
 returns early whatever `release.destinations.cargo` says (the old

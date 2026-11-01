@@ -294,24 +294,30 @@ class TestR2InstallsTheAwsCliOnDemand:
         monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
         monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
 
-    def test_a_failed_install_fails_the_upload(self, tmp_path, monkeypatch) -> None:
-        from hyperi_ci.release import binaries
-
-        self._with_r2_creds(monkeypatch)
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: None)
-        assert binaries._publish_r2_binaries() == 1
-
-    def test_an_installed_aws_gets_past_the_tool_gate(
-        self, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        ("artifact", "creds", "aws", "rc"),
+        [
+            pytest.param(False, False, None, 0, id="nothing-to-upload"),
+            pytest.param(True, False, "/usr/local/bin/aws", 1, id="binaries-no-creds"),
+            pytest.param(True, True, None, 1, id="binaries-no-aws"),
+        ],
+    )
+    def test_binaries_with_no_way_to_upload_fail(
+        self, tmp_path, monkeypatch, artifact: bool, creds: bool, aws, rc: int
     ) -> None:
-        """No dist/ means it stops at 'nothing to upload', which is past the gate."""
+        """R2 is the only binary destination by default, so a skip ships none."""
         from hyperi_ci.release import binaries
 
-        self._with_r2_creds(monkeypatch)
+        monkeypatch.delenv("R2_ACCESS_KEY_ID", raising=False)
+        monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
+        if creds:
+            self._with_r2_creds(monkeypatch)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/local/bin/aws")
-        assert binaries._publish_r2_binaries() == 0
+        if artifact:
+            (tmp_path / "dist").mkdir()
+            (tmp_path / "dist" / "app-linux-amd64").write_bytes(b"\x7fELF")
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: aws)
+        assert binaries._publish_r2_binaries() == rc
 
 
 class TestReleaseAssetsReachTheRelease:
