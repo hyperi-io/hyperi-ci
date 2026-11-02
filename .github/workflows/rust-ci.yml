@@ -271,19 +271,19 @@ jobs:
         id: uv_try1
         if: steps.predict.outputs.will-release == 'true'
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (preflight) (retry 1)
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (preflight) (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
 
@@ -384,19 +384,19 @@ jobs:
       - name: Install uv
         id: uv_try1
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (retry 1)
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Validate commit messages
@@ -429,7 +429,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
@@ -515,7 +515,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -615,7 +615,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-rust-${{ matrix.os }}
           path: test-results/
@@ -662,7 +662,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -704,7 +704,7 @@ jobs:
 
       - name: Upload build artifacts
         # VERSION keeps the artifact root at the workspace; a lone `dist/` strips the dist/ prefix the release tail looks for.
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
@@ -716,7 +716,7 @@ jobs:
       - name: Upload runner-fit record
         # Its own artifact, never dist/, which the release tail ships. A failed build still writes one.
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-${{ matrix.os_arch }}
           path: runner-fit.json
@@ -781,7 +781,7 @@ jobs:
       - name: Install uv
         id: uv_try1
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         # Gate never checks out the repo, so its workdir is always empty.
         with:
           enable-cache: false
@@ -790,13 +790,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true

@@ -163,7 +163,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -171,13 +171,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -211,7 +211,7 @@ jobs:
       - name: GHCR login
         # Read-only: the plan only reads the published image to decide reuse.
         if: steps.resolve.outputs.build == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -220,7 +220,7 @@ jobs:
       - name: Download build artifacts
         # A binary-backed image builds only the arches whose binaries exist.
         if: steps.resolve.outputs.build == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -284,7 +284,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -292,13 +292,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -353,7 +353,7 @@ jobs:
         # Docker Hub is not a publish target. The login only avoids anonymous rate
         # limits when the Dockerfile pulls a Hub base image, and needs the org var.
         if: vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -361,7 +361,7 @@ jobs:
       - name: GHCR login
         # GITHUB_TOKEN with job-level packages:write can create repo-owned packages
         # on first push.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -387,7 +387,7 @@ jobs:
       - name: Download build artifacts
         # The build-dist-* artifact carries dist/, and the Container stage looks for
         # dist/<binary> relative to cwd.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -420,7 +420,7 @@ jobs:
       - name: Upload the leg's digest
         # Named by matrix index because a platform holds a `/`, which an artifact name may not.
         if: needs.container-plan.outputs.push == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: container-digest-${{ strategy.job-index }}
           path: ${{ runner.temp }}/container-digests/
@@ -454,7 +454,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -462,13 +462,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -491,7 +491,7 @@ jobs:
         run: uv python install --no-config "$PYTHON_VERSION"
 
       - name: GHCR login
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -502,7 +502,7 @@ jobs:
 
       - name: Download the leg digests
         if: needs.container-plan.outputs.reuse != 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: container-digest-*
           path: ${{ runner.temp }}/container-digests
@@ -552,7 +552,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -560,13 +560,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -584,7 +584,7 @@ jobs:
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
         if: inputs.language == 'typescript'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -601,7 +601,7 @@ jobs:
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -625,7 +625,7 @@ jobs:
       - name: Set up Node.js
         # No self-hosted skip: the org's publish runners carry no Node.
         if: inputs.language == 'typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -641,7 +641,7 @@ jobs:
       - name: Upload the stamp outputs
         # Before the packaging below runs the repo's build scripts and package
         # scripts, which could otherwise rewrite these files.
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-stamped
           path: ${{ runner.temp }}/release-stamped
@@ -660,7 +660,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$PREPARED_DIR" --phase package
 
       - name: Upload the prepared release
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
@@ -684,7 +684,7 @@ jobs:
         continue-on-error: true
         # This job never checks out the repo, so the workdir is empty throughout,
         # hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -692,13 +692,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -769,7 +769,7 @@ jobs:
         # First, before anything that can fail: every later step, including the
         # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted runners
         # ship no uv. The workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -777,13 +777,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -794,7 +794,7 @@ jobs:
         # working directory's rust-toolchain.toml, and its `path` names a
         # program to run.
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -803,7 +803,7 @@ jobs:
         # a from-head auto dispatch, and the org's publish runners carry none.
         # Before the checkout, so no repo file can steer which Node is installed.
         if: inputs.language == 'typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -818,7 +818,7 @@ jobs:
 
       - name: Download build artifacts
         # The Build job uploads dist/.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -837,7 +837,7 @@ jobs:
           done
 
       - name: Download the prepared release
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
@@ -849,7 +849,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/release-prepared/stamped"
 
       - name: Download the stamp outputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-stamped
           path: ${{ runner.temp }}/release-prepared/stamped
@@ -884,7 +884,7 @@ jobs:
         # workflows.
         id: bot
         if: steps.appkey.outputs.has == 'true'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
