@@ -47,7 +47,7 @@ A repo overrides the org default with a repo-level variable of the same name, or
 
 | Job | Chain | Why |
 |---|---|---|
-| Quality, Test, Build | renovate carve-out -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
+| Quality, Test, Build | renovate carve-out, unless the repo set the `runner-<job>` input (or `test-matrix` for Test) -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain. A repo that sized its own runner keeps it on a Renovate PR, whose dependency bump needs the same memory |
 | Plan, Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git, python3 and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
 | Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
 | arm64 build leg | `runner-build-arm64` input -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |

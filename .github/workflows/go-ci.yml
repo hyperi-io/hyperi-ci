@@ -275,7 +275,7 @@ jobs:
         shell: bash
         # Inputs travel as env, so a workflow input is never read as shell.
         env:
-          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-build && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
           ARM64_RUNNER: ${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
           WILL_RELEASE: ${{ steps.predict.outputs.will-release }}
         run: |
@@ -343,7 +343,7 @@ jobs:
     timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-quality && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -403,7 +403,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.test-matrix && !inputs.runner-test && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
