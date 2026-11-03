@@ -226,12 +226,17 @@
     - pkg-config
 
 # --- unixODBC (odbc-sys) ---
-# odbc-sys links libodbc, used by odbc-api and arrow-odbc.
+# odbc-sys links libodbc, used by odbc-api and arrow-odbc. The drivers
+# register `PostgreSQL Unicode` and `MariaDB Unicode` in odbcinst.ini for a
+# project's ODBC tests. dpkg_check names a driver, so an image that already
+# has unixodbc-dev still gets them.
 - name: unixodbc
   patterns:
     - odbc-sys
   manifest_files:
     - Cargo.lock
-  dpkg_check: unixodbc-dev
+  dpkg_check: odbc-mariadb
   apt_packages:
     - unixodbc-dev
+    - odbc-postgresql
+    - odbc-mariadb
