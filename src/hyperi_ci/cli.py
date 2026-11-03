@@ -45,6 +45,7 @@ from typing import Annotated
 import typer
 
 from hyperi_ci import __version__
+from hyperi_ci.check_lock import check_lock
 from hyperi_ci.config import CIConfig, ConfigError, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
@@ -248,10 +249,11 @@ def check(
     if full:
         stages.append("build")
 
-    for stage in stages:
-        rc = run_stage(stage, project_dir=dir_path, local=True)
-        if rc != 0:
-            raise typer.Exit(rc)
+    with check_lock():
+        for stage in stages:
+            rc = run_stage(stage, project_dir=dir_path, local=True)
+            if rc != 0:
+                raise typer.Exit(rc)
 
     raise typer.Exit(0)
 

@@ -18,6 +18,7 @@ import pytest
 from scalo.logger import setup as setup_logger
 
 from hyperi_ci import channel, common, config, labels
+from hyperi_ci import check_lock as check_lock_module
 from hyperi_ci.common import is_ci, run_cmd
 from hyperi_ci.container import stage as container_stage
 from hyperi_ci.languages.tiering import TIER_EXPORT_ENV
@@ -282,6 +283,12 @@ def no_inherited_quality_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 def no_exported_test_tier(monkeypatch: pytest.MonkeyPatch) -> None:
     """Undo the tier ``stage_test`` exports, which the config cascade reads back."""
     monkeypatch.delenv(TIER_EXPORT_ENV, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def private_check_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point a CLI `check` at a lock file of its own, not the host's."""
+    monkeypatch.setattr(check_lock_module, "LOCK_FILE", tmp_path / "check.lock")
 
 
 @pytest.fixture(autouse=True)
