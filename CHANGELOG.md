@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.44](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.43...v2.14.44) (2026-11-03)
+
+### Bug Fixes
+
+* **check:** run one local check at a time per host ([#802](https://github.com/hyperi-io/hyperi-ci/issues/802)) ([7df3755](https://github.com/hyperi-io/hyperi-ci/commit/7df37558425369ec144e63ae8b7ecfec39c118ff))
+* **workflows:** keep a repo's runner on Renovate PRs ([#800](https://github.com/hyperi-io/hyperi-ci/issues/800)) ([7a9288d](https://github.com/hyperi-io/hyperi-ci/commit/7a9288d73643fcc1012a86006b99f7ff11d46f78))
+
 ## [2.14.43](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.42...v2.14.43) (2026-11-01)
 
 ### Bug Fixes
