@@ -377,6 +377,9 @@ tools:
   pip-audit:
     version: 2.10.1
     pypi: pip-audit
+  pip-licenses:
+    version: 5.5.5
+    pypi: pip-licenses
   # Quoted: bare 2.16 reads as a YAML float, and a later 2.20 would come back
   # as "2.2". Mirrored into ci.yml's Test job: the real-binary vulture test
   # needs it on PATH directly, not through the uvx-wrapped invocation the

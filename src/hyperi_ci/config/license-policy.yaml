@@ -1,0 +1,142 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/license-policy.yaml
+# Purpose:   Dependency licence policy: SPDX id x consumption mode -> verdict
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+#
+# Modes:
+#   import    installed unmodified from the lockfile and loaded at runtime
+#             (Python import, npm require, a shared library)
+#   static    compiled or linked into the binary (Rust crates, Go modules)
+#   vendored  source files copied into the tree unmodified
+#   modified  patched, forked, or copied in and edited
+#
+# Verdicts: allow, allow-with-obligations, deny, ask. A licence no group
+# lists, or a dependency with no licence found, is ask. A repo overrides one
+# dependency under `quality.dep_licenses.overrides` in .hyperi-ci.yaml.
+#
+# `aliases` map the non-SPDX names package metadata carries (trove
+# classifiers, free text) to the SPDX id they mean. A name with no exact id
+# maps to a LicenseRef, which the group still judges. A name that does not
+# say which licence it is (`BSD License` covers BSD-4-Clause too) is left
+# out, so it is ask.
+#
+# Only what ships is judged: tools CI runs and never ships are out of scope
+# whatever their licence (reuse is GPL-3.0-or-later).
+
+obligations:
+  notice: list the package, its version and copyright in THIRD-PARTY-NOTICES
+  licence-text: ship the licence text in THIRD-PARTY-NOTICES
+  carry-notice: ship the package's own NOTICE file content
+  lgpl-texts: ship the LGPL text and the GPL text it incorporates
+  replaceable: the user can swap the library for their own build
+  file-copyleft: keep the copied files under their licence and publish changes to them
+
+groups:
+  public-domain:
+    ids: [Unlicense, CC0-1.0]
+    aliases:
+      "The Unlicense (Unlicense)": Unlicense
+      "CC0 1.0 Universal (CC0 1.0) Public Domain Dedication": CC0-1.0
+      "Public Domain": LicenseRef-Public-Domain
+    modes:
+      import: {verdict: allow}
+      static: {verdict: allow}
+      vendored: {verdict: allow}
+      modified: {verdict: allow}
+
+  permissive:
+    ids: [MIT, MIT-0, 0BSD, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0, Unicode-DFS-2016, PSF-2.0, Python-2.0, CNRI-Python, X11, curl, HPND]
+    aliases:
+      "MIT License": MIT
+      "ISC License (ISCL)": ISC
+      "zlib/libpng License": Zlib
+      "Boost Software License 1.0 (BSL-1.0)": BSL-1.0
+      "Python Software Foundation License": PSF-2.0
+      "Historical Permission Notice and Disclaimer (HPND)": HPND
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      static: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      vendored: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      modified: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+
+  apache:
+    ids: [Apache-2.0]
+    # The trove classifier names no version. Apache-2.0 is the only one in use.
+    aliases:
+      "Apache Software License": Apache-2.0
+      "Apache License 2.0": Apache-2.0
+      "Apache 2.0": Apache-2.0
+      "Apache License, Version 2.0": Apache-2.0
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice, licence-text, carry-notice]}
+      static: {verdict: allow-with-obligations, obligations: [notice, licence-text, carry-notice]}
+      vendored: {verdict: allow-with-obligations, obligations: [notice, licence-text, carry-notice]}
+      modified: {verdict: allow-with-obligations, obligations: [notice, licence-text, carry-notice]}
+
+  mpl:
+    ids: [MPL-2.0]
+    aliases:
+      "Mozilla Public License 2.0 (MPL 2.0)": MPL-2.0
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      static: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      vendored: {verdict: allow-with-obligations, obligations: [notice, licence-text, file-copyleft]}
+      modified: {verdict: ask}
+
+  epl:
+    ids: [EPL-2.0]
+    aliases:
+      "Eclipse Public License 2.0 (EPL-2.0)": EPL-2.0
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice, licence-text]}
+      static: {verdict: ask}
+      vendored: {verdict: ask}
+      modified: {verdict: ask}
+
+  lgpl:
+    ids: [LGPL-3.0-only, LGPL-3.0-or-later, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-2.0-only, LGPL-2.0-or-later]
+    aliases:
+      "GNU Lesser General Public License v3 (LGPLv3)": LGPL-3.0-only
+      "GNU Lesser General Public License v3 or later (LGPLv3+)": LGPL-3.0-or-later
+      "GNU Lesser General Public License v2 (LGPLv2)": LGPL-2.0-only
+      "GNU Lesser General Public License v2 or later (LGPLv2+)": LGPL-2.0-or-later
+      "GNU Library or Lesser General Public License (LGPL)": LicenseRef-LGPL-Unversioned
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice, lgpl-texts, replaceable]}
+      # A static link must ship relinkable objects, which Rust and Go builds do not produce.
+      static: {verdict: ask}
+      vendored: {verdict: deny}
+      modified: {verdict: deny}
+
+  gpl:
+    ids: [GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0]
+    aliases:
+      "GNU General Public License (GPL)": LicenseRef-GPL-Unversioned
+      "GNU General Public License v2 (GPLv2)": GPL-2.0-only
+      "GNU General Public License v2 or later (GPLv2+)": GPL-2.0-or-later
+      "GNU General Public License v3 (GPLv3)": GPL-3.0-only
+      "GNU General Public License v3 or later (GPLv3+)": GPL-3.0-or-later
+      "GNU Affero General Public License v3": AGPL-3.0-only
+      "GNU Affero General Public License v3 or later (AGPLv3+)": AGPL-3.0-or-later
+    modes:
+      import: {verdict: deny}
+      static: {verdict: deny}
+      vendored: {verdict: deny}
+      modified: {verdict: deny}
+
+  attribution-data:
+    ids: [CC-BY-4.0, CC-BY-3.0]
+    modes:
+      import: {verdict: allow-with-obligations, obligations: [notice]}
+      static: {verdict: allow-with-obligations, obligations: [notice]}
+      vendored: {verdict: allow-with-obligations, obligations: [notice]}
+      modified: {verdict: ask}
+
+  share-alike-data:
+    ids: [CC-BY-SA-4.0, CC-BY-SA-3.0]
+    modes:
+      import: {verdict: ask}
+      static: {verdict: ask}
+      vendored: {verdict: ask}
+      modified: {verdict: ask}
