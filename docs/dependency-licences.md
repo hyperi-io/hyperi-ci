@@ -24,7 +24,7 @@ LGPL-3.0, for example, is allowed as an import with a notice and the LGPL and GP
 - `A WITH LLVM-exception` is judged as `A`. Any other exception is ask.
 - No licence declared, an id the table does not list, or a dependency missing from what the tool read is ask, never deny.
 
-## What each language reads
+Each language's quality stage reads its own dependencies:
 
 | Language | Tool | Shipped set | Mode |
 |---|---|---|---|
@@ -33,6 +33,8 @@ LGPL-3.0, for example, is allowed as an import with a notice and the LGPL and GP
 | TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production`, for npm, pnpm and yarn alike | `import` |
 
 A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its own `deny.toml` checks beside this.
+
+Source copied into the tree is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse (pinned in `versions.yaml`) reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
 
 Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256 and the tool versions. The directory carries its own `.gitignore`. A held finding prints one line a citation can quote verbatim, then its evidence: for an undeclared licence, the licence file's path and first lines.
 
@@ -58,4 +60,9 @@ quality:
     policy:
       lgpl:
         static: {verdict: deny, reason: "no LGPL in our Rust binaries"}
+    vendored:
+      - path: third_party/miniz
+        mode: modified
+        licence: MIT
+        reason: "third_party/miniz/LICENSE is the MIT text; the files carry no headers"
 ```
