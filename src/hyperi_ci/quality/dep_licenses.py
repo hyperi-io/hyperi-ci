@@ -356,6 +356,11 @@ def judge(
             expression = canonicalize_license_expression(terms[0])
         except InvalidLicenseExpression:
             return text, Verdict.ASK, (), "unrecognised"
+        # npm writes a lone expression in brackets: `(MIT OR GPL-3.0-or-later)`.
+        inner = expression[1:-1]
+        if expression.startswith("(") and expression.endswith(")"):
+            if "(" not in inner and ")" not in inner:
+                expression = inner
         if "(" in expression:
             return expression, Verdict.ASK, (), "complex-expression"
         if " AND " in expression and " OR " in expression:

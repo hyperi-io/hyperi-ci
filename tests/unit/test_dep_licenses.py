@@ -18,6 +18,7 @@ from hyperi_ci.languages.python.licenses import (
     runtime_packages,
 )
 from hyperi_ci.languages.rust import licenses as rust_licenses
+from hyperi_ci.languages.typescript import licenses as npm_licenses
 from hyperi_ci.quality.dep_licenses import (
     Mode,
     Override,
@@ -190,6 +191,28 @@ def policy():
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
             Mode.IMPORT,
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
+            Verdict.ASK,
+            (),
+        ),
+        # npm wraps a lone expression in brackets. Only that one pair is dropped.
+        (
+            "(MIT OR GPL-3.0-or-later)",
+            Mode.IMPORT,
+            "MIT OR GPL-3.0-or-later",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "(MIT AND Zlib)",
+            Mode.IMPORT,
+            "MIT AND Zlib",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "(MIT) OR (GPL-3.0-only)",
+            Mode.IMPORT,
+            "(MIT) OR (GPL-3.0-only)",
             Verdict.ASK,
             (),
         ),
@@ -605,3 +628,55 @@ def test_rust_notices_carry_crate_licence_and_notice_files(policy, rust_metadata
     assert "MIT text" in text and "tokio MIT" in text
     # ring is still an ask, so it is not attributed until someone answers it.
     assert "ring licence text" not in text
+
+
+@pytest.fixture
+def npm_records(tmp_path):
+    """Return license-checker records with real package dirs under tmp_path."""
+
+    def package(name, licences, files):
+        package_dir = tmp_path / "node_modules" / name
+        package_dir.mkdir(parents=True)
+        for file_name, text in files.items():
+            (package_dir / file_name).write_text(text, encoding="utf-8")
+        first = next(iter(files), None)
+        return {
+            "licenses": licences,
+            "path": str(package_dir),
+            "licenseFile": str(package_dir / first) if first else None,
+        }
+
+    return {
+        "@scope/pkg@1.2.3": package("@scope/pkg", "MIT", {"LICENSE": "scope MIT"}),
+        "jszip@3.10.1": package(
+            "jszip", "(MIT OR GPL-3.0-or-later)", {"LICENSE.markdown": "dual"}
+        ),
+        "old@1.0.0": package("old", ["MIT", "Apache-2.0"], {"LICENSE": "old"}),
+        "guessed@2.0.0": package("guessed", "BSD*", {"LICENSE": "BSD-ish text"}),
+        "isarray@1.0.0": package("isarray", "MIT", {"README.md": "# isarray"}),
+        "aws@3.0.0": package(
+            "aws", "Apache-2.0", {"LICENSE": "Apache text", "NOTICE": "AWS NOTICE"}
+        ),
+    }
+
+
+def test_npm_packages_are_judged_as_imports(policy, npm_records, monkeypatch):
+    monkeypatch.chdir(next(iter(npm_records.values()))["path"].rsplit("/", 3)[0])
+    findings = {f.name: f for f in npm_licenses.findings_for(npm_records, policy, [])}
+    assert set(findings) == {"@scope/pkg", "jszip", "old", "guessed", "isarray", "aws"}
+    assert findings["@scope/pkg"].version == "1.2.3"
+    assert {f.mode for f in findings.values()} == {Mode.IMPORT}
+    assert findings["jszip"].verdict is Verdict.OBLIGATIONS
+    assert findings["old"].spdx == "MIT OR Apache-2.0"
+    # A licence license-checker guessed from text is never taken as declared.
+    guessed = findings["guessed"]
+    assert (guessed.verdict, guessed.source) == (Verdict.ASK, "license-file")
+    assert guessed.evidence == "node_modules/guessed/LICENSE: BSD-ish text"
+
+
+def test_npm_notices_skip_a_readme_and_carry_a_notice(policy, npm_records):
+    findings = npm_licenses.findings_for(npm_records, policy, [])
+    text = render_notices(npm_licenses.notice_entries(npm_records, findings))
+    assert "# isarray" not in text
+    assert "isarray 1.0.0 (MIT)" in text and "[no licence file in the package]" in text
+    assert "Apache text\n\nNOTICE:\n\nAWS NOTICE" in text

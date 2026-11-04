@@ -36,7 +36,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, vulture | Python | Python handler |
-| dep-licences (pip-licenses, cargo metadata) | Python runtime dependencies and shipped Rust crates against the licence policy, see [dependency-licences.md](dependency-licences.md) | `languages/python/licenses.py`, `languages/rust/licenses.py` |
+| dep-licences (pip-licenses, cargo metadata, license-checker-rseidelsohn) | Python, Rust and npm shipped dependencies against the licence policy, see [dependency-licences.md](dependency-licences.md) | `languages/{python,rust,typescript}/licenses.py` |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
 | eslint, oxlint, prettier, Oxfmt, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
 | gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
