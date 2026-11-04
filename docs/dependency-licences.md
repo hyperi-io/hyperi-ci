@@ -32,6 +32,8 @@ Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256 and t
 licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undeclared, source license-file)
 ```
 
+Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: each dependency whose obligations call for attribution, sorted, with its own licence file and, for Apache-2.0, its NOTICE file. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. Nobody writes attribution by hand. An LGPL dependency's notices do not yet include the GPL text that LGPL incorporates.
+
 ## Answering an ask
 
 `deny` and `ask` fail the gate, and `quality.dep_licenses` ships `warn`. A human answers an `ask`, or changes one cell of the table for this repo, in `.hyperi-ci.yaml`. Each entry needs a reason:
