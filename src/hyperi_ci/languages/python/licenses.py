@@ -21,7 +21,7 @@ from typing import Any
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-from hyperi_ci.common import error, info, run_cmd, warn
+from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
 from hyperi_ci.quality.dep_licenses import (
@@ -32,22 +32,15 @@ from hyperi_ci.quality.dep_licenses import (
     Policy,
     PolicyError,
     Verdict,
-    blocking,
+    fail,
     find_override,
+    finish,
     judge,
-    load_policy,
-    parse_overrides,
-    render_notices,
-    report,
+    load_settings,
+    project_path,
+    quote,
 )
 from hyperi_ci.versions import tool_version
-
-REPORT_PATH = Path(".hyperi-ci") / "licenses.json"
-
-# A repo opts in to attribution by committing this file. The generated copy is
-# written beside the report every run, so it can be copied over.
-NOTICES_PATH = Path("THIRD-PARTY-NOTICES")
-NOTICES_OUTPUT = REPORT_PATH.parent / "THIRD-PARTY-NOTICES"
 
 # The lock's shipped set: every extra, no dependency group, not the project.
 _RUNTIME_EXPORT = [
@@ -74,9 +67,6 @@ _PROJECT_PYTHON = [
     "-c",
     "import sys; print(sys.executable)",
 ]
-
-# Licence file lines quoted when metadata declares nothing.
-_QUOTE_LINES = 3
 
 
 def runtime_packages(export_text: str) -> tuple[dict[str, str], list[str]]:
@@ -109,20 +99,6 @@ def runtime_packages(export_text: str) -> tuple[dict[str, str], list[str]]:
         versions = [s.version for s in requirement.specifier if s.operator == "=="]
         pins[name] = versions[0] if versions else ""
     return pins, elsewhere
-
-
-def _project_path(raw: object) -> str:
-    """Return ``raw`` relative to the project, so the report is the same anywhere."""
-    path = Path(str(raw))
-    try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return str(raw)
-
-
-def _quote(text: str | None) -> str:
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    return " / ".join(lines[:_QUOTE_LINES])
 
 
 def findings_for(
@@ -177,7 +153,7 @@ def findings_for(
         if rule == "undeclared" and licence_text not in (None, "UNKNOWN"):
             source = "license-file"
             evidence = (
-                f"{_project_path(package.get('LicenseFile'))}: {_quote(licence_text)}"
+                f"{project_path(package.get('LicenseFile'))}: {quote(licence_text)}"
             )
         findings.append(
             Finding(
@@ -214,24 +190,6 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
     ]
 
 
-def _fail(note: str, mode: str) -> bool:
-    (warn if mode == "warn" else error)(note)
-    return mode == "warn"
-
-
-def _write_report(findings: Sequence[Finding], policy: Policy) -> None:
-    REPORT_PATH.parent.mkdir(exist_ok=True)
-    (REPORT_PATH.parent / ".gitignore").write_text(
-        "*\n", encoding="utf-8", newline="\n"
-    )
-    tools = {"pip-licenses": tool_version("pip-licenses")}
-    REPORT_PATH.write_text(
-        json.dumps(report(findings, policy, tools), indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-
-
 def run_gate(config: CIConfig) -> bool:
     """Run the dependency-licence gate for a Python project.
 
@@ -249,14 +207,10 @@ def run_gate(config: CIConfig) -> bool:
         info("  dep licences: no uv.lock, so there is no shipped set to judge")
         return True
     if not shutil.which("uv"):
-        return _fail("  dep licences: uv is not installed, nothing checked", mode)
+        return fail("  dep licences: uv is not installed, nothing checked", mode)
 
-    # A bare mode string carries no overrides or policy.
-    settings = config.setting("quality.dep_licenses")
-    settings = settings if isinstance(settings, Mapping) else {}
     try:
-        policy = load_policy(repo_policy=settings.get("policy"))
-        overrides = parse_overrides(settings.get("overrides"))
+        policy, overrides = load_settings(config)
     except PolicyError as exc:
         error(f"  dep licences: {exc}")
         return False
@@ -264,7 +218,7 @@ def run_gate(config: CIConfig) -> bool:
     exported = run_cmd(_RUNTIME_EXPORT, check=False, capture=True)
     if exported.returncode != 0:
         emit_tool_output("uv export", exported.stderr)
-        return _fail("  dep licences: could not export uv.lock, nothing checked", mode)
+        return fail("  dep licences: could not export uv.lock, nothing checked", mode)
     runtime, elsewhere = runtime_packages(exported.stdout)
     if elsewhere:
         info(f"  dep licences: not installed on this platform: {', '.join(elsewhere)}")
@@ -274,31 +228,19 @@ def run_gate(config: CIConfig) -> bool:
     found = run_cmd(_PROJECT_PYTHON, check=False, capture=True)
     python = found.stdout.strip()
     if found.returncode != 0 or not python:
-        return _fail("  dep licences: no project interpreter, nothing checked", mode)
+        return fail("  dep licences: no project interpreter, nothing checked", mode)
 
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-licences-") as tmp:
         output = Path(tmp) / "licences.json"
         result = run_cmd(_pip_licenses_cmd(python, output), check=False, capture=True)
         if result.returncode != 0 or not output.is_file():
             emit_tool_output("pip-licenses", result.stderr)
-            return _fail("  dep licences: pip-licenses failed, nothing checked", mode)
+            return fail("  dep licences: pip-licenses failed, nothing checked", mode)
         packages = json.loads(output.read_text(encoding="utf-8"))
 
     findings = findings_for(packages, runtime, policy, overrides)
-    _write_report(findings, policy)
-    info(f"  dep licences: {len(findings)} runtime packages judged, see {REPORT_PATH}")
-    notices_current = _check_notices(notice_entries(packages, findings), mode)
-    held = blocking(findings)
-    for finding in held:
-        (warn if mode == "warn" else error)(f"  {finding.line()}")
-        info(f"    evidence: {finding.evidence}")
-    if held:
-        return _fail(
-            f"  dep licences: {len(held)} package(s) denied or need a human answer. "
-            "Answer one in quality.dep_licenses.overrides (name, licence, reason).",
-            mode,
-        )
-    return notices_current
+    tools = {"pip-licenses": tool_version("pip-licenses")}
+    return finish(findings, notice_entries(packages, findings), policy, tools, mode)
 
 
 def notice_entries(
@@ -313,24 +255,3 @@ def notice_entries(
             NoticeEntry(finding, package.get("LicenseText"), package.get("NoticeText"))
         )
     return entries
-
-
-def _check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
-    """Write the generated notices and hold the repo's copy to them, if it has one.
-
-    Returns:
-        True unless the repo's copy is stale and the mode blocks.
-
-    """
-    generated = render_notices(entries)
-    NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
-    if not NOTICES_PATH.is_file():
-        return True
-    if NOTICES_PATH.read_text(encoding="utf-8") == generated:
-        info(f"  dep licences: {NOTICES_PATH} matches the lock")
-        return True
-    return _fail(
-        f"  dep licences: {NOTICES_PATH} is stale against the lock. "
-        f"Replace it with {NOTICES_OUTPUT}, which this run generated.",
-        mode,
-    )
