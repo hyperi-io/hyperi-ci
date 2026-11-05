@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.47](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.46...v2.14.47) (2026-11-05)
+
+### Bug Fixes
+
+* **quality:** record the hyperi-ci version in licenses.json ([2560a9b](https://github.com/hyperi-io/hyperi-ci/commit/2560a9ba7d875a21c40da025a17a9a083939e8e3))
+
 ## [2.14.46](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.45...v2.14.46) (2026-11-05)
 
 ### Bug Fixes
