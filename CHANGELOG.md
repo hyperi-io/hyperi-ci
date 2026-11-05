@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.46](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.45...v2.14.46) (2026-11-05)
+
+### Bug Fixes
+
+* **quality:** list all shipped packages and map BSD aliases ([787ae17](https://github.com/hyperi-io/hyperi-ci/commit/787ae17a33a1992e38d78eec1056afcaae0f9658))
+
 ## [2.14.45](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.44...v2.14.45) (2026-11-05)
 
 ### Bug Fixes
