@@ -104,6 +104,11 @@ quality:
   # See docs/quality-gate.md#relaxing-a-security-gate.
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+  # Each shipped dependency's licence against config/license-policy.yaml. A
+  # mapping also takes `overrides` (name, licence, reason, version) for a
+  # dependency the tools cannot settle, and `policy` (group -> mode -> verdict,
+  # reason) to change a cell for this repo. Python only so far.
+  dep_licenses: warn
   # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
   # ratchet: this repo still carries ~900 lines of it. Promote at zero.
   charset: warn              # Typography a keyboard cannot produce; plus ASCII-art diagrams

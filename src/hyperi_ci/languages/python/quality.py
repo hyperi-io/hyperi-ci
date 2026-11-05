@@ -28,6 +28,7 @@ from packaging.version import InvalidVersion, Version
 
 from hyperi_ci.common import error, get_exclude_dirs, info, run_cmd, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.python import licenses
 from hyperi_ci.languages.quality_common import (
     Via,
     emit_tool_output,
@@ -511,6 +512,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     mode = resolve_tool_mode("pip_audit", config, language="python")
     if not _run_pip_audit(mode, for_tool(ignores, "pip-audit")):
+        had_failure = True
+
+    if not licenses.run_gate(config):
         had_failure = True
 
     # Concise output is one finding per line, so the warn tier's cap counts findings.
