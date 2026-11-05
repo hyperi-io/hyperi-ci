@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.45](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.44...v2.14.45) (2026-11-05)
+
+### Bug Fixes
+
+* **deps:** update github-actions ([#801](https://github.com/hyperi-io/hyperi-ci/issues/801)) ([bf5aa98](https://github.com/hyperi-io/hyperi-ci/commit/bf5aa98b4fbc3c0d149cee46143549ca4dee352f))
+* **quality:** generate THIRD-PARTY-NOTICES from the lock ([ed4a2bf](https://github.com/hyperi-io/hyperi-ci/commit/ed4a2bf659b4f0c7e5f92c462cf66e367e8515fa))
+* **quality:** judge copied-in source files against the licence policy ([7f91090](https://github.com/hyperi-io/hyperi-ci/commit/7f91090c1fa5340f0403238807b255df28fad694))
+* **quality:** judge npm dependency licences against the policy table ([04df8c5](https://github.com/hyperi-io/hyperi-ci/commit/04df8c527abec92ed8f57ad9deb41360c696b588))
+* **quality:** judge Python dependency licences against a policy table ([721a781](https://github.com/hyperi-io/hyperi-ci/commit/721a781b4b86977b6cbd6af7c707a1f6215c6670))
+* **quality:** judge Rust crate licences against the policy table ([7d9436d](https://github.com/hyperi-io/hyperi-ci/commit/7d9436d25ebe0bdd4bdbf0b40349069db3643495))
+
 ## [2.14.44](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.43...v2.14.44) (2026-11-03)
 
 ### Bug Fixes
