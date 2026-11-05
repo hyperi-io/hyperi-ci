@@ -24,7 +24,20 @@ from typing import Any
 import yaml
 from packaging.licenses import InvalidLicenseExpression, canonicalize_license_expression
 
+from hyperi_ci.common import error, info, warn
+from hyperi_ci.config import CIConfig
+
 _POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "license-policy.yaml"
+
+REPORT_PATH = Path(".hyperi-ci") / "licenses.json"
+
+# A repo opts in to attribution by committing this file. The generated copy is
+# written beside the report every run, so it can be copied over.
+NOTICES_PATH = Path("THIRD-PARTY-NOTICES")
+NOTICES_OUTPUT = REPORT_PATH.parent / "THIRD-PARTY-NOTICES"
+
+# Licence file lines quoted when metadata declares nothing.
+_QUOTE_LINES = 3
 
 _SEPARATORS = re.compile(r"[-_.]+")
 
@@ -77,6 +90,7 @@ class Policy:
         group_of: Canonical SPDX id or alias to its group name.
         canonical: Alias to the SPDX id it stands for.
         obligations: Obligation key to its description.
+        exceptions: ``WITH`` exceptions judged as their base licence.
         digest: sha256 of the effective policy, so a citation names the table it used.
 
     """
@@ -85,6 +99,7 @@ class Policy:
     group_of: Mapping[str, str]
     canonical: Mapping[str, str]
     obligations: Mapping[str, str]
+    exceptions: frozenset[str]
     digest: str
 
 
@@ -215,14 +230,18 @@ def load_policy(
         }
         for name, modes in groups.items()
     }
+    exceptions = frozenset(str(e) for e in raw.get("exceptions") or ())
     digest = hashlib.sha256(
-        json.dumps([effective, group_of], sort_keys=True).encode("utf-8")
+        json.dumps([effective, group_of, sorted(exceptions)], sort_keys=True).encode(
+            "utf-8"
+        )
     ).hexdigest()
     return Policy(
         groups=groups,
         group_of=group_of,
         canonical=canonical,
         obligations=obligations,
+        exceptions=exceptions,
         digest=digest,
     )
 
@@ -283,7 +302,17 @@ def find_override(
 
 
 def _term_rule(term: str, policy: Policy, mode: Mode) -> tuple[str, Rule | None]:
-    """Return the SPDX id and policy rule for one licence id or alias."""
+    """Return the SPDX id and policy rule for one licence id or alias.
+
+    ``A WITH exception`` is judged as ``A`` when the policy lists the exception,
+    and is unrecognised otherwise.
+    """
+    base, _, exception = term.partition(" WITH ")
+    if exception:
+        if exception.strip() not in policy.exceptions:
+            return term, None
+        _, rule = _term_rule(base.strip(), policy, mode)
+        return term, rule
     spdx = policy.canonical.get(term)
     if spdx is None:
         try:
@@ -302,8 +331,8 @@ def judge(
     """Return the SPDX id, verdict, obligations and deciding rule for a licence.
 
     ``A OR B`` takes the best of its terms and ``A AND B`` the worst. A
-    ``WITH`` exception, a parenthesised or mixed expression, an undeclared
-    licence and an id no group lists are all ask.
+    parenthesised or mixed expression, an undeclared licence, an id no group
+    lists and an exception the policy does not list are all ask.
 
     Args:
         raw_licence: The licence as metadata gave it: an SPDX expression, a
@@ -327,7 +356,7 @@ def judge(
             expression = canonicalize_license_expression(terms[0])
         except InvalidLicenseExpression:
             return text, Verdict.ASK, (), "unrecognised"
-        if "(" in expression or " WITH " in expression:
+        if "(" in expression:
             return expression, Verdict.ASK, (), "complex-expression"
         if " AND " in expression and " OR " in expression:
             return expression, Verdict.ASK, (), "complex-expression"
@@ -438,3 +467,105 @@ def _text_or_missing(text: str | None, what: str) -> str:
     if _shipped(text):
         return str(text).strip()
     return f"[no {what} file in the package]"
+
+
+def quote(text: str | None) -> str:
+    """Return the first lines of a licence file, for a citation's evidence."""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return " / ".join(lines[:_QUOTE_LINES])
+
+
+def project_path(raw: object) -> str:
+    """Return ``raw`` relative to the project, so the report is the same anywhere."""
+    path = Path(str(raw))
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(raw)
+
+
+def load_settings(config: CIConfig) -> tuple[Policy, list[Override]]:
+    """Return the effective policy and the repo's overrides.
+
+    Raises:
+        PolicyError: The repo's ``quality.dep_licenses`` is malformed.
+
+    """
+    # A bare mode string carries no overrides or policy.
+    settings = config.setting("quality.dep_licenses")
+    settings = settings if isinstance(settings, Mapping) else {}
+    policy = load_policy(repo_policy=settings.get("policy"))
+    return policy, parse_overrides(settings.get("overrides"))
+
+
+def fail(note: str, mode: str) -> bool:
+    """Report ``note`` at the gate's mode, and return whether the pipeline goes on."""
+    (warn if mode == "warn" else error)(note)
+    return mode == "warn"
+
+
+def finish(
+    findings: Sequence[Finding],
+    entries: Sequence[NoticeEntry],
+    policy: Policy,
+    tools: Mapping[str, str],
+    mode: str,
+) -> bool:
+    """Write the report and the notices, then fail on every deny and ask.
+
+    Args:
+        findings: One finding per shipped dependency.
+        entries: The same dependencies with the texts they shipped.
+        policy: The effective policy.
+        tools: Tool name to the version that read the licences.
+        mode: ``blocking`` or ``warn``.
+
+    Returns:
+        True if the pipeline should continue, False on a blocking failure.
+
+    """
+    REPORT_PATH.parent.mkdir(exist_ok=True)
+    (REPORT_PATH.parent / ".gitignore").write_text(
+        "*\n", encoding="utf-8", newline="\n"
+    )
+    REPORT_PATH.write_text(
+        json.dumps(report(findings, policy, tools), indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    info(
+        f"  dep licences: {len(findings)} shipped dependencies judged, see {REPORT_PATH}"
+    )
+    notices_current = check_notices(entries, mode)
+    held = blocking(findings)
+    for finding in held:
+        (warn if mode == "warn" else error)(f"  {finding.line()}")
+        info(f"    evidence: {finding.evidence}")
+    if held:
+        return fail(
+            f"  dep licences: {len(held)} dependencies denied or need a human answer. "
+            "Answer one in quality.dep_licenses.overrides (name, licence, reason).",
+            mode,
+        )
+    return notices_current
+
+
+def check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
+    """Write the generated notices and hold the repo's copy to them, if it has one.
+
+    Returns:
+        True unless the repo's copy is stale and the mode blocks.
+
+    """
+    generated = render_notices(entries)
+    NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
+    if not NOTICES_PATH.is_file():
+        return True
+    if NOTICES_PATH.read_text(encoding="utf-8") == generated:
+        info(f"  dep licences: {NOTICES_PATH} matches the lock")
+        return True
+    return fail(
+        f"  dep licences: {NOTICES_PATH} is stale against the lock. "
+        f"Replace it with {NOTICES_OUTPUT}, which this run generated.",
+        mode,
+    )

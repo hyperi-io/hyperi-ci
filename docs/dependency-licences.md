@@ -26,6 +26,8 @@ The Python handler judges the lock's runtime set: `uv export --no-dev --all-extr
 - No licence in the metadata, an id the table does not list, or a package missing from the environment is ask. Every held finding prints its evidence. Where the wheel carries a licence file, that is the file's path and its first lines.
 - A package whose lock marker excludes this platform (`sys_platform == 'win32'`) is named in the log and not judged.
 
+The Rust handler reads `cargo metadata --locked --all-features`, so a crate only some feature turns on is judged too. It carries each crate's exact SPDX expression. A crate a workspace member reaches through normal dependencies ships, judged as `static`. Dev and build dependencies, proc-macros and anything only a proc-macro needs do not. A crate with no `license` field is ask, quoting its `license-file` or LICENSE file. `A WITH LLVM-exception` is judged as `A`, and any other exception is ask. cargo deny still runs its own `deny.toml` checks beside this.
+
 Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256 and the tool versions. The directory carries its own `.gitignore`. A held finding also prints one line a citation can quote verbatim:
 
 ```text
