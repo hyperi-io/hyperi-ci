@@ -36,6 +36,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, vulture | Python | Python handler |
+| dep-licences (pip-licenses) | Python runtime dependencies against the licence policy, see [dependency-licences.md](dependency-licences.md) | `languages/python/licenses.py` |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
 | eslint, oxlint, prettier, Oxfmt, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
 | gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
@@ -242,14 +243,14 @@ jobs:
 
 ## How lint-iac runs
 
-- **lint-iac never writes into the tree it lints.** `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.
-- **kubeconform runs `-strict`**, which fails an unknown field and a duplicate key. `quality.kubeconform.strict` set to `false`, `no` or `0` turns it off. Schemas come from the k8s defaults, the datreeio CRDs-catalog and `quality.kubeconform.schema_locations`, cached under `~/.cache/hyperi-ci` per kubeconform pin for at most 7 days.
-- **A chart renders twice and the outputs must be byte-equal.** `randAlphaNum`, `genCA` and `now` fail it, because every ArgoCD sync then reports drift. Helm test hooks are left out of the comparison. `quality.render_stable` relaxes this gate without touching kubeconform. `iac.helm.values` (repo-relative files) and `iac.helm.set` (`key: value`) apply to every render.
-- **A kustomization owns only what it references** (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
-- **A root module** is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
-- **ansible-lint** runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`. The lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
-- **An assembled chart carries its own Checkov skips.** `hyperi-ci chart assemble` writes the Checkov ids in the scalo-service library's `lint-skip.yaml` to the chart's `.hyperi-ci.yaml` as `quality.checkov.skip`, with each reason as a comment. `hyperi-ci lint-iac <chart>` applies them, and no run over the repo sees them.
-- **Hidden and git-ignored directories are skipped** by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
+- lint-iac never writes into the tree it lints. `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.
+- kubeconform runs `-strict`, which fails an unknown field and a duplicate key. `quality.kubeconform.strict` set to `false`, `no` or `0` turns it off. Schemas come from the k8s defaults, the datreeio CRDs-catalog and `quality.kubeconform.schema_locations`, cached under `~/.cache/hyperi-ci` per kubeconform pin for at most 7 days.
+- A chart renders twice and the outputs must be byte-equal. `randAlphaNum`, `genCA` and `now` fail it, because every ArgoCD sync then reports drift. Helm test hooks are left out of the comparison. `quality.render_stable` relaxes this gate without touching kubeconform. `iac.helm.values` (repo-relative files) and `iac.helm.set` (`key: value`) apply to every render.
+- A kustomization owns only what it references (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
+- A root module is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
+- ansible-lint runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`. The lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
+- An assembled chart carries its own Checkov skips. `hyperi-ci chart assemble` writes the Checkov ids in the scalo-service library's `lint-skip.yaml` to the chart's `.hyperi-ci.yaml` as `quality.checkov.skip`, with each reason as a comment. `hyperi-ci lint-iac <chart>` applies them, and no run over the repo sees them.
+- Hidden and git-ignored directories are skipped by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
 
 Guardrails:
 

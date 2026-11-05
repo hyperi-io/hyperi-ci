@@ -56,6 +56,7 @@ def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
 _NOT_SECURITY = frozenset(
     {
         "charset",
+        "dep_licenses",
         "hadolint",
         "droast",
         "kubeconform",
