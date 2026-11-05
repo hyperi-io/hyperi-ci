@@ -34,12 +34,12 @@ from hyperi_ci.quality.dep_licenses import (
     Verdict,
     fail,
     find_override,
-    finish,
     judge,
     load_settings,
     project_path,
     quote,
 )
+from hyperi_ci.quality.vendored_licenses import finish_with_copied_in
 from hyperi_ci.versions import tool_version
 
 # The lock's shipped set: every extra, no dependency group, not the project.
@@ -203,17 +203,16 @@ def run_gate(config: CIConfig) -> bool:
     mode = resolve_tool_mode("dep_licenses", config, default="warn")
     if mode == "disabled":
         return True
-    if not Path("uv.lock").is_file():
-        info("  dep licences: no uv.lock, so there is no shipped set to judge")
-        return True
-    if not shutil.which("uv"):
-        return fail("  dep licences: uv is not installed, nothing checked", mode)
-
     try:
         policy, overrides = load_settings(config)
     except PolicyError as exc:
         error(f"  dep licences: {exc}")
         return False
+    if not Path("uv.lock").is_file():
+        info("  dep licences: no uv.lock, so only copied-in files are judged")
+        return finish_with_copied_in(config, [], [], policy, {}, mode)
+    if not shutil.which("uv"):
+        return fail("  dep licences: uv is not installed, nothing checked", mode)
 
     exported = run_cmd(_RUNTIME_EXPORT, check=False, capture=True)
     if exported.returncode != 0:
@@ -240,7 +239,8 @@ def run_gate(config: CIConfig) -> bool:
 
     findings = findings_for(packages, runtime, policy, overrides)
     tools = {"pip-licenses": tool_version("pip-licenses")}
-    return finish(findings, notice_entries(packages, findings), policy, tools, mode)
+    entries = notice_entries(packages, findings)
+    return finish_with_copied_in(config, findings, entries, policy, tools, mode)
 
 
 def notice_entries(

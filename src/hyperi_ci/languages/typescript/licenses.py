@@ -30,12 +30,12 @@ from hyperi_ci.quality.dep_licenses import (
     PolicyError,
     fail,
     find_override,
-    finish,
     judge,
     load_settings,
     project_path,
     quote,
 )
+from hyperi_ci.quality.vendored_licenses import finish_with_copied_in
 from hyperi_ci.versions import tool_version
 
 # license-checker falls back to a README when a package has no licence file.
@@ -199,4 +199,5 @@ def run_gate(config: CIConfig) -> bool:
     records.pop(f"{own.get('name')}@{own.get('version')}", None)
     findings = findings_for(records, policy, overrides)
     tools = {"license-checker-rseidelsohn": tool_version("license-checker-rseidelsohn")}
-    return finish(findings, notice_entries(records, findings), policy, tools, mode)
+    entries = notice_entries(records, findings)
+    return finish_with_copied_in(config, findings, entries, policy, tools, mode)

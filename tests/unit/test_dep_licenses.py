@@ -19,6 +19,7 @@ from hyperi_ci.languages.python.licenses import (
 )
 from hyperi_ci.languages.rust import licenses as rust_licenses
 from hyperi_ci.languages.typescript import licenses as npm_licenses
+from hyperi_ci.quality import vendored_licenses
 from hyperi_ci.quality.dep_licenses import (
     Mode,
     Override,
@@ -680,3 +681,60 @@ def test_npm_notices_skip_a_readme_and_carry_a_notice(policy, npm_records):
     assert "# isarray" not in text
     assert "isarray 1.0.0 (MIT)" in text and "[no licence file in the package]" in text
     assert "Apache text\n\nNOTICE:\n\nAWS NOTICE" in text
+
+
+# The shape `reuse lint --json` 6.2.0 and 6.3.0 both emit, trimmed to the fields read.
+_REUSE_LINT = {
+    "files": [
+        {"path": "lib/no_header.c", "spdx_expressions": []},
+        {"path": "lib/mit.c", "spdx_expressions": [{"value": "MIT"}]},
+        {
+            "path": "lib/both.c",
+            "spdx_expressions": [{"value": "MIT"}, {"value": "LGPL-2.1-only"}],
+        },
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        ([{"mode": "vendored"}], "needs a path"),
+        (["vendor"], "needs a path"),
+        ([{"path": "vendor", "mode": "linked"}], "unknown mode"),
+        ([{"path": "vendor", "mode": "import"}], "vendored or modified"),
+        ([{"path": "vendor", "licence": "MIT"}], "no reason"),
+    ],
+)
+def test_vendored_entries_are_validated(raw, message):
+    with pytest.raises(PolicyError, match=message):
+        vendored_licenses.parse_vendored(raw)
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        (
+            {"path": "vendor", "mode": "vendored"},
+            {
+                "vendor/lib/both.c": (Verdict.DENY, "file-header"),
+                "vendor/lib/mit.c": (Verdict.OBLIGATIONS, "file-header"),
+                "vendor/lib/no_header.c": (Verdict.ASK, "missing-header"),
+            },
+        ),
+        (
+            {"path": "vendor", "licence": "MIT", "reason": "upstream LICENSE is MIT"},
+            {
+                "vendor/lib/both.c": (Verdict.DENY, "file-header"),
+                "vendor/lib/mit.c": (Verdict.OBLIGATIONS, "file-header"),
+                "vendor/lib/no_header.c": (Verdict.OBLIGATIONS, "override"),
+            },
+        ),
+    ],
+)
+def test_copied_in_files_are_judged_one_by_one(policy, entry, expected):
+    (parsed,) = vendored_licenses.parse_vendored([entry])
+    findings = vendored_licenses.findings_for(parsed, _REUSE_LINT, policy)
+    assert {f.name: (f.verdict, f.source) for f in findings} == expected
+    # A header the file carries always wins over the directory's answer.
+    assert {f.mode for f in findings} == {Mode.VENDORED}

@@ -31,12 +31,12 @@ from hyperi_ci.quality.dep_licenses import (
     PolicyError,
     fail,
     find_override,
-    finish,
     judge,
     load_settings,
     project_path,
     quote,
 )
+from hyperi_ci.quality.vendored_licenses import finish_with_copied_in
 
 # Every feature, so a crate only a release build turns on is judged too.
 _METADATA = [
@@ -206,4 +206,5 @@ def run_gate(config: CIConfig) -> bool:
     packages = shipped_packages(json.loads(result.stdout))
     findings = findings_for(packages, policy, overrides)
     tools = {"cargo metadata": "format-version 1"}
-    return finish(findings, notice_entries(packages, findings), policy, tools, mode)
+    entries = notice_entries(packages, findings)
+    return finish_with_copied_in(config, findings, entries, policy, tools, mode)
