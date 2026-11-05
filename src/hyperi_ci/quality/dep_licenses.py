@@ -16,7 +16,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -111,6 +111,8 @@ class Override:
     licence: str
     reason: str
     version: str | None = None
+    # A repo file holding the licence text, for a package that ships none.
+    licence_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,7 +252,8 @@ def parse_overrides(raw: Iterable[Any] | None) -> list[Override]:
     """Parse ``quality.dep_licenses.overrides`` from .hyperi-ci.yaml.
 
     Args:
-        raw: A list of ``{name, licence, reason, version?}`` mappings.
+        raw: A list of ``{name, licence, reason, version?, licence_file?}``
+            mappings.
 
     Returns:
         The overrides.
@@ -271,8 +274,11 @@ def parse_overrides(raw: Iterable[Any] | None) -> list[Override]:
                 f"dep_licenses.overrides: {entry!r} needs name, licence and reason"
             )
         version = entry.get("version")
+        licence_file = str(entry.get("licence_file") or "").strip() or None
         overrides.append(
-            Override(name, licence, reason, str(version) if version else None)
+            Override(
+                name, licence, reason, str(version) if version else None, licence_file
+            )
         )
     return overrides
 
@@ -299,6 +305,30 @@ def find_override(
     if pinned:
         return pinned[0]
     return next((o for o in named if o.version is None), None)
+
+
+def _alias_expression(text: str, policy: Policy) -> str | None:
+    """Return a flat OR or AND expression with each alias swapped for its SPDX id.
+
+    None when the text mixes operators, has brackets, or any term is neither
+    an alias nor a valid SPDX id.
+    """
+    if "(" in text or ")" in text:
+        return None
+    operators = [op for op in (" OR ", " AND ") if op in text]
+    if len(operators) != 1:
+        return None
+    resolved = []
+    for term in text.split(operators[0]):
+        term = term.strip()
+        spdx = policy.canonical.get(term)
+        if spdx is None:
+            try:
+                spdx = canonicalize_license_expression(term)
+            except InvalidLicenseExpression:
+                return None
+        resolved.append(spdx)
+    return operators[0].join(resolved)
 
 
 def _term_rule(term: str, policy: Policy, mode: Mode) -> tuple[str, Rule | None]:
@@ -355,7 +385,10 @@ def judge(
         try:
             expression = canonicalize_license_expression(terms[0])
         except InvalidLicenseExpression:
-            return text, Verdict.ASK, (), "unrecognised"
+            # A flat expression naming a term by alias: `BSD 3-Clause OR Apache-2.0`.
+            expression = _alias_expression(terms[0], policy)
+            if expression is None:
+                return text, Verdict.ASK, (), "unrecognised"
         # npm writes a lone expression in brackets: `(MIT OR GPL-3.0-or-later)`.
         inner = expression[1:-1]
         if expression.startswith("(") and expression.endswith(")"):
@@ -411,9 +444,6 @@ def report(
     }
 
 
-# Obligations a notices file discharges: the attribution and the licence text.
-_NOTICE_OBLIGATIONS = frozenset({"notice", "licence-text", "lgpl-texts"})
-
 _RULE = "-" * 78
 
 
@@ -429,9 +459,9 @@ class NoticeEntry:
 def render_notices(entries: Iterable[NoticeEntry]) -> str:
     """Return THIRD-PARTY-NOTICES text, byte-identical for the same lock.
 
-    Only a dependency whose obligations call for attribution is listed. Its
-    own licence file follows its name, then its NOTICE file where the policy
-    says to carry it. Text a package did not ship is named as missing.
+    Every shipped dependency is listed, an unanswered ask included, because
+    its licence text ships whatever its verdict. Its licence file follows its
+    name, then its NOTICE file where the policy says to carry it.
 
     Args:
         entries: Each dependency's finding and the texts its package carries.
@@ -441,7 +471,7 @@ def render_notices(entries: Iterable[NoticeEntry]) -> str:
 
     """
     listed = sorted(
-        (e for e in entries if _NOTICE_OBLIGATIONS & set(e.finding.obligations)),
+        entries,
         key=lambda e: (e.finding.ecosystem, e.finding.name.lower(), e.finding.version),
     )
     parts = [
@@ -515,6 +545,7 @@ def finish(
     policy: Policy,
     tools: Mapping[str, str],
     mode: str,
+    overrides: Sequence[Override] = (),
 ) -> bool:
     """Write the report and the notices, then fail on every deny and ask.
 
@@ -524,6 +555,8 @@ def finish(
         policy: The effective policy.
         tools: Tool name to the version that read the licences.
         mode: ``blocking`` or ``warn``.
+        overrides: The repo's answers, whose ``licence_file`` fills in licence
+            text a package did not ship.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -541,7 +574,7 @@ def finish(
     info(
         f"  dep licences: {len(findings)} shipped dependencies judged, see {REPORT_PATH}"
     )
-    notices_current = check_notices(entries, mode)
+    notices_current = check_notices(entries, mode, overrides)
     held = blocking(findings)
     for finding in held:
         (warn if mode == "warn" else error)(f"  {finding.line()}")
@@ -556,22 +589,61 @@ def finish(
     return notices_current
 
 
-def check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
+def _with_licence_files(
+    entries: Sequence[NoticeEntry], overrides: Sequence[Override]
+) -> list[NoticeEntry]:
+    """Fill in licence text from an override's ``licence_file``."""
+    filled = []
+    for entry in entries:
+        finding = entry.finding
+        override = find_override(
+            overrides, finding.ecosystem, finding.name, finding.version
+        )
+        if not _shipped(entry.licence_text) and override and override.licence_file:
+            path = Path(override.licence_file)
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="replace")
+                entry = replace(entry, licence_text=text)
+        filled.append(entry)
+    return filled
+
+
+def check_notices(
+    entries: Sequence[NoticeEntry], mode: str, overrides: Sequence[Override] = ()
+) -> bool:
     """Write the generated notices and hold the repo's copy to them, if it has one.
 
+    A dependency with no licence text fails the check rather than shipping a
+    placeholder. Its override's ``licence_file`` supplies the text.
+
     Returns:
-        True unless the repo's copy is stale and the mode blocks.
+        True unless text is missing or the repo's copy is stale, and the mode
+        blocks.
 
     """
+    entries = _with_licence_files(entries, overrides)
     generated = render_notices(entries)
     NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
+    missing = [
+        f"{e.finding.name} {e.finding.version}"
+        for e in entries
+        if e.finding.verdict is not Verdict.ALLOW and not _shipped(e.licence_text)
+    ]
+    passed = True
+    if missing:
+        passed = fail(
+            f"  dep licences: no licence text for {', '.join(sorted(missing))}. "
+            "Commit the text and point its override's licence_file at it.",
+            mode,
+        )
     if not NOTICES_PATH.is_file():
-        return True
+        return passed
     if NOTICES_PATH.read_text(encoding="utf-8") == generated:
         info(f"  dep licences: {NOTICES_PATH} matches the lock")
-        return True
-    return fail(
+        return passed
+    stale = fail(
         f"  dep licences: {NOTICES_PATH} is stale against the lock. "
         f"Replace it with {NOTICES_OUTPUT}, which this run generated.",
         mode,
     )
+    return passed and stale
