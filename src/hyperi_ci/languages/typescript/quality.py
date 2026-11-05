@@ -25,6 +25,7 @@ from hyperi_ci.languages.quality_common import (
     run_gate_tool,
     stricter,
 )
+from hyperi_ci.languages.typescript import licenses
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     detect_yarn_version,
@@ -324,6 +325,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     mode = resolve_tool_mode("osv_scanner", config, language="typescript")
     osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
     if not osv_scanner.run(osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode):
+        had_failure = True
+
+    if not licenses.run_gate(config):
         had_failure = True
 
     return 1 if had_failure else 0
