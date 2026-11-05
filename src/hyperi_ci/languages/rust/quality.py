@@ -34,6 +34,7 @@ from hyperi_ci.languages.quality_common import (
     resolve_tool_mode,
     run_gate_tool,
 )
+from hyperi_ci.languages.rust import licenses
 from hyperi_ci.languages.rust._manifest import (
     feature_resolver,
     is_root_package_workspace,
@@ -304,6 +305,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         pinned="cargo-deny",
         retry_unreachable=_advisory_db_unreachable,
     ):
+        had_failure = True
+
+    if not licenses.run_gate(config):
         had_failure = True
 
     if not _run_feature_matrix(

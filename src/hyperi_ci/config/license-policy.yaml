@@ -32,6 +32,11 @@ obligations:
   replaceable: the user can swap the library for their own build
   file-copyleft: keep the copied files under their licence and publish changes to them
 
+# `A WITH <exception>` is judged as `A` for these. They only grant more, so
+# the base licence's verdict still holds. Any other exception is ask.
+exceptions:
+  - LLVM-exception
+
 groups:
   public-domain:
     ids: [Unlicense, CC0-1.0]

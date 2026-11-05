@@ -17,12 +17,14 @@ from hyperi_ci.languages.python.licenses import (
     notice_entries,
     runtime_packages,
 )
+from hyperi_ci.languages.rust import licenses as rust_licenses
 from hyperi_ci.quality.dep_licenses import (
     Mode,
     Override,
     PolicyError,
     Verdict,
     blocking,
+    check_notices,
     find_override,
     judge,
     load_policy,
@@ -188,6 +190,35 @@ def policy():
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
             Mode.IMPORT,
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
+            Verdict.ASK,
+            (),
+        ),
+        # A listed exception is judged as its base licence, inside an OR too.
+        (
+            "Apache-2.0 WITH LLVM-exception",
+            Mode.STATIC,
+            "Apache-2.0 WITH LLVM-exception",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text", "carry-notice"),
+        ),
+        (
+            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+            Mode.STATIC,
+            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+            Mode.STATIC,
+            "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "LGPL-2.1-or-later",
+            Mode.STATIC,
+            "LGPL-2.1-or-later",
             Verdict.ASK,
             (),
         ),
@@ -469,8 +500,108 @@ def test_repo_notices_are_held_to_the_lock(
     if repo_copy is not None:
         text = render_notices(entries) if repo_copy == "current" else "old\n"
         (tmp_path / "THIRD-PARTY-NOTICES").write_text(text, encoding="utf-8")
-    assert licenses._check_notices(entries, mode) is passes
+    assert check_notices(entries, mode) is passes
     generated = (tmp_path / ".hyperi-ci" / "THIRD-PARTY-NOTICES").read_text(
         encoding="utf-8"
     )
     assert generated == render_notices(entries)
+
+
+_NORMAL = [{"kind": None, "target": None}]
+
+
+def _crate(root, name, licence, *, kinds=("lib",), files=None, license_file=None):
+    """Write a crate dir with its licence files and return its metadata package."""
+    crate_dir = root / f"{name}-1.0.0"
+    crate_dir.mkdir()
+    (crate_dir / "Cargo.toml").write_text("", encoding="utf-8")
+    for file_name, text in (files or {}).items():
+        (crate_dir / file_name).write_text(text, encoding="utf-8")
+    return {
+        "id": f"{name}-id",
+        "name": name,
+        "version": "1.0.0",
+        "license": licence,
+        "license_file": license_file,
+        "manifest_path": str(crate_dir / "Cargo.toml"),
+        "targets": [{"kind": list(kinds)}],
+    }
+
+
+@pytest.fixture
+def rust_metadata(tmp_path):
+    """Return a workspace graph: normal, dev, build and proc-macro edges."""
+    packages = [
+        _crate(tmp_path, "app", "BUSL-1.1"),
+        _crate(
+            tmp_path, "serde", "MIT OR Apache-2.0", files={"LICENSE-MIT": "MIT text"}
+        ),
+        _crate(tmp_path, "ring", None, files={"LICENSE": "ring licence text"}),
+        _crate(tmp_path, "tokio", "MIT", files={"LICENSE": "tokio MIT"}),
+        _crate(tmp_path, "derive", "MIT", kinds=("proc-macro",)),
+        _crate(tmp_path, "syn", "MIT"),
+        _crate(tmp_path, "proptest", "MIT"),
+        _crate(tmp_path, "cc", "MIT"),
+        _crate(
+            tmp_path,
+            "aws-lc",
+            "Apache-2.0",
+            files={"LICENSE": "Apache text", "NOTICE": "AWS NOTICE"},
+        ),
+    ]
+
+    def edge(pkg, kinds=_NORMAL):
+        return {"pkg": f"{pkg}-id", "dep_kinds": kinds}
+
+    nodes = [
+        {
+            "id": "app-id",
+            "deps": [
+                edge("serde"),
+                edge("ring"),
+                edge("derive"),
+                edge("aws-lc"),
+                edge("proptest", [{"kind": "dev", "target": None}]),
+                edge("cc", [{"kind": "build", "target": None}]),
+            ],
+        },
+        {"id": "serde-id", "deps": [edge("tokio")]},
+        {"id": "derive-id", "deps": [edge("syn")]},
+    ]
+    return {
+        "packages": packages,
+        "workspace_members": ["app-id"],
+        "resolve": {"nodes": nodes},
+    }
+
+
+def test_rust_ships_normal_dependencies_and_nothing_compile_time(rust_metadata):
+    shipped = rust_licenses.shipped_packages(rust_metadata)
+    # proptest is dev, cc is build, derive is a proc-macro and syn only feeds it.
+    assert [p["name"] for p in shipped] == ["aws-lc", "ring", "serde", "tokio"]
+
+
+def test_rust_crates_are_judged_as_static_links(policy, rust_metadata, monkeypatch):
+    monkeypatch.chdir(rust_metadata["packages"][0]["manifest_path"].rsplit("/", 2)[0])
+    shipped = rust_licenses.shipped_packages(rust_metadata)
+    findings = {f.name: f for f in rust_licenses.findings_for(shipped, policy, [])}
+    assert {f.mode for f in findings.values()} == {Mode.STATIC}
+    assert findings["serde"].verdict is Verdict.OBLIGATIONS
+    ring = findings["ring"]
+    assert (ring.verdict, ring.source) == (Verdict.ASK, "license-file")
+    assert ring.evidence == "ring-1.0.0/LICENSE: ring licence text"
+    assert findings["tokio"].line() == (
+        "licence: crates tokio 1.0.0 MIT static -> allow-with-obligations "
+        "[notice, licence-text] (rule permissive, source metadata)"
+    )
+
+
+def test_rust_notices_carry_crate_licence_and_notice_files(policy, rust_metadata):
+    shipped = rust_licenses.shipped_packages(rust_metadata)
+    findings = rust_licenses.findings_for(shipped, policy, [])
+    text = render_notices(rust_licenses.notice_entries(shipped, findings))
+    assert "aws-lc 1.0.0 (Apache-2.0)\n" in text
+    assert "Apache text\n\nNOTICE:\n\nAWS NOTICE" in text
+    assert "MIT text" in text and "tokio MIT" in text
+    # ring is still an ask, so it is not attributed until someone answers it.
+    assert "ring licence text" not in text
