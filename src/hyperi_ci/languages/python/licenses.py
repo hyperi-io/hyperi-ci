@@ -27,6 +27,7 @@ from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mo
 from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
+    NoticeEntry,
     Override,
     Policy,
     PolicyError,
@@ -36,11 +37,17 @@ from hyperi_ci.quality.dep_licenses import (
     judge,
     load_policy,
     parse_overrides,
+    render_notices,
     report,
 )
 from hyperi_ci.versions import tool_version
 
 REPORT_PATH = Path(".hyperi-ci") / "licenses.json"
+
+# A repo opts in to attribution by committing this file. The generated copy is
+# written beside the report every run, so it can be copied over.
+NOTICES_PATH = Path("THIRD-PARTY-NOTICES")
+NOTICES_OUTPUT = REPORT_PATH.parent / "THIRD-PARTY-NOTICES"
 
 # The lock's shipped set: every extra, no dependency group, not the project.
 _RUNTIME_EXPORT = [
@@ -104,6 +111,15 @@ def runtime_packages(export_text: str) -> tuple[dict[str, str], list[str]]:
     return pins, elsewhere
 
 
+def _project_path(raw: object) -> str:
+    """Return ``raw`` relative to the project, so the report is the same anywhere."""
+    path = Path(str(raw))
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(raw)
+
+
 def _quote(text: str | None) -> str:
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     return " / ".join(lines[:_QUOTE_LINES])
@@ -160,7 +176,9 @@ def findings_for(
         licence_text = package.get("LicenseText")
         if rule == "undeclared" and licence_text not in (None, "UNKNOWN"):
             source = "license-file"
-            evidence = f"{package.get('LicenseFile')}: {_quote(licence_text)}"
+            evidence = (
+                f"{_project_path(package.get('LicenseFile'))}: {_quote(licence_text)}"
+            )
         findings.append(
             Finding(
                 "pypi",
@@ -269,6 +287,7 @@ def run_gate(config: CIConfig) -> bool:
     findings = findings_for(packages, runtime, policy, overrides)
     _write_report(findings, policy)
     info(f"  dep licences: {len(findings)} runtime packages judged, see {REPORT_PATH}")
+    notices_current = _check_notices(notice_entries(packages, findings), mode)
     held = blocking(findings)
     for finding in held:
         (warn if mode == "warn" else error)(f"  {finding.line()}")
@@ -279,4 +298,39 @@ def run_gate(config: CIConfig) -> bool:
             "Answer one in quality.dep_licenses.overrides (name, licence, reason).",
             mode,
         )
-    return True
+    return notices_current
+
+
+def notice_entries(
+    packages: Sequence[Mapping[str, Any]], findings: Sequence[Finding]
+) -> list[NoticeEntry]:
+    """Pair each finding with the licence and NOTICE text its package shipped."""
+    by_name = {canonicalize_name(str(p.get("Name", ""))): p for p in packages}
+    entries = []
+    for finding in findings:
+        package = by_name.get(canonicalize_name(finding.name), {})
+        entries.append(
+            NoticeEntry(finding, package.get("LicenseText"), package.get("NoticeText"))
+        )
+    return entries
+
+
+def _check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
+    """Write the generated notices and hold the repo's copy to them, if it has one.
+
+    Returns:
+        True unless the repo's copy is stale and the mode blocks.
+
+    """
+    generated = render_notices(entries)
+    NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
+    if not NOTICES_PATH.is_file():
+        return True
+    if NOTICES_PATH.read_text(encoding="utf-8") == generated:
+        info(f"  dep licences: {NOTICES_PATH} matches the lock")
+        return True
+    return _fail(
+        f"  dep licences: {NOTICES_PATH} is stale against the lock. "
+        f"Replace it with {NOTICES_OUTPUT}, which this run generated.",
+        mode,
+    )
