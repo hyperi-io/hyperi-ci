@@ -207,4 +207,6 @@ def run_gate(config: CIConfig) -> bool:
     findings = findings_for(packages, policy, overrides)
     tools = {"cargo metadata": "format-version 1"}
     entries = notice_entries(packages, findings)
-    return finish_with_copied_in(config, findings, entries, policy, tools, mode)
+    return finish_with_copied_in(
+        config, findings, entries, policy, tools, mode, overrides
+    )

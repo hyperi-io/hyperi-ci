@@ -25,6 +25,7 @@ from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
     NoticeEntry,
+    Override,
     Policy,
     PolicyError,
     Verdict,
@@ -202,6 +203,7 @@ def finish_with_copied_in(
     policy: Policy,
     tools: Mapping[str, str],
     mode: str,
+    overrides: Sequence[Override] = (),
 ) -> bool:
     """Add the copied-in files to a language's findings, then finish the gate.
 
@@ -221,6 +223,11 @@ def finish_with_copied_in(
     if copied:
         tools = {**tools, "reuse": tool_version("reuse")}
     passed = finish(
-        [*findings, *copied], [*entries, *copied_entries], policy, tools, mode
+        [*findings, *copied],
+        [*entries, *copied_entries],
+        policy,
+        tools,
+        mode,
+        overrides,
     )
     return passed and all(held)
