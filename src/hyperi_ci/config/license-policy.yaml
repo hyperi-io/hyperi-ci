@@ -54,6 +54,10 @@ groups:
     ids: [MIT, MIT-0, 0BSD, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0, Unicode-DFS-2016, PSF-2.0, Python-2.0, CNRI-Python, X11, curl, HPND]
     aliases:
       "MIT License": MIT
+      "BSD 2-Clause": BSD-2-Clause
+      "2-Clause BSD License": BSD-2-Clause
+      "BSD 3-Clause": BSD-3-Clause
+      "3-Clause BSD License": BSD-3-Clause
       "ISC License (ISCL)": ISC
       "zlib/libpng License": Zlib
       "Boost Software License 1.0 (BSL-1.0)": BSL-1.0

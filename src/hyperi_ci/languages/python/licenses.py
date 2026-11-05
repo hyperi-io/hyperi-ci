@@ -133,7 +133,7 @@ def findings_for(
                     version,
                     None,
                     "missing",
-                    "not in the environment",
+                    "in uv.lock but not installed: an extra the venv was not synced with? Run `uv sync --all-extras`",
                     Mode.IMPORT,
                     Verdict.ASK,
                     (),
@@ -185,6 +185,8 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
         "--from=mixed",
         "--with-license-file",
         "--with-notice-file",
+        # pip-licenses otherwise drops its own dependencies (wcwidth, prettytable).
+        "--with-system",
         "--output-file",
         str(output),
     ]
@@ -210,7 +212,7 @@ def run_gate(config: CIConfig) -> bool:
         return False
     if not Path("uv.lock").is_file():
         info("  dep licences: no uv.lock, so only copied-in files are judged")
-        return finish_with_copied_in(config, [], [], policy, {}, mode)
+        return finish_with_copied_in(config, [], [], policy, {}, mode, overrides)
     if not shutil.which("uv"):
         return fail("  dep licences: uv is not installed, nothing checked", mode)
 
@@ -240,7 +242,9 @@ def run_gate(config: CIConfig) -> bool:
     findings = findings_for(packages, runtime, policy, overrides)
     tools = {"pip-licenses": tool_version("pip-licenses")}
     entries = notice_entries(packages, findings)
-    return finish_with_copied_in(config, findings, entries, policy, tools, mode)
+    return finish_with_copied_in(
+        config, findings, entries, policy, tools, mode, overrides
+    )
 
 
 def notice_entries(

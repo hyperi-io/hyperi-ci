@@ -200,4 +200,6 @@ def run_gate(config: CIConfig) -> bool:
     findings = findings_for(records, policy, overrides)
     tools = {"license-checker-rseidelsohn": tool_version("license-checker-rseidelsohn")}
     entries = notice_entries(records, findings)
-    return finish_with_copied_in(config, findings, entries, policy, tools, mode)
+    return finish_with_copied_in(
+        config, findings, entries, policy, tools, mode, overrides
+    )
