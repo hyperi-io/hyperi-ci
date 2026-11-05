@@ -24,6 +24,7 @@ from typing import Any
 import yaml
 from packaging.licenses import InvalidLicenseExpression, canonicalize_license_expression
 
+from hyperi_ci import __version__
 from hyperi_ci.common import error, info, warn
 from hyperi_ci.config import CIConfig
 
@@ -438,6 +439,8 @@ def report(
         deps.append(record)
     return {
         "schema": SCHEMA_VERSION,
+        # The writing version: a hyperi-ci upgrade can change the packaged policy.
+        "hyperi_ci": __version__,
         "policy": policy.digest,
         "tool_versions": dict(tool_versions),
         "deps": deps,
