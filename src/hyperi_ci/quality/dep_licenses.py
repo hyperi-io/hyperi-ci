@@ -549,7 +549,8 @@ def finish(
     if held:
         return fail(
             f"  dep licences: {len(held)} dependencies denied or need a human answer. "
-            "Answer one in quality.dep_licenses.overrides (name, licence, reason).",
+            "Answer a package in quality.dep_licenses.overrides (name, licence, "
+            "reason), a copied-in file with its vendored entry's licence and reason.",
             mode,
         )
     return notices_current

@@ -106,8 +106,10 @@ quality:
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
   # Each shipped dependency's licence against config/license-policy.yaml. A
   # mapping also takes `overrides` (name, licence, reason, version) for a
-  # dependency the tools cannot settle, and `policy` (group -> mode -> verdict,
-  # reason) to change a cell for this repo. Python only so far.
+  # dependency the tools cannot settle, `policy` (group -> mode -> verdict,
+  # reason) to change a cell for this repo, and `vendored` (path, mode
+  # vendored|modified, licence + reason for files with no SPDX header) for
+  # source copied into the tree. Python, Rust and npm.
   dep_licenses: warn
   # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
   # ratchet: this repo still carries ~900 lines of it. Promote at zero.
