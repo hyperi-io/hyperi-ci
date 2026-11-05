@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+import hyperi_ci
 from hyperi_ci.config import load_config
 from hyperi_ci.languages.python import licenses
 from hyperi_ci.languages.python.licenses import (
@@ -459,6 +460,7 @@ def test_report_line_and_json_are_citable(policy):
     )
     doc = json.loads(json.dumps(report(findings, policy, {"pip-licenses": "5.5.5"})))
     assert doc["schema"] == 1
+    assert doc["hyperi_ci"] == hyperi_ci.__version__
     assert doc["policy"] == policy.digest
     assert doc["deps"][0]["verdict"] == "allow-with-obligations"
     assert doc["deps"][0]["obligations"] == ["notice", "licence-text"]

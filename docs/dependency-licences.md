@@ -36,7 +36,7 @@ A licence license-checker guessed from file text (a trailing `*`) is ask. A READ
 
 Source copied into the tree is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse (pinned in `versions.yaml`) reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
 
-Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256 and the tool versions. The directory carries its own `.gitignore`. A held finding prints one line a citation can quote verbatim, then its evidence: for an undeclared licence, the licence file's path and first lines.
+Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256, the tool versions and the hyperi-ci version that wrote it, so a report from an older hyperi-ci reads as stale. The directory carries its own `.gitignore`. A held finding prints one line a citation can quote verbatim, then its evidence: for an undeclared licence, the licence file's path and first lines.
 
 ```text
 licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undeclared, source license-file)
