@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.48](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.47...v2.14.48) (2026-11-08)
+
+### Bug Fixes
+
+* **quality:** judge a bare BSD classifier from its licence file ([a9cd1a1](https://github.com/hyperi-io/hyperi-ci/commit/a9cd1a1de0129b88a6224e457d7190ef3d0943c7))
+* **quality:** let an override pass HyperI's own packages ([8104748](https://github.com/hyperi-io/hyperi-ci/commit/81047483e59deb4427fc553ad1efb1f45ab2af84))
+* **quality:** ship the GPL and LGPL texts in LGPL notices ([7f33e64](https://github.com/hyperi-io/hyperi-ci/commit/7f33e64149e29796416b5155a85e1f7ecb15beee))
+
 ## [2.14.47](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.46...v2.14.47) (2026-11-05)
 
 ### Bug Fixes
