@@ -23,6 +23,8 @@ from hyperi_ci.languages.typescript import licenses as npm_licenses
 from hyperi_ci.quality import vendored_licenses
 from hyperi_ci.quality.bsd_text import bsd_licence
 from hyperi_ci.quality.dep_licenses import (
+    _POLICY_PATH,
+    REPORT_PATH,
     Mode,
     Override,
     PolicyError,
@@ -30,11 +32,13 @@ from hyperi_ci.quality.dep_licenses import (
     blocking,
     check_notices,
     find_override,
+    finish,
     judge,
     load_policy,
     parse_overrides,
     render_notices,
     report,
+    restrict_override_only,
 )
 
 # The first lines of pysigma-backend-clickhouse 1.1.1's wheel licence file, as
@@ -499,6 +503,59 @@ def test_bare_bsd_classifier_is_judged_from_the_licence_file(
     if verdict is Verdict.OBLIGATIONS:
         assert finding.source == "license-file"
         assert finding.evidence == f"{package['LicenseFile']}: {spdx} text"
+
+
+@pytest.mark.parametrize(
+    ("declared", "overrides", "verdict", "rule"),
+    [
+        (
+            "BUSL-1.1",
+            [Override("dfe-schemas", "LicenseRef-HyperI", "ours", "0.2.23")],
+            Verdict.ALLOW,
+            "first-party",
+        ),
+        # Metadata claiming our id is what a squatted package would do.
+        ("LicenseRef-HyperI", [], Verdict.ASK, "override-only"),
+        ("LicenseRef-HyperI OR MIT", [], Verdict.ASK, "override-only"),
+        ("BUSL-1.1", [], Verdict.ASK, "unrecognised"),
+        # A pin to another version is no answer for this one.
+        (
+            "BUSL-1.1",
+            [Override("dfe-schemas", "LicenseRef-HyperI", "ours", "0.2.22")],
+            Verdict.ASK,
+            "unrecognised",
+        ),
+    ],
+)
+def test_first_party_licence_passes_only_through_an_override(
+    policy, declared, overrides, verdict, rule
+):
+    package = {"Name": "dfe-schemas", "Version": "0.2.23", "License": declared}
+    (finding,) = findings_for([package], {"dfe-schemas": "0.2.23"}, policy, overrides)
+    finding = restrict_override_only(finding, policy)
+    assert (finding.verdict, finding.rule) == (verdict, rule)
+
+
+def test_the_gate_holds_a_first_party_claim_from_metadata(
+    tmp_path, monkeypatch, policy
+):
+    monkeypatch.chdir(tmp_path)
+    package = {"Name": "squat", "Version": "1.0", "License": "LicenseRef-HyperI"}
+    findings = findings_for([package], {"squat": "1.0"}, policy, [])
+    assert findings[0].verdict is Verdict.ALLOW
+    assert finish(findings, [], policy, {}, "blocking") is False
+    (dep,) = json.loads(REPORT_PATH.read_text(encoding="utf-8"))["deps"]
+    assert (dep["verdict"], dep["rule"]) == ("ask", "override-only")
+
+
+def test_override_only_groups_count_in_the_policy_digest(tmp_path, policy):
+    table = tmp_path / "policy.yaml"
+    text = _POLICY_PATH.read_text(encoding="utf-8")
+    table.write_text(text.replace("override_only: true", ""), encoding="utf-8")
+    loose = load_policy(table)
+    assert loose.override_only == frozenset()
+    assert policy.override_only == frozenset({"first-party"})
+    assert loose.digest != policy.digest
 
 
 def test_runtime_package_not_installed_is_ask(policy):
