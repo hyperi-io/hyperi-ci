@@ -37,7 +37,7 @@ from hyperi_ci.languages.quality_common import (
     note_quality_disabled,
     resolve_tool_mode,
 )
-from hyperi_ci.languages.rust._jobs import capped_cargo_jobs
+from hyperi_ci.languages.rust._jobs import capped_cargo_jobs, log_peak_memory
 from hyperi_ci.languages.tiering import (
     TEST_TIER_ENV,
     TIER_EXPORT_ENV,
@@ -638,6 +638,10 @@ def run_stage(
     except ReleaseVersionError as exc:
         error(f"{stage}: {exc}")
         return 1
+
+    # Build logs its own per-phase peaks, so this covers the other heavy stages.
+    if stage in ("quality", "test"):
+        log_peak_memory(stage)
 
     if rc == 0:
         success(f"{stage} complete")
