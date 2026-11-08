@@ -143,6 +143,17 @@ groups:
       vendored: {verdict: allow-with-obligations, obligations: [notice]}
       modified: {verdict: ask}
 
+  # HyperI's own packages. Only an override can name this id: package
+  # metadata claiming it stays ask, so a squatted name cannot pass as ours.
+  first-party:
+    ids: [LicenseRef-HyperI]
+    override_only: true
+    modes:
+      import: {verdict: allow}
+      static: {verdict: allow}
+      vendored: {verdict: allow}
+      modified: {verdict: allow}
+
   share-alike-data:
     ids: [CC-BY-SA-4.0, CC-BY-SA-3.0]
     modes:

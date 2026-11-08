@@ -93,6 +93,7 @@ class Policy:
         obligations: Obligation key to its description.
         exceptions: ``WITH`` exceptions judged as their base licence.
         digest: sha256 of the effective policy, so a citation names the table it used.
+        override_only: Groups whose verdict holds only when an override named them.
 
     """
 
@@ -102,6 +103,7 @@ class Policy:
     obligations: Mapping[str, str]
     exceptions: frozenset[str]
     digest: str
+    override_only: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,11 +195,14 @@ def load_policy(
     groups: dict[str, dict[Mode, Rule]] = {}
     group_of: dict[str, str] = {}
     canonical: dict[str, str] = {}
+    override_only: set[str] = set()
     for name, body in (raw.get("groups") or {}).items():
         ids = list(body.get("ids") or [])
         if not ids:
             raise PolicyError(f"group {name!r}: no `ids`")
         groups[name] = _parse_modes(body.get("modes"), name, obligations)
+        if body.get("override_only") is True:
+            override_only.add(name)
         aliases = body.get("aliases") or {}
         if not isinstance(aliases, Mapping):
             raise PolicyError(f"group {name!r}: `aliases` maps a name to its SPDX id")
@@ -235,9 +240,10 @@ def load_policy(
     }
     exceptions = frozenset(str(e) for e in raw.get("exceptions") or ())
     digest = hashlib.sha256(
-        json.dumps([effective, group_of, sorted(exceptions)], sort_keys=True).encode(
-            "utf-8"
-        )
+        json.dumps(
+            [effective, group_of, sorted(exceptions), sorted(override_only)],
+            sort_keys=True,
+        ).encode("utf-8")
     ).hexdigest()
     return Policy(
         groups=groups,
@@ -246,6 +252,7 @@ def load_policy(
         obligations=obligations,
         exceptions=exceptions,
         digest=digest,
+        override_only=frozenset(override_only),
     )
 
 
@@ -423,6 +430,14 @@ def judge(
     return spdx, worst.verdict, obligations, groups
 
 
+def restrict_override_only(finding: Finding, policy: Policy) -> Finding:
+    """Return ``finding`` as ask when an override-only group decided it without one."""
+    groups = set(finding.rule.split("+"))
+    if finding.source == "override" or not groups & policy.override_only:
+        return finding
+    return replace(finding, verdict=Verdict.ASK, obligations=(), rule="override-only")
+
+
 def blocking(findings: Iterable[Finding]) -> list[Finding]:
     """Return the findings a blocking gate fails on: every deny and ask."""
     return [f for f in findings if f.verdict in (Verdict.DENY, Verdict.ASK)]
@@ -565,6 +580,10 @@ def finish(
         True if the pipeline should continue, False on a blocking failure.
 
     """
+    findings = [restrict_override_only(f, policy) for f in findings]
+    entries = [
+        replace(e, finding=restrict_override_only(e.finding, policy)) for e in entries
+    ]
     REPORT_PATH.parent.mkdir(exist_ok=True)
     (REPORT_PATH.parent / ".gitignore").write_text(
         "*\n", encoding="utf-8", newline="\n"
