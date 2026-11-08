@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golden table for the dependency-licence policy and the Python gate."""
 
+import hashlib
 import json
 
 import pytest
@@ -705,6 +706,63 @@ def test_notices_are_byte_identical_whatever_the_input_order(policy):
     findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
     entries = notice_entries(_NOTICE_PACKAGES, findings)
     assert render_notices(entries) == render_notices(list(reversed(entries)))
+
+
+_GNU_TEXTS = [
+    "GPL-2.0-only",
+    "GPL-3.0-only",
+    "LGPL-2.0-only",
+    "LGPL-2.1-only",
+    "LGPL-3.0-only",
+]
+
+
+@pytest.mark.parametrize(
+    ("licences", "texts"),
+    [
+        (["LGPL-3.0-or-later"], ["GPL-3.0-only", "LGPL-3.0-only"]),
+        (["LGPL-2.1-only", "LGPL-2.1-or-later"], ["GPL-2.0-only", "LGPL-2.1-only"]),
+        (
+            ["LGPL-2.0-or-later", "LGPL-3.0-only"],
+            ["GPL-2.0-only", "GPL-3.0-only", "LGPL-2.0-only", "LGPL-3.0-only"],
+        ),
+        (["GNU Library or Lesser General Public License (LGPL)"], _GNU_TEXTS),
+        # A static LGPL link is ask, so it carries no obligation and no texts.
+        (["MIT", "Apache-2.0"], []),
+    ],
+)
+def test_lgpl_dependencies_bring_their_gnu_texts_once(policy, licences, texts):
+    packages = [
+        {"Name": f"dep{i}", "Version": "1", "License": lic, "LicenseText": "text"}
+        for i, lic in enumerate(licences)
+    ]
+    runtime = {f"dep{i}": "1" for i in range(len(licences))}
+    findings = findings_for(packages, runtime, policy, [])
+    notices = render_notices(notice_entries(packages, findings))
+    headings = {
+        n: notices.count(f"\n{n}, for the LGPL dependencies") for n in _GNU_TEXTS
+    }
+    assert headings == {n: int(n in texts) for n in _GNU_TEXTS}
+    for name in texts:
+        bundled = (_POLICY_PATH.parent / "licence-texts" / f"{name}.txt").read_text()
+        assert bundled.strip() in notices
+
+
+def test_bundled_gnu_texts_are_the_published_ones():
+    # sha256 of hyperi-io/licensing third-party/*.txt at af32f46, sync header removed.
+    expected = {
+        "GPL-2.0-only": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+        "GPL-3.0-only": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+        "LGPL-2.0-only": "86dc99d7e5060915ab1dfc1378b7dd351c62088bfa74067e8aa1868c6fdba7d8",
+        "LGPL-2.1-only": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+        "LGPL-3.0-only": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
+    }
+    texts = _POLICY_PATH.parent / "licence-texts"
+    actual = {
+        path.stem: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in texts.glob("*.txt")
+    }
+    assert actual == expected
 
 
 @pytest.mark.parametrize(
