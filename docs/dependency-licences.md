@@ -66,3 +66,5 @@ quality:
         licence: MIT
         reason: "third_party/miniz/LICENSE is the MIT text; the files carry no headers"
 ```
+
+Our own packages (dfe-schemas and the like declare BUSL-1.1, which the table leaves ask) take `licence: LicenseRef-HyperI` in an override. That id is allowed only from an override, so package metadata claiming it stays ask and a squatted name cannot pass as ours.
