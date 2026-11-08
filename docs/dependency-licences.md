@@ -42,7 +42,7 @@ Every finding goes to `.hyperi-ci/licenses.json` with the policy's sha256, the t
 licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undeclared, source license-file)
 ```
 
-Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency, an unanswered ask included, with its own licence file and, for Apache-2.0, its NOTICE file. A dependency that ships no licence text fails the gate rather than shipping a placeholder. Commit the text and point its override's `licence_file` at it. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. An LGPL dependency's notices do not yet include the GPL text that LGPL incorporates.
+Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency, an unanswered ask included, with its own licence file and, for Apache-2.0, its NOTICE file. A dependency that ships no licence text fails the gate rather than shipping a placeholder. Commit the text and point its override's `licence_file` at it. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. LGPL dependencies add their LGPL and GPL texts once, at the end.
 
 ## Answering an ask
 
