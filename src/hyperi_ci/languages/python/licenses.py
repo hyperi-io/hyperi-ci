@@ -24,6 +24,7 @@ from packaging.utils import canonicalize_name
 from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
+from hyperi_ci.quality.bsd_text import bsd_licence
 from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
@@ -41,6 +42,9 @@ from hyperi_ci.quality.dep_licenses import (
 )
 from hyperi_ci.quality.vendored_licenses import finish_with_copied_in
 from hyperi_ci.versions import tool_version
+
+# Metadata that says BSD without saying which: judged from the licence file's text.
+_BARE_BSD = frozenset({"BSD", "BSD LICENSE"})
 
 # The lock's shipped set: every extra, no dependency group, not the project.
 _RUNTIME_EXPORT = [
@@ -110,6 +114,7 @@ def findings_for(
     """Judge each runtime package pip-licenses reported.
 
     A runtime package pip-licenses did not report is ask: it was never seen.
+    A bare ``BSD License`` is judged as the BSD licence its file's full text is.
 
     Args:
         packages: pip-licenses JSON records.
@@ -150,7 +155,14 @@ def findings_for(
             evidence = "License"
         spdx, verdict, obligations, rule = judge(raw, Mode.IMPORT, policy)
         licence_text = package.get("LicenseText")
-        if rule == "undeclared" and licence_text not in (None, "UNKNOWN"):
+        named = None
+        if source == "metadata" and raw.strip().upper() in _BARE_BSD:
+            named = bsd_licence(licence_text)
+        if named is not None:
+            spdx, verdict, obligations, rule = judge(named, Mode.IMPORT, policy)
+            source = "license-file"
+            evidence = f"{project_path(package.get('LicenseFile'))}: {named} text"
+        elif rule == "undeclared" and licence_text not in (None, "UNKNOWN"):
             source = "license-file"
             evidence = (
                 f"{project_path(package.get('LicenseFile'))}: {quote(licence_text)}"
