@@ -464,6 +464,28 @@ def report(
 
 _RULE = "-" * 78
 
+# GNU texts an `lgpl-texts` dependency ships with: its LGPL, and the GPL beside it.
+_GNU_TEXTS_DIR = _POLICY_PATH.parent / "licence-texts"
+_GNU_TEXTS = (
+    ("LGPL-3.0", ("LGPL-3.0-only", "GPL-3.0-only")),
+    ("LGPL-2.1", ("LGPL-2.1-only", "GPL-2.0-only")),
+    ("LGPL-2.0", ("LGPL-2.0-only", "GPL-2.0-only")),
+)
+_ALL_GNU_TEXTS = tuple(sorted({n for _, names in _GNU_TEXTS for n in names}))
+
+
+def _gnu_texts(findings: Iterable[Finding]) -> list[str]:
+    """Return the GNU licence texts the ``lgpl-texts`` findings need, sorted."""
+    needed: set[str] = set()
+    for finding in findings:
+        if "lgpl-texts" not in finding.obligations:
+            continue
+        spdx = finding.spdx or ""
+        matched = [names for prefix, names in _GNU_TEXTS if prefix in spdx]
+        # An unversioned LGPL could be any of them.
+        needed.update(*matched or [_ALL_GNU_TEXTS])
+    return sorted(needed)
+
 
 @dataclass(frozen=True, slots=True)
 class NoticeEntry:
@@ -479,7 +501,8 @@ def render_notices(entries: Iterable[NoticeEntry]) -> str:
 
     Every shipped dependency is listed, an unanswered ask included, because
     its licence text ships whatever its verdict. Its licence file follows its
-    name, then its NOTICE file where the policy says to carry it.
+    name, then its NOTICE file where the policy says to carry it. The LGPL and
+    GPL texts an ``lgpl-texts`` dependency needs follow once, at the end.
 
     Args:
         entries: Each dependency's finding and the texts its package carries.
@@ -509,6 +532,10 @@ def render_notices(entries: Iterable[NoticeEntry]) -> str:
         ]
         if "carry-notice" in finding.obligations and _shipped(entry.notice_text):
             parts += ["", "NOTICE:", "", str(entry.notice_text).strip()]
+    for name in _gnu_texts(entry.finding for entry in listed):
+        text = (_GNU_TEXTS_DIR / f"{name}.txt").read_text(encoding="utf-8")
+        parts += [_RULE, f"{name}, for the LGPL dependencies above", _RULE, ""]
+        parts.append(text.strip())
     return "\n".join(parts).rstrip() + "\n"
 
 
