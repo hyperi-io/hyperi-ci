@@ -7,6 +7,7 @@
 """Tests for :mod:`hyperi_ci.languages.rust._jobs` and its wiring in dispatch."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from hyperi_ci.languages.rust._jobs import (
     cargo_jobs_env,
     config_file_setting_jobs,
     jobs_for,
+    log_free_disk,
     log_peak_memory,
 )
 from hyperi_ci.memory import GIB, MemoryLimit
@@ -270,7 +272,11 @@ class TestLogPeakMemory:
         log_peak_memory(
             "pgo-optimize", root=tmp_path / "cg", proc_self_cgroup=self._proc(tmp_path)
         )
-        assert lines == [f"memory peak after pgo-optimize: 13.4 GiB (cgroup v2 {peak})"]
+        memory = [line for line in lines if line.startswith("memory")]
+        assert memory == [
+            f"memory peak after pgo-optimize: 13.4 GiB (cgroup v2 {peak})"
+        ]
+        assert any(line.startswith("disk after pgo-optimize: ") for line in lines)
 
     def test_logs_nothing_where_the_host_reports_no_peak(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -280,4 +286,18 @@ class TestLogPeakMemory:
         log_peak_memory(
             "bolt", root=tmp_path / "none", proc_self_cgroup=self._proc(tmp_path)
         )
-        assert lines == []
+        assert not [line for line in lines if line.startswith("memory")]
+
+    def test_free_disk_is_logged_once_per_filesystem(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        lines: list[str] = []
+        monkeypatch.setattr(_jobs, "info", lines.append)
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        log_free_disk("test", (tmp_path, inner))
+        (line,) = lines
+        assert re.fullmatch(
+            rf"disk after test: {re.escape(str(tmp_path))} [\d.]+ GiB free of [\d.]+ GiB",
+            line,
+        )

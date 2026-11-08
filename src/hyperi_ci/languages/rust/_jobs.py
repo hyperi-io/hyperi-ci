@@ -16,6 +16,7 @@ last is detected and nothing is set, since cargo ranks our env var above it.
 """
 
 import os
+import shutil
 import tomllib
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
@@ -202,6 +203,21 @@ def capped_cargo_jobs(
             target.pop(key, None)
 
 
+def log_free_disk(phase: str, mounts: tuple[Path, ...] | None = None) -> None:
+    """Log free space on the workspace's filesystem and on ``/``, once each."""
+    seen: set[int] = set()
+    for mount in mounts or (Path.cwd(), Path("/")):
+        device = mount.stat().st_dev
+        if device in seen:
+            continue
+        seen.add(device)
+        usage = shutil.disk_usage(mount)
+        info(
+            f"disk after {phase}: {mount} {usage.free / GIB:.1f} GiB free"
+            f" of {usage.total / GIB:.1f} GiB"
+        )
+
+
 def log_peak_memory(
     phase: str,
     *,
@@ -221,6 +237,7 @@ def log_peak_memory(
     """
     peak = cgroup_v2_peak(root, proc_self_cgroup)
     record_phase(phase, peak)
+    log_free_disk(phase)
     if peak is None:
         return
     source = cgroup_v2_peak_file(root, proc_self_cgroup)
