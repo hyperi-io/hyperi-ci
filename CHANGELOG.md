@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.49](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.48...v2.14.49) (2026-11-08)
+
+### Bug Fixes
+
+* **ci:** send every leg to a free runner in free mode ([e37617d](https://github.com/hyperi-io/hyperi-ci/commit/e37617ded70d60c78ddaaa12a866b7a00a6e4582))
+
 ## [2.14.48](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.47...v2.14.48) (2026-11-08)
 
 ### Bug Fixes
