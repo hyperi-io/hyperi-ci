@@ -32,17 +32,17 @@ Each language's quality stage reads its own dependencies:
 | Rust | `cargo metadata --locked --all-features` | crates a workspace member reaches through normal dependencies, with every feature on. Not dev or build dependencies, proc-macros, or what only a proc-macro needs | `static` |
 | TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production`, for npm, pnpm and yarn alike | `import` |
 
-A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its own `deny.toml` checks beside this.
+A Python package declaring only `BSD License` is BSD-2-Clause or BSD-3-Clause when its licence file is that full text alone, else ask. A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its `deny.toml` checks too.
 
-Source copied into the tree is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse (pinned in `versions.yaml`) reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
+Copied-in source is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
 
-Every finding goes to `.hyperi-ci/licenses.json`, with the policy's sha256, the tool versions and the hyperi-ci version that wrote it, so a report from an older hyperi-ci reads as stale. The directory carries its own `.gitignore`. A held finding prints one line a citation can quote verbatim, then its evidence: for an undeclared licence, the licence file's path and first lines.
+Every finding goes to `.hyperi-ci/licenses.json` with the policy's sha256, the tool versions and the writing hyperi-ci version, so an older report reads as stale. A held finding prints one line a citation can quote verbatim, then its evidence: for an undeclared licence, the licence file's path and first lines.
 
 ```text
 licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undeclared, source license-file)
 ```
 
-Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency, an unanswered ask included, sorted, with its own licence file and, for Apache-2.0, its NOTICE file. A dependency that ships no licence text fails the gate rather than shipping a placeholder. Commit the text and point its override's `licence_file` at it. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. An LGPL dependency's notices do not yet include the GPL text that LGPL incorporates.
+Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency, an unanswered ask included, with its own licence file and, for Apache-2.0, its NOTICE file. A dependency that ships no licence text fails the gate rather than shipping a placeholder. Commit the text and point its override's `licence_file` at it. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. An LGPL dependency's notices do not yet include the GPL text that LGPL incorporates.
 
 ## Answering an ask
 

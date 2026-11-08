@@ -21,6 +21,7 @@ from hyperi_ci.languages.python.licenses import (
 from hyperi_ci.languages.rust import licenses as rust_licenses
 from hyperi_ci.languages.typescript import licenses as npm_licenses
 from hyperi_ci.quality import vendored_licenses
+from hyperi_ci.quality.bsd_text import bsd_licence
 from hyperi_ci.quality.dep_licenses import (
     Mode,
     Override,
@@ -382,6 +383,122 @@ def test_golden_lgpl_answered_by_override(
         assert finding.obligations == ("notice", "lgpl-texts", "replaceable")
     else:
         assert finding.verdict is Verdict.ASK
+
+
+_BSD3 = """\
+Copyright 2007 Pallets
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1.  Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+2.  Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+3.  Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+_NAME_CLAUSE = _BSD3[_BSD3.index("3.  Neither") : _BSD3.index("THIS SOFTWARE")]
+_BSD2 = _BSD3.replace(_NAME_CLAUSE, "")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (_BSD3, "BSD-3-Clause"),
+        (_BSD2, "BSD-2-Clause"),
+        ("BSD 3-Clause License\n\n" + _BSD3, "BSD-3-Clause"),
+        ("Copyright (c) 2001 A\nCopyright (c) 2002 B\n" + _BSD3, "BSD-3-Clause"),
+        (
+            _BSD3.replace("1.  ", "* ").replace("2.  ", "* ").replace("3.  ", "* "),
+            "BSD-3-Clause",
+        ),
+        (
+            _BSD3.replace("1.  ", "- ").replace("2.  ", "- ").replace("3.  ", "- "),
+            "BSD-3-Clause",
+        ),
+        (
+            _BSD3.replace("the copyright holder nor", "Encode OSS Ltd. nor"),
+            "BSD-3-Clause",
+        ),
+        # A clause that starts on a line beginning "copyright notice" is still text.
+        (_BSD3.replace("copyright\n    notice", "\ncopyright notice"), "BSD-3-Clause"),
+        # BSD-4-Clause: the advertising clause stays.
+        (
+            _BSD3.replace(
+                "3.  Neither",
+                "3.  All advertising materials mentioning features or use of this "
+                "software must display the following acknowledgement: This product "
+                "includes software developed by Example.\n\n4.  Neither",
+            ),
+            None,
+        ),
+        (
+            _BSD3.replace(
+                "THIS SOFTWARE", "4. Not for commercial use.\n\nTHIS SOFTWARE"
+            ),
+            None,
+        ),
+        (_BSD3 + "\nThis software may not be used by any government agency.\n", None),
+        ("This module was extracted from another package.\n" + _BSD3, None),
+        (
+            _BSD3.replace(
+                "the copyright holder nor", "the holder, who may revoke it, nor"
+            ),
+            None,
+        ),
+        (_BSD3.replace("must retain", "should retain"), None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_bsd_licence_needs_the_whole_text_to_be_one_bsd(text, expected):
+    assert bsd_licence(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("declared", "text", "spdx", "verdict"),
+    [
+        ("BSD License", _BSD3, "BSD-3-Clause", Verdict.OBLIGATIONS),
+        ("BSD", _BSD2, "BSD-2-Clause", Verdict.OBLIGATIONS),
+        ("BSD License", _BSD3 + "\nNo military use.\n", "BSD License", Verdict.ASK),
+        ("BSD License", "UNKNOWN", "BSD License", Verdict.ASK),
+        # Only a bare BSD is read from the file. A declared licence is never second-guessed.
+        ("GPL-3.0-only", _BSD3, "GPL-3.0-only", Verdict.DENY),
+    ],
+)
+def test_bare_bsd_classifier_is_judged_from_the_licence_file(
+    policy, declared, text, spdx, verdict
+):
+    package = {
+        "Name": "jinja2",
+        "Version": "3.1.6",
+        "License": declared,
+        "LicenseFile": "jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+        "LicenseText": text,
+    }
+    (finding,) = findings_for([package], {"jinja2": "3.1.6"}, policy, [])
+    assert (finding.spdx, finding.verdict) == (spdx, verdict)
+    if verdict is Verdict.OBLIGATIONS:
+        assert finding.source == "license-file"
+        assert finding.evidence == f"{package['LicenseFile']}: {spdx} text"
 
 
 def test_runtime_package_not_installed_is_ask(policy):

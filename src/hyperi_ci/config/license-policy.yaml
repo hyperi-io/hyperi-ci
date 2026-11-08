@@ -19,7 +19,8 @@
 # classifiers, free text) to the SPDX id they mean. A name with no exact id
 # maps to a LicenseRef, which the group still judges. A name that does not
 # say which licence it is (`BSD License` covers BSD-4-Clause too) is left
-# out, so it is ask.
+# out, so it is ask, unless the package's licence file is the full
+# BSD-2-Clause or BSD-3-Clause text (quality/bsd_text.py).
 #
 # Only what ships is judged: tools CI runs and never ships are out of scope
 # whatever their licence (reuse is GPL-3.0-or-later).
