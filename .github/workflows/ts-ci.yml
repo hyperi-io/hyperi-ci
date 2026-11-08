@@ -222,6 +222,10 @@ jobs:
           ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0
 
+      - name: Free mode on a private repo
+        if: (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && github.event.repository.private
+        run: echo "::warning title=Free mode on a private repo::GitHub-hosted runners are billed on a private repo and have 2 vCPU and 8 GB there, not 4 vCPU and 16 GB."
+
       - name: Predict version + derive gates
         id: predict
         uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main

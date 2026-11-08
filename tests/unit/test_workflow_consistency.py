@@ -2095,6 +2095,27 @@ class TestRunnerSelection:
             )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_free_mode_reaches_the_build_matrix_runners(
+        self, workflow_name: str
+    ) -> None:
+        # Build legs take their runner from a step env, which runs-on checks miss.
+        free = "(inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && "
+        for job_name, job in _load_workflow(workflow_name)["jobs"].items():
+            for step in job.get("steps", []):
+                for key, value in (step.get("env") or {}).items():
+                    text = str(value)
+                    if not key.endswith("_RUNNER") or "GH_RUNNER" not in text:
+                        continue
+                    hosted = (
+                        "'ubuntu-24.04-arm'" if "ARM64" in key else "'ubuntu-latest'"
+                    )
+                    assert f"{free}{hosted}" in text, (
+                        f"{workflow_name}.{job_name}: {key} ignores free mode, so "
+                        f"that leg stays on a paid or self-hosted runner.\n"
+                        f"  actual: {text}"
+                    )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_renovate_carveout_is_present(self, workflow_name: str) -> None:
         for job, runs_on in self._toolchain_runs_on(workflow_name):
             assert self.RENOVATE in runs_on, (
