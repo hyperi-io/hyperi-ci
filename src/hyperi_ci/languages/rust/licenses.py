@@ -72,15 +72,47 @@ def shipped_packages(metadata: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     seen: set[str] = set()
     queue = deque(members)
     while queue:
-        node = nodes.get(queue.popleft())
-        for dep in (node or {}).get("deps", []):
+        node = nodes.get(queue.popleft()) or {}
+        parent = packages.get(node.get("id"), {})
+        for dep in node.get("deps", []):
             target = dep.get("pkg")
             normal = any(k.get("kind") is None for k in dep.get("dep_kinds", []))
             if not normal or target in seen or _is_proc_macro(packages.get(target)):
                 continue
+            if not _activated(parent, node.get("features", []), packages.get(target)):
+                continue
             seen.add(target)
             queue.append(target)
     return [packages[pid] for pid in sorted(seen - members) if pid in packages]
+
+
+def _activated(
+    parent: Mapping[str, Any],
+    features: Sequence[str],
+    dep_package: Mapping[str, Any] | None,
+) -> bool:
+    """Return whether the parent's resolved features turn its dependency on.
+
+    cargo metadata keeps the edge to an optional dependency that only a weak
+    ``dep?/feature`` names, though cargo never builds it.
+    """
+    name = (dep_package or {}).get("name")
+    declared = [
+        d
+        for d in parent.get("dependencies", [])
+        if d.get("name") == name and d.get("kind") is None
+    ]
+    if not declared or any(not d.get("optional") for d in declared):
+        return True
+    keys = {d.get("rename") or d["name"] for d in declared}
+    table = parent.get("features", {})
+    for feature in features:
+        if feature in keys:
+            return True
+        for item in table.get(feature, []):
+            if item.removeprefix("dep:") in keys or item.split("/", 1)[0] in keys:
+                return True
+    return False
 
 
 def _is_proc_macro(package: Mapping[str, Any] | None) -> bool:
@@ -88,7 +120,7 @@ def _is_proc_macro(package: Mapping[str, Any] | None) -> bool:
     return any("proc-macro" in t.get("kind", []) for t in targets)
 
 
-def _crate_files(package: Mapping[str, Any], prefixes: Sequence[str]) -> list[Path]:
+def _crate_files(package: Mapping[str, Any], prefixes: tuple[str, ...]) -> list[Path]:
     crate_dir = Path(package["manifest_path"]).parent
     if not crate_dir.is_dir():
         return []
