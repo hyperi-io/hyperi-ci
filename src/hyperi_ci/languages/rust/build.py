@@ -44,7 +44,7 @@ from hyperi_ci.languages._build_common import (
 from hyperi_ci.languages._build_common import (
     human_size as _human_size,
 )
-from hyperi_ci.languages.rust import runner_fit
+from hyperi_ci.languages.rust import build_phase, runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -574,10 +574,12 @@ def _build_for_target(
     extra_env: dict[str, str] | None = None,
     profile: OptimizationProfile | None = None,
     outcome: OptimizationOutcome | None = None,
+    phase: str = "",
 ) -> int:
     """Build one host-arch target triple, through the PGO pipeline when asked.
 
     Both paths carry the declared features, the allocator and the LTO override.
+    ``phase`` runs one PGO phase instead of the whole pipeline.
     """
     if profile:
         profile_env = profile.env_overrides()
@@ -591,19 +593,31 @@ def _build_for_target(
             )
         else:
             # The workload profiles the first binary; each step builds all shipped ones.
-            from hyperi_ci.languages.rust.pgo import run_pgo_build
+            from hyperi_ci.languages.rust.pgo import run_pgo_build, run_pgo_phase
 
+            pgo_env = {
+                **(extra_env or {}),
+                "RUST_FEATURES": features,
+                "RUST_ALL_FEATURES": "true" if all_features else "false",
+            }
+            if phase:
+                return run_pgo_phase(
+                    phase,
+                    target=target,
+                    profile=profile,
+                    binary_name=binary_names[0],
+                    shipped_binaries=binary_names,
+                    cwd=Path.cwd(),
+                    extra_env=pgo_env,
+                    outcome=outcome,
+                )
             return run_pgo_build(
                 target=target,
                 profile=profile,
                 binary_name=binary_names[0],
                 shipped_binaries=binary_names,
                 cwd=Path.cwd(),
-                extra_env={
-                    **(extra_env or {}),
-                    "RUST_FEATURES": features,
-                    "RUST_ALL_FEATURES": "true" if all_features else "false",
-                },
+                extra_env=pgo_env,
                 outcome=outcome,
             )
 
@@ -704,6 +718,19 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         return 1
     targets = host_targets
 
+    try:
+        phase = build_phase.build_phase()
+        if phase in (build_phase.OPTIMIZE, build_phase.BOLT):
+            states = [build_phase.read_state(Path.cwd(), t) for t in targets]
+            if all(state.done for state in states):
+                success(f"{phase}: the build finished in an earlier phase")
+                return 0
+    except build_phase.PhaseError as exc:
+        error(str(exc))
+        return 1
+    if phase:
+        info(f"Build phase: {phase}")
+
     # A library gets no profile: consumers recompile it from source.
     binary_names_for_profile = _detect_binary_names()
     base_profile: OptimizationProfile | None = None
@@ -776,6 +803,7 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
     strict = truthy(config.get("build.rust.optimize.strict", True))
     static = truthy(config.get("build.rust.static_libs", False))
     bolt_targets: list[str] = []
+    finished: list[str] = []
     for target in targets:
         with group(f"Build: {target}"):
             target_env = extra
@@ -802,10 +830,15 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 target_env,
                 profile=profile,
                 outcome=outcome,
+                phase=phase,
             )
             if rc != 0:
                 error(f"Build failed for target: {target}")
                 return rc
+            if outcome and outcome.deferred:
+                success(f"{target}: {phase} done, a later phase packages it")
+                continue
+            finished.append(target)
             if tier2 and outcome:
                 log_outcome(outcome)
             if profile and outcome and profile.channel == "release" and strict:
@@ -822,6 +855,8 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 bolt_targets.append(target)
             success(f"Built: {target}")
 
+    if not finished:
+        return 0
     with group("Binary packaging"):
         binary_names = _detect_binary_names()
         if not binary_names:
@@ -829,7 +864,7 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         else:
             version = _detect_version()
             rc = _package_binaries(
-                targets,
+                finished,
                 binary_names,
                 version,
                 _parse_glibc_max(config.get("build.rust.glibc_max")),
@@ -840,6 +875,11 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
             rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
             if rc != 0:
                 return rc
+
+    # A profile phase that built plain finished the build: the later phases skip.
+    if phase == build_phase.PROFILE:
+        for target in finished:
+            build_phase.stash(Path.cwd(), target, build_phase.PhaseState(done=True))
 
     success("Build complete")
     return 0
