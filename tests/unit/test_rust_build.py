@@ -188,6 +188,7 @@ class TestTier2Summary:
             profile=None,
             *,
             outcome: OptimizationOutcome,
+            phase="",
         ):
             outcome.pgo_applied = True
             outcome.bolt_applied = target.startswith("x86_64")
@@ -224,6 +225,7 @@ class TestTier2Summary:
             profile=None,
             *,
             outcome: OptimizationOutcome,
+            phase="",
         ):
             outcome.pgo_applied = True
             outcome.bolt_applied = True
