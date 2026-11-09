@@ -464,6 +464,18 @@ class TestRecord:
         assert got["verdict"]["move"] is True
         json.dumps(got)
 
+    @pytest.mark.parametrize(
+        ("mode", "planned"), [("free", 4.0), ("", 2.0)], ids=["free", "not-free"]
+    )
+    def test_the_record_carries_the_plan_cargo_ran_with(
+        self, mode: str, planned: float
+    ) -> None:
+        got = _record(
+            [runner_fit.Phase("release build", 60.0, 8 * GIB)],
+            environ={**ENV, "HYPERCI_RUNNER_MODE": mode},
+        )
+        assert got["memory_per_job_gib"] == planned
+
     def test_a_failed_build_keeps_the_phases_it_reached(self) -> None:
         got = _record(
             [runner_fit.Phase("pgo-instrument", 300.0, 20 * GIB)], exit_code=1

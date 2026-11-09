@@ -139,15 +139,60 @@ class TestPrecedence:
         )
         assert got == {JOBS_ENV: "8"}
 
-    def test_memory_per_job_is_configurable(self, clean_dir: Path) -> None:
+    @pytest.mark.parametrize(
+        ("rust", "mode", "jobs"),
+        [
+            pytest.param({"memory_per_job_gib": 4}, "", "4", id="configured"),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "free",
+                "4",
+                id="free-floor-raises-the-plan",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 14, "free_memory_per_job_gib": 4},
+                "free",
+                "1",
+                id="higher-configured-plan-wins-in-free-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "",
+                "8",
+                id="floor-ignored-off-free-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "paid",
+                "8",
+                id="floor-ignored-in-another-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 0},
+                "free",
+                "8",
+                id="zero-floor-ignored",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": "big"},
+                "free",
+                "8",
+                id="non-numeric-floor-ignored",
+            ),
+        ],
+    )
+    def test_memory_per_job_plan(
+        self, clean_dir: Path, rust: dict[str, Any], mode: str, jobs: str
+    ) -> None:
+        extra = {"HYPERCI_RUNNER_MODE": mode} if mode else {}
         got = cargo_jobs_env(
-            _config(memory_per_job_gib=4),
-            _environ(clean_dir),
+            _config(**rust),
+            _environ(clean_dir, **extra),
             cwd=clean_dir / "repo",
             limit=SIXTEEN_GIB,
             cpus=16,
         )
-        assert got == {JOBS_ENV: "4"}
+        assert got == {JOBS_ENV: jobs}
 
     @pytest.mark.parametrize("value", [0, -1, "big", False])
     def test_unusable_memory_per_job_uses_the_fallback(

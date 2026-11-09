@@ -18,14 +18,14 @@ last is detected and nothing is set, since cargo ranks our env var above it.
 import os
 import shutil
 import tomllib
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
-from hyperi_ci.languages.rust.runner_fit import record_phase
+from hyperi_ci.languages.rust.runner_fit import planned_gib_per_job, record_phase
 from hyperi_ci.memory import (
     CGROUP_ROOT,
     GIB,
@@ -108,17 +108,18 @@ def _override(config: CIConfig) -> int | None:
     return None
 
 
-def _gib_per_job(config: CIConfig) -> float:
-    """Return ``build.rust.memory_per_job_gib``, the shipped value when unusable."""
+def _gib_per_job(config: CIConfig, environ: Mapping[str, str]) -> float:
+    """Return the per-job memory plan, the shipped value when the setting is unusable."""
     value = config.setting("build.rust.memory_per_job_gib")
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-        return float(value)
-    shipped = float(shipped_default("build.rust.memory_per_job_gib"))
-    warn(
-        f"  build.rust.memory_per_job_gib: {value!r} is not a positive number, "
-        f"using {shipped}"
-    )
-    return shipped
+        configured = float(value)
+    else:
+        configured = float(shipped_default("build.rust.memory_per_job_gib"))
+        warn(
+            f"  build.rust.memory_per_job_gib: {value!r} is not a positive number, "
+            f"using {configured}"
+        )
+    return planned_gib_per_job(configured, config, environ) or configured
 
 
 def cargo_jobs_env(
@@ -158,7 +159,7 @@ def cargo_jobs_env(
         info(f"cargo jobs: from [build] jobs in {found}")
         return {}
 
-    gib_per_job = _gib_per_job(config)
+    gib_per_job = _gib_per_job(config, environ)
     cpus = cpus if cpus is not None else cpu_budget()
     limit = limit if limit is not None else memory_limit()
     jobs = jobs_for(cpus, limit, gib_per_job)
