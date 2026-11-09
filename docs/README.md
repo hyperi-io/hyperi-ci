@@ -145,6 +145,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   cross-compilation
 - [runtime/RUNNER-IMAGE.md](runtime/runner-image.md) - the dep-install SSOT (`install-toolchains` / `install-native-deps`), the YAML schema, `bake: false`
 - [runtime/ARC-OPERATIONS.md](runtime/arc-operations.md) - rebuild the image, redeploy the scale sets, roll a change to the fleet
+- [runtime/BUILD-TIMES.md](runtime/build-times.md) - CI times and memory peaks per DFE repo, free vs paid runners
 - [runtime/PGO-BOLT.md](runtime/pgo-bolt.md) - how to write a PGO workload script
 - [runtime/TESTENV.md](runtime/testenv.md) - Redpanda / ClickHouse compose
   patterns for integration tests inside the 4 GB CI deck
