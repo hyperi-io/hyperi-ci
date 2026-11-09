@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.51](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.50...v2.14.51) (2026-11-09)
+
+### Bug Fixes
+
+* **quality:** judge bracketed SPDX licence expressions ([#818](https://github.com/hyperi-io/hyperi-ci/issues/818)) ([8ec07ee](https://github.com/hyperi-io/hyperi-ci/commit/8ec07ee6441402cce93ce601ec5994edc5380ec7))
+* **quality:** skip optional crates named only by weak features ([4a0b343](https://github.com/hyperi-io/hyperi-ci/commit/4a0b343b802ed84244f74cce440e4848f8aaac41)), closes [#819](https://github.com/hyperi-io/hyperi-ci/issues/819)
+
 ## [2.14.50](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.49...v2.14.50) (2026-11-09)
 
 ### Bug Fixes
