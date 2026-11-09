@@ -526,3 +526,94 @@ class TestCoverageOnTheFirstFeatureSetOnly:
             ["cargo", "nextest", "run", "--features", "a"],
             ["cargo", "nextest", "run", "--features", "b"],
         ]
+
+
+class TestCompileBoundary:
+    """The test-compile peak is logged once, at the first line of the test run."""
+
+    @pytest.mark.parametrize(
+        ("lines", "marked_at"),
+        [
+            pytest.param(
+                [
+                    "   Compiling dfe-core v0.1.0",
+                    "    Finished `test` profile [unoptimized] target(s) in 4m 2s",
+                    "\x1b[1m    Starting\x1b[0m 2425 tests across 37 binaries",
+                    "        PASS [   0.01s] dfe-core::a",
+                    "    Starting 1 test across 1 binary",
+                ],
+                2,
+                id="nextest",
+            ),
+            pytest.param(
+                [
+                    "   Compiling dfe-core v0.1.0",
+                    "     Running unittests src/lib.rs (target/debug/deps/dfe_core-1)",
+                    "     Running tests/it.rs (target/debug/deps/it-2)",
+                ],
+                1,
+                id="cargo-test",
+            ),
+            pytest.param(
+                [
+                    "     Running `target/debug/build/x/build-script-build`",
+                    "   Compiling dfe-core v0.1.0",
+                    "error: could not compile `dfe-core`",
+                ],
+                None,
+                id="build-script-and-failed-compile",
+            ),
+        ],
+    )
+    def test_marks_the_first_test_line_only(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        lines: list[str],
+        marked_at: int | None,
+    ) -> None:
+        from hyperi_ci.languages import tiering
+        from hyperi_ci.languages.rust import test as rust_test
+
+        marks: list[tuple[str, int]] = []
+        seen: list[str] = []
+        monkeypatch.setattr(
+            rust_test, "_mark_peak", lambda phase: marks.append((phase, len(seen)))
+        )
+        kept = tiering.KeptLines(rust_test._KEEP)
+        boundary = rust_test._CompileBoundary(kept, "test-compile")
+        for line in lines:
+            seen.append(line)
+            boundary(line)
+        expected = [] if marked_at is None else [("test-compile", marked_at + 1)]
+        assert marks == expected
+
+    def test_a_run_marks_compile_then_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust import test as rust_test
+
+        phases: list[str] = []
+        monkeypatch.setattr(rust_test, "_mark_peak", phases.append)
+        monkeypatch.setattr(rust_test, "announce_tier", lambda *_a: None)
+
+        def stream(cmd: list[str], *, on_line: Any, **_kw: Any) -> tuple[int, str]:
+            on_line("    Starting 3 tests across 1 binary")
+            return 0, ""
+
+        monkeypatch.setattr(rust_test, "stream_cmd", stream)
+        assert rust_test._run_tests(["cargo"], rust_test.SuiteTier.CORE, "x") == 0
+        assert phases == ["test-compile (x)", "test-run (x)"]
+
+    def test_an_unreadable_peak_never_fails_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust import test as rust_test
+
+        def broken(_phase: str) -> None:
+            raise OSError("no cgroup")
+
+        said: list[str] = []
+        monkeypatch.setattr(rust_test, "log_peak_memory", broken)
+        monkeypatch.setattr(rust_test, "warn", said.append)
+        rust_test._mark_peak("test-run")
+        assert said == ["  memory peak after test-run not read: no cgroup"]

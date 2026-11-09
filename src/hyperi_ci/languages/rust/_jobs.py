@@ -33,6 +33,7 @@ from hyperi_ci.memory import (
     MemoryLimit,
     cgroup_v2_peak,
     cgroup_v2_peak_file,
+    cgroup_v2_swap_peak,
     memory_limit,
 )
 from hyperi_ci.swap import ensure_free_runner_swap
@@ -254,4 +255,9 @@ def log_peak_memory(
     if peak is None:
         return
     source = cgroup_v2_peak_file(root, proc_self_cgroup)
-    info(f"memory peak after {phase}: {peak / GIB:.1f} GiB (cgroup v2 {source})")
+    swap = cgroup_v2_swap_peak(root, proc_self_cgroup)
+    swap_text = f", swap peak {swap / GIB:.1f} GiB" if swap is not None else ""
+    info(
+        f"memory peak after {phase}: {peak / GIB:.1f} GiB{swap_text}"
+        f" (cgroup v2 {source})"
+    )

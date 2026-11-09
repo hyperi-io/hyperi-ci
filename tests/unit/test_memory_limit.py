@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for :mod:`hyperi_ci.memory`, against cgroup files in ``tmp_path``."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from hyperi_ci.memory import (
     cgroup_v1_limit,
     cgroup_v2_limit,
     cgroup_v2_peak,
+    cgroup_v2_swap_peak,
     memory_limit,
     total_ram,
 )
@@ -162,14 +164,24 @@ class TestCgroupV2Peak:
         ],
         ids=["present", "zero", "missing", "max", "non-numeric", "empty"],
     )
+    @pytest.mark.parametrize(
+        ("name", "reader"),
+        [("memory.peak", cgroup_v2_peak), ("memory.swap.peak", cgroup_v2_swap_peak)],
+        ids=["memory", "swap"],
+    )
     def test_reads_the_leaf_file(
-        self, tmp_path: Path, content: str | None, expected: int | None
+        self,
+        tmp_path: Path,
+        content: str | None,
+        expected: int | None,
+        name: str,
+        reader: Callable[[Path, Path], int | None],
     ) -> None:
         root = tmp_path / "cg"
         root.mkdir()
         if content is not None:
-            _write(root / "job" / "memory.peak", content)
-        assert cgroup_v2_peak(root, _proc_cgroup(tmp_path, "/job")) == expected
+            _write(root / "job" / name, content)
+        assert reader(root, _proc_cgroup(tmp_path, "/job")) == expected
 
     def test_an_unreadable_file_reads_as_none(self, tmp_path: Path) -> None:
         root = tmp_path / "cg"
