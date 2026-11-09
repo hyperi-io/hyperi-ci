@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.52](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.51...v2.14.52) (2026-11-09)
+
+### Bug Fixes
+
+* **ci:** add swap on free runners before cargo runs ([1e5ef9b](https://github.com/hyperi-io/hyperi-ci/commit/1e5ef9bf8561ec1e75b15a2595a8839b9cb3b470))
+* **ci:** fetch a pinned GitHub release asset through the API on failure ([ce0ac36](https://github.com/hyperi-io/hyperi-ci/commit/ce0ac364e42154f9634aa4bb0caaf2862ef87678))
+* **quality:** check only crates the build's targets link ([6b18532](https://github.com/hyperi-io/hyperi-ci/commit/6b18532832e14c092d2c5f44b825f5065e566046))
+* **quality:** read missing licence text from the package's repository ([f925a20](https://github.com/hyperi-io/hyperi-ci/commit/f925a20f706a9f11e89a37792fe3f7ab2f13a0b3))
+
 ## [2.14.51](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.50...v2.14.51) (2026-11-09)
 
 ### Bug Fixes
