@@ -9,11 +9,11 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Build times
 
-Approximate times and memory peaks for the DFE canary repos, on GitHub's free hosted runners (`GH_RUNNER_MODE=free`) and on the paid runners each repo uses today. Times are rounded to 5 minutes and peaks to 0.5 GiB. They move with code size, cache state and neighbouring load, so read them as a guide.
+Approximate times and memory peaks for the DFE canary repos, on GitHub's free hosted runners, where public repos now run, and on the Namespace runners they used before (retired 2026-11-29). Times are rounded to 5 minutes and peaks to 0.5 GiB. They move with code size, cache state and neighbouring load, so read them as a guide.
 
 Every Rust Build writes a runner-fit record with its runner, CPU count, CPU model, memory limit, per-phase time and memory peak. `hyperi-ci runner report <repo> [--run <id>] [--json]` reads them back. Quality and Test log their memory peak and free disk. Those records are the source for this page.
 
-The memory peak is cgroup `memory.peak`, which counts page cache, so a Rust build reads close to the runner's limit whether or not it was short of memory. Each phase line also carries the swap peak, the PSI memory stall time (`memory.pressure`) and the OOM kill count (`memory.events`). Stall time is what a shortage cost: seconds stalled over a 10-minute job is a fit, minutes is not.
+The memory peak is cgroup `memory.peak`, which counts page cache, so a Rust build reads close to the runner's limit whether or not it was short of memory. Each phase line also carries the swap peak, the PSI memory stall time (`memory.pressure`) and the OOM kill count (`memory.events`). Stall time is what a shortage cost. A job fits when it has no OOM kills and full stall under about 1% of its time.
 
 The runners these numbers come from:
 
@@ -29,7 +29,7 @@ ARC runs on AMD EPYC 7302 (Zen 2) nodes. A runner reaches its CPU limit only whe
 
 The release build, PGO and BOLT included:
 
-| Repo | Arch | Free: time / peak | Paid: runner, time / peak | Measured |
+| Repo | Arch | Free: time / peak | Namespace (retired): runner, time / peak | Measured |
 |---|---|---|---|---|
 | dfe-transform-vrl | amd64 | 35 min / 14.5 GiB | Namespace 32x64, 20 min / 16.5 GiB | 2026-11-09 |
 | dfe-transform-vrl | arm64 | 30 min / 15.0 GiB | Namespace 32x64, 35 min / 16.5 GiB | 2026-11-09 |
