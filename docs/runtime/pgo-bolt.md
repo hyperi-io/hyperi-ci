@@ -45,6 +45,14 @@ flowchart TD
 
 BOLT rewrites the PGO binary in place, so the build compiles twice. If `llvm-bolt` or `merge-fdata` fails, it falls back to `cargo pgo bolt build` and `bolt optimize`, which compile twice more.
 
+Which Build jobs a Rust run gets:
+
+| Run | Release build, plain | PGO instrument + profile | PGO optimised build | BOLT |
+|---|---|---|---|---|
+| PR, push to main, validate-only dispatch | yes | - | - | - |
+| Prerelease (alpha, beta, rc) | yes, no PGO or BOLT | - | - | - |
+| GA release, or dispatch with `optimize-tier: release` | - | yes | yes | yes |
+
 `HYPERCI_BUILD_PHASE` runs one stage per job: `pgo-profile` (instrument and workload run 1), `pgo-optimize`, then `bolt`. Each job hands the next one its profiles and binaries through `.hyperi-ci/phase/<triple>/`. The BOLT job starts on a fresh runner, so `workload_setup_cmd` runs again there, and a setup that is not safe to repeat breaks it. Unset, the whole pipeline runs in one job.
 
 - `skip-optimize` drops PGO and BOLT for one run: [`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.

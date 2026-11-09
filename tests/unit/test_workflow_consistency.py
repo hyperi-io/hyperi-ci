@@ -43,6 +43,11 @@ EXPECTED_JOBS: dict[str, str] = {
     "build": BUILD_GATE,
 }
 
+# Rust splits run-build between its plain build and the phased PGO + BOLT build.
+GATE_OVERRIDES: dict[tuple[str, str], str] = {
+    ("rust-ci.yml", "build"): "needs.plan.outputs.run-plain-build == 'true'",
+}
+
 
 def _load_workflow(name: str) -> dict:
     path = WORKFLOW_DIR / name
@@ -1178,6 +1183,15 @@ def _render_env(
     return rendered
 
 
+_RUN_UNLESS_A_NEED_FAILED = (
+    "always() && !cancelled() && !contains(needs.*.result, 'failure') && "
+)
+
+# run-build split by Plan into the plain and the phased (PGO + BOLT) build: one
+# of the two is true exactly when run-build is.
+_RUN_BUILD_SPLIT = {"run-plain-build": "run-build", "run-phased-build": "run-build"}
+
+
 def _gate_outputs(expression: str) -> set[str]:
     """The plan outputs whose ``'true'`` makes a job's ``if:`` fire.
 
@@ -1186,7 +1200,9 @@ def _gate_outputs(expression: str) -> set[str]:
     never pass by looking familiar.
     """
     names = set()
-    for clause in str(expression).split("||"):
+    # A job behind both build paths runs unless one failed, then reads its gates.
+    expression = str(expression).removeprefix(_RUN_UNLESS_A_NEED_FAILED)
+    for clause in expression.split("||"):
         match = re.fullmatch(
             r"needs\.plan\.outputs\.([a-z0-9-]+) == 'true'", clause.strip()
         )
@@ -1315,8 +1331,12 @@ class TestArm64Parity:
                 )
 
     def _build_runs(self, gates: dict[str, str]) -> bool:
-        condition = _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
-        firing = _gate_outputs(condition)
+        jobs = _load_workflow("rust-ci.yml")["jobs"]
+        firing = {
+            _RUN_BUILD_SPLIT.get(name, name)
+            for job in ("build", "build-pgo-profile")
+            for name in _gate_outputs(jobs[job]["if"])
+        }
         return any(gates.get(name) == "true" for name in firing)
 
     @pytest.mark.parametrize(
@@ -1670,15 +1690,17 @@ class TestBoltOptimizeArgsThreading:
         # variable, which would put unreviewed flags on every run.
         wf = _load_workflow("rust-ci.yml")
         assert "HYPERCI_BOLT_OPTIMIZE_ARGS" not in wf.get("env", {})
-        steps = wf["jobs"]["build"]["steps"]
-        run_build = next(s for s in steps if s.get("name") == "Run build")
-        assert run_build["env"]["HYPERCI_BOLT_OPTIMIZE_ARGS"] == BOLT_ARGS_ENV
-        for step in steps:
-            assert "bolt-optimize-args" not in str(step.get("run", "")), step.get(
-                "name"
-            )
+        build_jobs = ("build", "build-pgo-profile", "build-pgo-optimize", "build-bolt")
+        for job in build_jobs:
+            steps = wf["jobs"][job]["steps"]
+            run_build = next(s for s in steps if s.get("name") == "Run build")
+            assert run_build["env"]["HYPERCI_BOLT_OPTIMIZE_ARGS"] == BOLT_ARGS_ENV
+            for step in steps:
+                assert "bolt-optimize-args" not in str(step.get("run", "")), step.get(
+                    "name"
+                )
         text = (WORKFLOW_DIR / "rust-ci.yml").read_text(encoding="utf-8")
-        assert text.count("inputs.bolt-optimize-args") == 1
+        assert text.count("inputs.bolt-optimize-args") == len(build_jobs)
 
     @pytest.mark.parametrize(
         "workflow_name",
@@ -1953,6 +1975,7 @@ def test_job_uses_canonical_gate(
         )
     job = jobs[job_name]
     actual = job.get("if", "")
+    expected_gate = GATE_OVERRIDES.get((workflow_name, job_name), expected_gate)
     # Allow extra conditions joined with `||` for some jobs (e.g. test
     # job may also need `|| github.event_name == 'workflow_dispatch'`),
     # but the canonical gate string MUST appear unmodified.
