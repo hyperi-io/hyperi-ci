@@ -102,7 +102,7 @@ The hyperi-infra manifests are the SSoT, including each set's `maxRunners`. Sizi
 
 There is no 2-CPU tier. Each runner also requests `hyperi.io/arc-mem-gi` equal to its memory, against a 96 per node, so at most three 16x32 runners fit on one node.
 
-cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it (6 gives 5 jobs on 16x32).
+cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it. `free` mode plans at least `build.rust.free_memory_per_job_gib` (default 4), so a 15.6 GiB runner gets 3 jobs.
 
 The limit comes from cgroup v2 `memory.max`, then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
 

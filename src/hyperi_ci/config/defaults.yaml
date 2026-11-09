@@ -398,6 +398,9 @@ build:
     # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
     # workspace whose big crates each take several GiB.
     memory_per_job_gib: 2
+    # The floor on that plan in free mode, where a 4-CPU runner has 15.6 GiB and
+    # 2 GiB per job left 5-9% headroom. A higher `memory_per_job_gib` wins.
+    free_memory_per_job_gib: 4
     # Advice in runner-fit.json on which runner profile holds the Build. It
     # never changes a runner. `profiles` run cheapest first: x64 under 32 cores
     # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when it
