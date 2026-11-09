@@ -189,13 +189,21 @@ def test_three_jobs_do_what_one_job_does(tmp_path, monkeypatch):
 
 
 def test_without_bolt_the_optimise_job_finishes_the_build(tmp_path, monkeypatch):
-    _Toolchain(monkeypatch, tmp_path)
+    tools = _Toolchain(monkeypatch, tmp_path)
     profile = _profile(bolt=False)
     assert _phase(PROFILE, tmp_path, profile) == 0
     _fresh_checkout(tmp_path)
     outcome = OptimizationOutcome()
     assert _phase(OPTIMIZE, tmp_path, profile, outcome) == 0
     assert outcome.pgo_applied and not outcome.deferred
+
+    # The BOLT job still runs in the workflow, and finds nothing to do.
+    _fresh_checkout(tmp_path)
+    last = OptimizationOutcome()
+    assert _phase(BOLT, tmp_path, profile, last) == 0
+    assert last.deferred
+    assert [c for c, _ in tools.cargo] == ["build", "optimize"]
+    assert "bolt" not in tools.ran
 
 
 def test_the_mold_rescue_reaches_the_optimise_job(tmp_path, monkeypatch):
