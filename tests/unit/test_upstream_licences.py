@@ -114,6 +114,9 @@ def test_bundled_spdx_texts_are_the_published_ones():
         "BSD-3-Clause": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d",
         "BSL-1.0": "84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f",
         "CC0-1.0": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+        "CDLA-Permissive-2.0": (
+            "4531a67d443284d93ffed0803df5b10634aff21c3d77e381f2d48af01d875868"
+        ),
         "CNRI-Python": "69b5d7d41a6ece3b20c6a77774f567948766d8643f7646e3f65474692cce5c15",
         "EPL-2.0": "61616a4066701bc7888ad910de1633dbc55eb4d4d30d930feef55afb9492e33c",
         "HPND": "4d9ae4a36816338dfa153d1d6f92645c45f25eaa46908d3096922e2431fb571e",
