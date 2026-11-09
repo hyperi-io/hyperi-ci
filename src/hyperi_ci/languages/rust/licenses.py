@@ -6,21 +6,21 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust dependency-licence gate.
 
-``cargo metadata`` carries each crate's exact SPDX ``license`` expression and
-the dependency graph. A crate is shipped when a workspace member reaches it
-through normal dependencies, so dev and build dependencies are not judged, and
-neither is a proc-macro or anything only a proc-macro needs. Every shipped
-crate is linked into the binary, so it is judged as ``static``.
+A crate is shipped when ``cargo tree`` lists it through normal, non-proc-macro
+edges for one of the build's targets, so dev and build dependencies, proc-macros
+and crates for other platforms are not judged. ``cargo metadata`` supplies each
+crate's exact SPDX ``license`` expression and its files. Every shipped crate is
+linked into the binary, so it is judged as ``static``.
 """
 
 import json
 import re
-from collections import deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from hyperi_ci.common import error, run_cmd
+from hyperi_ci.build_targets import ci_targets
+from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
 from hyperi_ci.quality.dep_licenses import (
@@ -56,68 +56,74 @@ _LICENCE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "UNLICENSE")
 _NOTICE_PREFIXES = ("NOTICE",)
 
 
-def shipped_packages(metadata: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """Return the packages a workspace member reaches through normal dependencies.
+def tree_command(target: str) -> list[str]:
+    """Return the cargo tree call listing what a build for ``target`` links."""
+    return [
+        "cargo",
+        "tree",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--edges",
+        "normal,no-proc-macro",
+        "--target",
+        target,
+        "--prefix",
+        "none",
+        "--format",
+        "{p}",
+        "--color",
+        "never",
+    ]
+
+
+def tree_packages(text: str) -> set[tuple[str, str]]:
+    """Return the ``(name, version)`` of every package a cargo tree listing names.
 
     Args:
-        metadata: ``cargo metadata --format-version 1`` output.
+        text: ``cargo tree --prefix none --format {p}`` output, where each line
+            starts ``name vX.Y.Z``.
 
     Returns:
-        The shipped third-party packages, workspace members excluded.
+        The packages, version without its ``v``.
 
     """
-    packages = {p["id"]: p for p in metadata.get("packages", [])}
-    nodes = {n["id"]: n for n in (metadata.get("resolve") or {}).get("nodes", [])}
+    found: set[tuple[str, str]] = set()
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[1].startswith("v"):
+            found.add((fields[0], fields[1][1:]))
+    return found
+
+
+def shipped_packages(
+    metadata: Mapping[str, Any], linked: set[tuple[str, str]]
+) -> list[Mapping[str, Any]]:
+    """Return the third-party packages the build links.
+
+    cargo tree resolves features and platforms the way a build does, which
+    cargo metadata's graph does not: it merges dev-dependency features, keeps
+    optional crates only a weak ``dep?/feature`` names, and covers every
+    platform.
+
+    Args:
+        metadata: ``cargo metadata --format-version 1`` output, for each
+            package's licence fields and files.
+        linked: :func:`tree_packages` over every build target.
+
+    Returns:
+        The linked packages, workspace members excluded, in id order.
+
+    """
     members = set(metadata.get("workspace_members", []))
-    seen: set[str] = set()
-    queue = deque(members)
-    while queue:
-        node = nodes.get(queue.popleft()) or {}
-        parent = packages.get(node.get("id"), {})
-        for dep in node.get("deps", []):
-            target = dep.get("pkg")
-            normal = any(k.get("kind") is None for k in dep.get("dep_kinds", []))
-            if not normal or target in seen or _is_proc_macro(packages.get(target)):
-                continue
-            if not _activated(parent, node.get("features", []), packages.get(target)):
-                continue
-            seen.add(target)
-            queue.append(target)
-    return [packages[pid] for pid in sorted(seen - members) if pid in packages]
-
-
-def _activated(
-    parent: Mapping[str, Any],
-    features: Sequence[str],
-    dep_package: Mapping[str, Any] | None,
-) -> bool:
-    """Return whether the parent's resolved features turn its dependency on.
-
-    cargo metadata keeps the edge to an optional dependency that only a weak
-    ``dep?/feature`` names, though cargo never builds it.
-    """
-    name = (dep_package or {}).get("name")
-    declared = [
-        d
-        for d in parent.get("dependencies", [])
-        if d.get("name") == name and d.get("kind") is None
-    ]
-    if not declared or any(not d.get("optional") for d in declared):
-        return True
-    keys = {d.get("rename") or d["name"] for d in declared}
-    table = parent.get("features", {})
-    for feature in features:
-        if feature in keys:
-            return True
-        for item in table.get(feature, []):
-            if item.removeprefix("dep:") in keys or item.split("/", 1)[0] in keys:
-                return True
-    return False
-
-
-def _is_proc_macro(package: Mapping[str, Any] | None) -> bool:
-    targets = (package or {}).get("targets", [])
-    return any("proc-macro" in t.get("kind", []) for t in targets)
+    return sorted(
+        (
+            p
+            for p in metadata.get("packages", [])
+            if (p["name"], p["version"]) in linked and p["id"] not in members
+        ),
+        key=lambda p: p["id"],
+    )
 
 
 def _crate_files(package: Mapping[str, Any], prefixes: tuple[str, ...]) -> list[Path]:
@@ -241,9 +247,18 @@ def run_gate(config: CIConfig) -> bool:
     if result.returncode != 0:
         emit_tool_output("cargo metadata", result.stderr)
         return fail("  dep licences: cargo metadata failed, nothing checked", mode)
-    packages = shipped_packages(json.loads(result.stdout))
+    targets = ci_targets(config._raw)
+    linked: set[tuple[str, str]] = set()
+    for target in targets:
+        tree = run_cmd(tree_command(target), check=False, capture=True)
+        if tree.returncode != 0:
+            emit_tool_output("cargo tree", tree.stderr)
+            return fail(f"  dep licences: cargo tree for {target} failed", mode)
+        linked |= tree_packages(tree.stdout)
+    info(f"  dep licences: crates linked for {', '.join(targets)}")
+    packages = shipped_packages(json.loads(result.stdout), linked)
     findings = findings_for(packages, policy, overrides)
-    tools = {"cargo metadata": "format-version 1"}
+    tools = {"cargo metadata": "format-version 1", "cargo tree": ",".join(targets)}
     entries = notice_entries(packages, findings)
     return finish_with_copied_in(
         config, findings, entries, policy, tools, mode, overrides

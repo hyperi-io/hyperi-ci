@@ -835,9 +835,6 @@ def test_missing_licence_text_fails_instead_of_shipping_a_placeholder(
     assert check_notices(entries, mode) is passes
 
 
-_NORMAL = [{"kind": None, "target": None}]
-
-
 def _crate(root, name, licence, *, kinds=("lib",), files=None, license_file=None):
     """Write a crate dir with its licence files and return its metadata package."""
     crate_dir = root / f"{name}-1.0.0"
@@ -878,74 +875,66 @@ def rust_metadata(tmp_path):
         ),
     ]
 
-    def edge(pkg, kinds=_NORMAL):
-        return {"pkg": f"{pkg}-id", "dep_kinds": kinds}
+    return {"packages": packages, "workspace_members": ["app-id"]}
 
-    nodes = [
-        {
-            "id": "app-id",
-            "deps": [
-                edge("serde"),
-                edge("ring"),
-                edge("derive"),
-                edge("aws-lc"),
-                edge("proptest", [{"kind": "dev", "target": None}]),
-                edge("cc", [{"kind": "build", "target": None}]),
-            ],
-        },
-        {"id": "serde-id", "deps": [edge("tokio")]},
-        {"id": "derive-id", "deps": [edge("syn")]},
+
+# What `cargo tree -e normal,no-proc-macro` prints for app: no dev (proptest),
+# build (cc) or proc-macro (derive, syn) crate, and tokio twice, deduped.
+_TREE = """\
+app v1.0.0 (/work/app)
+serde v1.0.0
+tokio v1.0.0
+ring v1.0.0
+aws-lc v1.0.0
+tokio v1.0.0 (*)
+"""
+
+
+def _shipped(metadata, tree=_TREE):
+    linked = rust_licenses.tree_packages(tree)
+    return rust_licenses.shipped_packages(metadata, linked)
+
+
+def test_rust_ships_what_cargo_tree_links_and_nothing_else(rust_metadata):
+    assert [p["name"] for p in _shipped(rust_metadata)] == [
+        "aws-lc",
+        "ring",
+        "serde",
+        "tokio",
     ]
-    return {
-        "packages": packages,
-        "workspace_members": ["app-id"],
-        "resolve": {"nodes": nodes},
-    }
-
-
-def test_rust_ships_normal_dependencies_and_nothing_compile_time(rust_metadata):
-    shipped = rust_licenses.shipped_packages(rust_metadata)
-    # proptest is dev, cc is build, derive is a proc-macro and syn only feeds it.
-    assert [p["name"] for p in shipped] == ["aws-lc", "ring", "serde", "tokio"]
 
 
 @pytest.mark.parametrize(
-    ("optional", "table", "resolved", "ships"),
+    ("text", "found"),
     [
-        (False, {}, [], True),
-        (True, {"rt": ["dep:tokio"]}, ["rt"], True),
-        (True, {"rt": ["tokio"]}, ["rt"], True),
-        (True, {"rt": ["tokio/rt"]}, ["rt"], True),
-        (True, {}, ["tokio"], True),
-        (True, {"rt": ["tokio?/rt"]}, ["rt"], False),
-        (True, {"rt": ["dep:tokio"]}, [], False),
-        (True, {}, [], False),
+        ("serde v1.0.219\n", {("serde", "1.0.219")}),
+        ("app v0.1.0 (/work/app)\n", {("app", "0.1.0")}),
+        ("tokio v1.48.0 (*)\n", {("tokio", "1.48.0")}),
+        ("x v2.0.0 (https://github.com/o/x#abc123)\n", {("x", "2.0.0")}),
+        ("", set()),
+        ("\nwarning: nothing to print.\n", set()),
+        ("serde\n", set()),
     ],
 )
-def test_rust_optional_dependency_ships_only_when_a_feature_turns_it_on(
-    optional, table, resolved, ships
-):
-    edge = {"pkg": "tokio-id", "dep_kinds": _NORMAL}
-    metadata = {
-        "packages": [
-            {
-                "id": "app-id",
-                "name": "app",
-                "dependencies": [{"name": "tokio", "kind": None, "optional": optional}],
-                "features": table,
-            },
-            {"id": "tokio-id", "name": "tokio", "targets": [{"kind": ["lib"]}]},
-        ],
-        "workspace_members": ["app-id"],
-        "resolve": {"nodes": [{"id": "app-id", "features": resolved, "deps": [edge]}]},
-    }
-    shipped = [p["name"] for p in rust_licenses.shipped_packages(metadata)]
-    assert shipped == (["tokio"] if ships else [])
+def test_tree_packages_reads_name_and_version(text, found):
+    assert rust_licenses.tree_packages(text) == found
+
+
+def test_rust_crates_a_target_does_not_link_are_not_shipped(rust_metadata):
+    tree = "app v1.0.0 (/work/app)\nserde v1.0.0\n"
+    assert [p["name"] for p in _shipped(rust_metadata, tree)] == ["serde"]
+
+
+def test_tree_command_lists_one_target_with_normal_edges_only():
+    cmd = rust_licenses.tree_command("aarch64-unknown-linux-gnu")
+    assert cmd[cmd.index("--target") + 1] == "aarch64-unknown-linux-gnu"
+    assert cmd[cmd.index("--edges") + 1] == "normal,no-proc-macro"
+    assert {"--locked", "--all-features", "--workspace"} <= set(cmd)
 
 
 def test_rust_crates_are_judged_as_static_links(policy, rust_metadata, monkeypatch):
     monkeypatch.chdir(rust_metadata["packages"][0]["manifest_path"].rsplit("/", 2)[0])
-    shipped = rust_licenses.shipped_packages(rust_metadata)
+    shipped = _shipped(rust_metadata)
     findings = {f.name: f for f in rust_licenses.findings_for(shipped, policy, [])}
     assert {f.mode for f in findings.values()} == {Mode.STATIC}
     assert findings["serde"].verdict is Verdict.OBLIGATIONS
@@ -974,7 +963,7 @@ def test_legacy_slash_crate_licence_reads_as_or(policy, declared, spdx, verdict)
 
 
 def test_rust_notices_carry_crate_licence_and_notice_files(policy, rust_metadata):
-    shipped = rust_licenses.shipped_packages(rust_metadata)
+    shipped = _shipped(rust_metadata)
     findings = rust_licenses.findings_for(shipped, policy, [])
     text = render_notices(rust_licenses.notice_entries(shipped, findings))
     assert "aws-lc 1.0.0 (Apache-2.0)\n" in text
