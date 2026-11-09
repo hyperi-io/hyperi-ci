@@ -306,12 +306,29 @@ class TestLogPeakMemory:
         proc.write_text("0::/job\n", encoding="utf-8", newline="\n")
         return proc
 
+    @pytest.mark.parametrize(
+        ("swap", "shown"),
+        [
+            (None, ""),
+            (0, ", swap peak 0.0 GiB"),
+            (int(2.5 * GIB), ", swap peak 2.5 GiB"),
+        ],
+        ids=["no-swap-file", "no-swap-used", "swap-used"],
+    )
     def test_logs_the_peak_with_its_source(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        swap: int | None,
+        shown: str,
     ) -> None:
         peak = tmp_path / "cg" / "job" / "memory.peak"
         peak.parent.mkdir(parents=True)
         peak.write_text(f"{int(13.4 * GIB)}\n", encoding="utf-8", newline="\n")
+        if swap is not None:
+            peak.with_name("memory.swap.peak").write_text(
+                f"{swap}\n", encoding="utf-8", newline="\n"
+            )
         lines: list[str] = []
         monkeypatch.setattr(_jobs, "info", lines.append)
         log_peak_memory(
@@ -319,7 +336,7 @@ class TestLogPeakMemory:
         )
         memory = [line for line in lines if line.startswith("memory")]
         assert memory == [
-            f"memory peak after pgo-optimize: 13.4 GiB (cgroup v2 {peak})"
+            f"memory peak after pgo-optimize: 13.4 GiB{shown} (cgroup v2 {peak})"
         ]
         assert any(line.startswith("disk after pgo-optimize: ") for line in lines)
 
