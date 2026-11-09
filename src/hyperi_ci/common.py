@@ -905,7 +905,12 @@ def download_artefact(name: str, url: str) -> bytes | None:
 
 
 def download_to_file(
-    name: str, url: str, dest: Path, *, max_time: int = _CURL_MAX_TIME
+    name: str,
+    url: str,
+    dest: Path,
+    *,
+    max_time: int = _CURL_MAX_TIME,
+    extra: Sequence[str] = (),
 ) -> bool:
     """Fetch a release artefact into ``dest`` without reading it into memory.
 
@@ -918,13 +923,14 @@ def download_to_file(
         dest: File the body is written to.
         max_time: Seconds one attempt may take in all, for an asset the default
             cannot move.
+        extra: More curl options, such as a ``-H`` header.
 
     Returns:
         True when ``dest`` holds a non-empty body, else False after logging why.
 
     """
     try:
-        result = curl_fetch(url, dest, max_time=max_time)
+        result = curl_fetch(url, dest, max_time=max_time, extra=extra)
     except OSError as exc:
         error(f"Failed to download {name} ({exc})")
         return False
