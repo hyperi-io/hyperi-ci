@@ -307,19 +307,26 @@ class TestLogPeakMemory:
         return proc
 
     @pytest.mark.parametrize(
-        ("swap", "shown"),
+        ("swap", "pressure", "shown"),
         [
-            (None, ""),
-            (0, ", swap peak 0.0 GiB"),
-            (int(2.5 * GIB), ", swap peak 2.5 GiB"),
+            (None, None, ""),
+            (0, None, ", swap peak 0.0 GiB"),
+            (int(2.5 * GIB), None, ", swap peak 2.5 GiB"),
+            (
+                0,
+                "some avg10=0.00 total=12500000\nfull avg10=0.00 total=400000\n",
+                ", swap peak 0.0 GiB, memory stall 12.5s some / 0.4s full, 0 OOM kills",
+            ),
+            (None, "garbage\n", ""),
         ],
-        ids=["no-swap-file", "no-swap-used", "swap-used"],
+        ids=["no-swap-file", "no-swap-used", "swap-used", "stall", "bad-pressure"],
     )
     def test_logs_the_peak_with_its_source(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         swap: int | None,
+        pressure: str | None,
         shown: str,
     ) -> None:
         peak = tmp_path / "cg" / "job" / "memory.peak"
@@ -328,6 +335,10 @@ class TestLogPeakMemory:
         if swap is not None:
             peak.with_name("memory.swap.peak").write_text(
                 f"{swap}\n", encoding="utf-8", newline="\n"
+            )
+        if pressure is not None:
+            peak.with_name("memory.pressure").write_text(
+                pressure, encoding="utf-8", newline="\n"
             )
         lines: list[str] = []
         monkeypatch.setattr(_jobs, "info", lines.append)

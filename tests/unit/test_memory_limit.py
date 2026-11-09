@@ -13,8 +13,10 @@ import pytest
 
 from hyperi_ci.memory import (
     GIB,
+    MemoryStall,
     cgroup_v1_limit,
     cgroup_v2_limit,
+    cgroup_v2_memory_stall,
     cgroup_v2_peak,
     cgroup_v2_swap_peak,
     memory_limit,
@@ -192,6 +194,58 @@ class TestCgroupV2Peak:
         root = tmp_path / "cg"
         _write(root / "memory.peak", f"{GIB}\n")
         assert cgroup_v2_peak(root, _proc_cgroup(tmp_path, "/")) == GIB
+
+
+_PSI = (
+    "some avg10=1.50 avg60=0.40 avg300=0.10 total=2500000\n"
+    "full avg10=0.20 avg60=0.05 avg300=0.01 total=750000\n"
+)
+
+
+class TestCgroupV2MemoryStall:
+    @pytest.mark.parametrize(
+        ("pressure", "events", "expected"),
+        [
+            (
+                _PSI,
+                "low 0\nhigh 0\nmax 4\noom 1\noom_kill 2\n",
+                MemoryStall(2.5, 0.75, 2),
+            ),
+            (_PSI, None, MemoryStall(2.5, 0.75, 0)),
+            (
+                "some avg10=0.00 total=0\nfull avg10=0.00 total=0\n",
+                "oom_kill 0\n",
+                MemoryStall(0.0, 0.0, 0),
+            ),
+            ("some avg10=0.00 total=100\n", None, None),
+            ("some total=abc\nfull total=1\n", None, None),
+            ("", None, None),
+            (None, "oom_kill 3\n", None),
+        ],
+        ids=[
+            "stalled-and-killed",
+            "no-events-file",
+            "idle",
+            "no-full-line",
+            "non-numeric",
+            "empty",
+            "no-psi",
+        ],
+    )
+    def test_reads_pressure_and_events(
+        self,
+        tmp_path: Path,
+        pressure: str | None,
+        events: str | None,
+        expected: MemoryStall | None,
+    ) -> None:
+        root = tmp_path / "cg"
+        (root / "job").mkdir(parents=True)
+        if pressure is not None:
+            _write(root / "job" / "memory.pressure", pressure)
+        if events is not None:
+            _write(root / "job" / "memory.events", events)
+        assert cgroup_v2_memory_stall(root, _proc_cgroup(tmp_path, "/job")) == expected
 
     def test_no_proc_file_reads_the_root(self, tmp_path: Path) -> None:
         root = tmp_path / "cg"
