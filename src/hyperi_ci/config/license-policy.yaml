@@ -52,7 +52,7 @@ groups:
       modified: {verdict: allow}
 
   permissive:
-    ids: [MIT, MIT-0, 0BSD, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0, Unicode-DFS-2016, PSF-2.0, Python-2.0, CNRI-Python, X11, curl, HPND]
+    ids: [MIT, MIT-0, 0BSD, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0, Unicode-DFS-2016, PSF-2.0, Python-2.0, CNRI-Python, X11, curl, HPND, CDLA-Permissive-2.0]
     aliases:
       "MIT License": MIT
       "BSD 2-Clause": BSD-2-Clause

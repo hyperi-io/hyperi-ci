@@ -170,6 +170,14 @@ def policy():
             Verdict.OBLIGATIONS,
             ("notice", "licence-text", "carry-notice"),
         ),
+        # webpki-roots' licence: data, permissive, with attribution.
+        (
+            "CDLA-Permissive-2.0",
+            Mode.STATIC,
+            "CDLA-Permissive-2.0",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
         # Nothing a human has not answered is ever allowed.
         (None, Mode.IMPORT, None, Verdict.ASK, ()),
         ("UNKNOWN", Mode.IMPORT, None, Verdict.ASK, ()),
