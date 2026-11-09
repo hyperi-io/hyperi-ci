@@ -31,6 +31,7 @@ from hyperi_ci.memory import (
     GIB,
     PROC_SELF_CGROUP,
     MemoryLimit,
+    cgroup_v2_memory_stall,
     cgroup_v2_peak,
     cgroup_v2_peak_file,
     cgroup_v2_swap_peak,
@@ -257,7 +258,14 @@ def log_peak_memory(
     source = cgroup_v2_peak_file(root, proc_self_cgroup)
     swap = cgroup_v2_swap_peak(root, proc_self_cgroup)
     swap_text = f", swap peak {swap / GIB:.1f} GiB" if swap is not None else ""
+    stall = cgroup_v2_memory_stall(root, proc_self_cgroup)
+    stall_text = (
+        f", memory stall {stall.some_seconds:.1f}s some / {stall.full_seconds:.1f}s"
+        f" full, {stall.oom_kills} OOM kills"
+        if stall is not None
+        else ""
+    )
     info(
-        f"memory peak after {phase}: {peak / GIB:.1f} GiB{swap_text}"
+        f"memory peak after {phase}: {peak / GIB:.1f} GiB{swap_text}{stall_text}"
         f" (cgroup v2 {source})"
     )

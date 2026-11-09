@@ -13,6 +13,8 @@ Approximate times and memory peaks for the DFE canary repos, on GitHub's free ho
 
 Every Rust Build writes a runner-fit record with its runner, CPU count, CPU model, memory limit, per-phase time and memory peak. `hyperi-ci runner report <repo> [--run <id>] [--json]` reads them back. Quality and Test log their memory peak and free disk. Those records are the source for this page.
 
+The memory peak is cgroup `memory.peak`, which counts page cache, so a Rust build reads close to the runner's limit whether or not it was short of memory. Each phase line also carries the swap peak, the PSI memory stall time (`memory.pressure`) and the OOM kill count (`memory.events`). Stall time is what a shortage cost: seconds stalled over a 10-minute job is a fit, minutes is not.
+
 The runners these numbers come from:
 
 | Runner | vCPU | Memory | Disk |

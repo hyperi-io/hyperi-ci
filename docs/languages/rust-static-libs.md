@@ -1,8 +1,3 @@
----
-title: Static librdkafka and OpenSSL
-type: reference
----
-
 # Static librdkafka and OpenSSL
 
 A Rust app that links librdkafka can carry it, OpenSSL, zstd and zlib inside its own binary instead of needing them in the runtime image. `hyperi-ci static-libs build` compiles the four into one static-only prefix, and the Static libs workflow publishes that prefix per arch as a `static-libs-*` GitHub release on this repo.
