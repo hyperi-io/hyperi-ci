@@ -98,7 +98,10 @@ class TestGitHubTokenInput:
         self, workflow_name: str
     ) -> None:
         test = _load(workflow_name)["jobs"]["test"]
-        assert "env" not in test
+        # The runner mode is the only job-wide value, and it is not a secret.
+        job_env = test.get("env") or {}
+        assert set(job_env) <= {"HYPERCI_RUNNER_MODE"}, job_env
+        assert not _CREDENTIAL.search(str(job_env))
         others = [s for s in test["steps"] if s.get("name") not in _MAY_HOLD_A_TOKEN]
         leaks = [
             s.get("name") or s.get("uses") for s in others if _CREDENTIAL.search(str(s))
