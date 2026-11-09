@@ -1,6 +1,6 @@
 # Writing a PGO Workload for hyperi-ci
 
-PGO (Profile-Guided Optimisation) records which code paths run hot under a workload, then rebuilds the binary with that knowledge. A good workload gives 10-20% speedup. A bad one teaches the compiler the wrong paths and the binary gets slower.
+PGO (Profile-Guided Optimisation) records which code paths run hot under a workload, then rebuilds the binary with that knowledge. An initial manual spike on dfe-receiver put a good workload at roughly 10-20% speedup, not yet re-measured. A bad one teaches the compiler the wrong paths and the binary gets slower.
 
 The opt-in config is in [`rust-tier2.md`](../languages/rust-tier2.md). Copy-paste starting points are in `templates/pgo-workload/`.
 
