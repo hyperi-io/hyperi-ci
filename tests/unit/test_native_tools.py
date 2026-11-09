@@ -311,6 +311,69 @@ class TestInstall:
         assert native_tools.install_tool("helm", tmp_path) is None
         assert not (tmp_path / "native-tools").exists()
 
+    @pytest.mark.parametrize(
+        ("api_payload", "installed"),
+        [(b"kube-linter binary", True), (b"tampered", False)],
+    )
+    def test_a_failed_download_link_retries_through_the_api_under_the_same_pin(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        api_payload: bytes,
+        installed: bool,
+    ) -> None:
+        pinned = hashlib.sha256(b"kube-linter binary").hexdigest()
+        monkeypatch.setattr(native_tools, "tool_sha256", lambda n, a: pinned)
+        urls: list[str] = []
+
+        def _download(name: str, url: str, dest: Path, **kw: object) -> bool:
+            urls.append(url)
+            if url.startswith("https://github.com/"):
+                return False
+            if "/releases/tags/" in url:
+                listing = '{"assets": [{"id": 7, "name": "kube-linter-linux"}]}'
+                dest.write_text(listing, encoding="utf-8")
+                return True
+            assert kw.get("extra") == ("-H", "Accept: application/octet-stream")
+            dest.write_bytes(api_payload)
+            return True
+
+        monkeypatch.setattr(native_tools, "download_to_file", _download)
+        got = native_tools.install_tool("kube-linter", tmp_path)
+        assert (got is not None) is installed
+        assert urls[0].startswith("https://github.com/stackrox/kube-linter/")
+        assert urls[2] == (
+            "https://api.github.com/repos/stackrox/kube-linter/releases/assets/7"
+        )
+
+    @pytest.mark.parametrize(
+        ("url", "source"),
+        [
+            (
+                "https://github.com/lycheeverse/lychee/releases/download/"
+                "lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz",
+                (
+                    "lycheeverse/lychee",
+                    "lychee-v0.24.2",
+                    "lychee-x86_64-unknown-linux-musl.tar.gz",
+                ),
+            ),
+            (
+                "https://github.com/kubernetes-sigs/kustomize/releases/download/"
+                "kustomize%2Fv5.8.0/kustomize_v5.8.0_linux_amd64.tar.gz",
+                (
+                    "kubernetes-sigs/kustomize",
+                    "kustomize/v5.8.0",
+                    "kustomize_v5.8.0_linux_amd64.tar.gz",
+                ),
+            ),
+            ("https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz", None),
+            ("https://github.com/o/r/archive/v1.tar.gz", None),
+        ],
+    )
+    def test_github_release_source(self, url: str, source: object) -> None:
+        assert native_tools.github_release_source(url) == source
+
     def test_the_digest_compares_case_insensitively(
         self, tmp_path: Path, served: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
