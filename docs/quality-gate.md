@@ -21,7 +21,9 @@ the dispatch level; the rest run in the per-language handler. Each tool's
 force-skip escape hatch, in that precedence.
 
 Same code runs locally (`hyperi-ci check`) and in CI (`hyperi-ci run quality`).
-The only difference is the local-vs-CI handling of a missing tool (below).
+The gates differ only in how a missing tool is handled (below).
+
+A local check also runs one at a time per host, and on Linux with a user systemd it runs in a scope capped at the host's free memory less 2 GiB. A rustc that outgrows the cap swaps or is killed inside the check instead of the host OOM killer picking from the editor and other sessions. `HYPERCI_MEMORY_SCOPE=off` runs it without the scope.
 
 ## Effective mode - how a tool's fate is decided
 

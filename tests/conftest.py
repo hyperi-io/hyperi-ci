@@ -22,6 +22,7 @@ from hyperi_ci import check_lock as check_lock_module
 from hyperi_ci.common import is_ci, run_cmd
 from hyperi_ci.container import stage as container_stage
 from hyperi_ci.languages.tiering import TIER_EXPORT_ENV
+from hyperi_ci.memory_scope import SCOPE_ENV
 
 
 @functools.cache
@@ -289,6 +290,12 @@ def no_exported_test_tier(monkeypatch: pytest.MonkeyPatch) -> None:
 def private_check_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Point a CLI `check` at a lock file of its own, not the host's."""
     monkeypatch.setattr(check_lock_module, "LOCK_FILE", tmp_path / "check.lock")
+
+
+@pytest.fixture(autouse=True)
+def no_memory_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run a CLI `check` in-process: a scope would re-run pytest's own command line."""
+    monkeypatch.setenv(SCOPE_ENV, "off")
 
 
 @pytest.fixture(autouse=True)
