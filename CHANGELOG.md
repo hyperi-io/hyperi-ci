@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.54](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.53...v2.14.54) (2026-11-09)
+
+### Bug Fixes
+
+* **rust:** log test-compile and test-run memory peaks, and swap peak ([25efe0d](https://github.com/hyperi-io/hyperi-ci/commit/25efe0d6e79e4968119c4292b0821e99bf5ebd05))
+
 ## [2.14.53](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.52...v2.14.53) (2026-11-09)
 
 ### Bug Fixes
