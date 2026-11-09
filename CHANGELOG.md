@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.50](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.49...v2.14.50) (2026-11-09)
+
+### Bug Fixes
+
+* **quality:** read a crate's legacy A/B licence as A OR B ([eadf8f4](https://github.com/hyperi-io/hyperi-ci/commit/eadf8f4cd3e94fc553efdf7b5bb55d0af6fdbf89))
+
 ## [2.14.49](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.48...v2.14.49) (2026-11-08)
 
 ### Bug Fixes
