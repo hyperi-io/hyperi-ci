@@ -50,6 +50,7 @@ from hyperi_ci.config import CIConfig, ConfigError, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
 from hyperi_ci.languages.tiering import TIER_EXPORT_ENV, SuiteTier
+from hyperi_ci.memory_scope import run_in_memory_scope
 from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV
 from hyperi_ci.version_source import build_version
 
@@ -250,6 +251,9 @@ def check(
         stages.append("build")
 
     with check_lock():
+        scoped_rc = run_in_memory_scope()
+        if scoped_rc is not None:
+            raise typer.Exit(scoped_rc)
         for stage in stages:
             rc = run_stage(stage, project_dir=dir_path, local=True)
             if rc != 0:
