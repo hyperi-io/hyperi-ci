@@ -197,6 +197,7 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
         "--from=mixed",
         "--with-license-file",
         "--with-notice-file",
+        "--with-urls",
         # pip-licenses otherwise drops its own dependencies (wcwidth, prettytable).
         "--with-system",
         "--output-file",
@@ -268,6 +269,11 @@ def notice_entries(
     for finding in findings:
         package = by_name.get(canonicalize_name(finding.name), {})
         entries.append(
-            NoticeEntry(finding, package.get("LicenseText"), package.get("NoticeText"))
+            NoticeEntry(
+                finding,
+                package.get("LicenseText"),
+                package.get("NoticeText"),
+                package.get("URL"),
+            )
         )
     return entries

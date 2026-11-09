@@ -44,6 +44,10 @@ licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undec
 
 Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency, an unanswered ask included, with its own licence file and, for Apache-2.0, its NOTICE file. A dependency that ships no licence text fails the gate rather than shipping a placeholder. Commit the text and point its override's `licence_file` at it. A repo that commits `THIRD-PARTY-NOTICES` at its root has it compared byte for byte, and a stale copy fails the gate. Copy the generated file over it. LGPL dependencies add their LGPL and GPL texts once, at the end.
 
+## Missing licence text
+
+A package published without its licence file takes the text from its override's `licence_file`, else its declared repository at its version's tag, else the bundled SPDX standard text. git reads the repository with no token, trying tags such as `v1.2.3`, `name-1.2.3` and `name/v1.2.3`. Each borrowed text opens with a line saying where it came from. An unreachable repository leaves the text missing, so the file stays the same for the same lock.
+
 ## Answering an ask
 
 `deny` and `ask` fail the gate, and `quality.dep_licenses` ships `warn`. A human answers an `ask`, or changes one cell of the table for this repo, in `.hyperi-ci.yaml`. Each entry needs a reason. Pin an answer to the version it was checked against, so a new version is asked again:

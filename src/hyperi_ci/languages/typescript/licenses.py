@@ -142,7 +142,8 @@ def notice_entries(
             else []
         )
         notice = "\n\n".join(filter(None, (_read(p) for p in notices))) or None
-        entries.append(NoticeEntry(finding, _read(_licence_file(record)), notice))
+        licence = _read(_licence_file(record))
+        entries.append(NoticeEntry(finding, licence, notice, record.get("repository")))
     return entries
 
 
