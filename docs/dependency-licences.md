@@ -20,7 +20,7 @@ A licence verdict comes from a table, never from anyone's memory. `src/hyperi_ci
 
 LGPL-3.0, for example, is allowed as an import with a notice and the LGPL and GPL texts, and denied when copied in. GPL, AGPL and SSPL are denied in every mode. Only what ships is judged, so a tool CI runs (reuse is GPL-3.0-or-later) is never in scope.
 
-- `A OR B` takes the better term, `A AND B` the worse. A single pair of brackets round the whole expression is dropped. Nested brackets and mixed operators are ask.
+- `A OR B` takes the better term, `A AND B` the worse, and AND binds tighter than OR, so `(MIT OR Apache-2.0) AND BSD-3-Clause` is judged through its brackets.
 - `A WITH LLVM-exception` is judged as `A`. Any other exception is ask.
 - No licence declared, an id the table does not list, or a dependency missing from what the tool read is ask, never deny.
 
