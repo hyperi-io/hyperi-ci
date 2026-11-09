@@ -214,7 +214,8 @@ def notice_entries(
             entries.append(NoticeEntry(finding, None, None))
             continue
         notice = _read(_crate_files(package, _NOTICE_PREFIXES))
-        entries.append(NoticeEntry(finding, _read(licence_files(package)), notice))
+        licence = _read(licence_files(package))
+        entries.append(NoticeEntry(finding, licence, notice, package.get("repository")))
     return entries
 
 
