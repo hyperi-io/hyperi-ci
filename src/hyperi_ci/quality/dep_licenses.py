@@ -363,6 +363,66 @@ def _term_rule(term: str, policy: Policy, mode: Mode) -> tuple[str, Rule | None]
     return spdx, policy.groups[group][mode]
 
 
+def _split_top(expression: str, operator: str) -> list[str]:
+    """Split ``expression`` on ``operator`` outside any brackets."""
+    parts, depth, start = [], 0, 0
+    token = f" {operator} "
+    i = 0
+    while i < len(expression):
+        char = expression[i]
+        depth += (char == "(") - (char == ")")
+        if depth == 0 and expression.startswith(token, i):
+            parts.append(expression[start:i])
+            i += len(token)
+            start = i
+            continue
+        i += 1
+    parts.append(expression[start:])
+    return parts
+
+
+def _strip_brackets(expression: str) -> str:
+    """Drop brackets that wrap the whole of ``expression``."""
+    while expression.startswith("(") and expression.endswith(")"):
+        depth = 0
+        for i, char in enumerate(expression):
+            depth += (char == "(") - (char == ")")
+            if depth == 0 and i < len(expression) - 1:
+                return expression
+        expression = expression[1:-1].strip()
+    return expression
+
+
+def _evaluate(expression: str, policy: Policy, mode: Mode) -> Rule | None:
+    """Judge a bracketed SPDX expression, or None when a needed term is unknown.
+
+    AND binds tighter than OR. An OR takes its best branch and an AND its worst,
+    carrying every part's obligations.
+    """
+    expression = _strip_brackets(expression.strip())
+    for operator in ("OR", "AND"):
+        parts = _split_top(expression, operator)
+        if len(parts) == 1:
+            continue
+        rules = [_evaluate(part, policy, mode) for part in parts]
+        known = [rule for rule in rules if rule is not None]
+        if operator == "OR":
+            if not known:
+                return None
+            best = min(known, key=lambda r: (_RANK[r.verdict], len(r.obligations)))
+            # An unknown branch may be the one that permits it.
+            if len(known) < len(rules) and _RANK[best.verdict] >= _RANK[Verdict.ASK]:
+                return None
+            return best
+        if len(known) < len(rules):
+            return None
+        worst = max(known, key=lambda r: _RANK[r.verdict])
+        obligations = tuple(dict.fromkeys(o for r in known for o in r.obligations))
+        groups = "+".join(dict.fromkeys(r.group for r in known))
+        return Rule(worst.verdict, obligations, groups)
+    return _term_rule(expression, policy, mode)[1]
+
+
 def judge(
     raw_licence: str | None, mode: Mode, policy: Policy
 ) -> tuple[str | None, Verdict, tuple[str, ...], str]:
@@ -402,10 +462,11 @@ def judge(
         if expression.startswith("(") and expression.endswith(")"):
             if "(" not in inner and ")" not in inner:
                 expression = inner
-        if "(" in expression:
-            return expression, Verdict.ASK, (), "complex-expression"
-        if " AND " in expression and " OR " in expression:
-            return expression, Verdict.ASK, (), "complex-expression"
+        if "(" in expression or (" AND " in expression and " OR " in expression):
+            rule = _evaluate(expression, policy, mode)
+            if rule is None:
+                return expression, Verdict.ASK, (), "unrecognised"
+            return expression, rule.verdict, rule.obligations, rule.group
         operator = "AND" if " AND " in expression else "OR"
         terms = expression.split(f" {operator} ")
 

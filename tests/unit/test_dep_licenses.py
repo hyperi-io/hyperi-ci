@@ -224,10 +224,39 @@ def policy():
             Verdict.ASK,
             (),
         ),
+        # Bracketed expressions: AND binds tighter than OR.
         (
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
             Mode.IMPORT,
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "(Apache-2.0 OR MIT) AND Unicode-3.0",
+            Mode.STATIC,
+            "(Apache-2.0 OR MIT) AND Unicode-3.0",
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
+        ),
+        (
+            "(MIT OR Apache-2.0) AND GPL-3.0-only",
+            Mode.IMPORT,
+            "(MIT OR Apache-2.0) AND GPL-3.0-only",
+            Verdict.DENY,
+            ("notice", "licence-text"),
+        ),
+        (
+            "(MIT OR Apache-2.0) AND LicenseRef-Foo",
+            Mode.IMPORT,
+            "(MIT OR Apache-2.0) AND LicenseRef-Foo",
+            Verdict.ASK,
+            (),
+        ),
+        (
+            "MIT AND (GPL-3.0-only OR LicenseRef-Foo)",
+            Mode.IMPORT,
+            "MIT AND (GPL-3.0-only OR LicenseRef-Foo)",
             Verdict.ASK,
             (),
         ),
@@ -250,8 +279,8 @@ def policy():
             "(MIT) OR (GPL-3.0-only)",
             Mode.IMPORT,
             "(MIT) OR (GPL-3.0-only)",
-            Verdict.ASK,
-            (),
+            Verdict.OBLIGATIONS,
+            ("notice", "licence-text"),
         ),
         # A listed exception is judged as its base licence, inside an OR too.
         (
