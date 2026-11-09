@@ -19,7 +19,7 @@ on:
       runner-mode:
         type: string
         default: ""
-        description: "Runner mode: 'free' forces ubuntu-latest"
+        description: "Runner mode: free (GitHub-hosted) or self-hosted. Empty takes GH_RUNNER_MODE, else the repo's visibility: public free, private self-hosted"
 
 concurrency:
   # The literal keeps this group apart from a language workflow the same caller
@@ -48,7 +48,7 @@ jobs:
     # lint-iac fetches helm, kubeconform, kube-linter, kustomize, tofu and
     # hadolint at their versions.yaml pins and runs checkov and ansible-lint
     # through uvx, so the default runner is enough (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

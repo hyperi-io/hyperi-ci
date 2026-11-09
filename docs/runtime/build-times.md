@@ -23,7 +23,7 @@ The runners these numbers come from:
 | `ubuntu-24.04-arm` (free, public repo) | 4 | 15.6 GiB | 144 GiB workspace filesystem |
 | GitHub-hosted on a private repo | 2 | 7.75 GiB | billed |
 | `arc-*-16x32` | 16 limit, 4 requested | 32 GiB | 40 GiB ephemeral, node-local cache |
-| `namespace-profile-hyperi-<arch>-<C>x<M>` | C | M GiB | set in the Namespace console |
+| `namespace-profile-hyperi-<arch>-<C>x<M>` (retired 2026-11-29) | C | M GiB | set in the Namespace console |
 
 ARC runs on AMD EPYC 7302 (Zen 2) nodes. A runner reaches its CPU limit only when the node is idle.
 

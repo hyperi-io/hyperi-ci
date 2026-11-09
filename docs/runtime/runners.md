@@ -1,27 +1,24 @@
 # Runners and the build environment
 
-CI runs on self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster), Namespace cloud runners (namespace.so) or GitHub-hosted runners. What the runner image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
+CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster). What the ARC image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
 
 ## Runner policy
 
-- x64 jobs under 32 CPUs run on ARC, the cheapest place to run them.
-- x64 jobs that need 32 CPUs, the heaviest Rust release builds, run on Namespace 32x64.
-- arm64 jobs run on Namespace. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
-- Anything else is a project-specific exception, set as a repo-level variable on that repo only.
-- Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception too.
+- A public repo runs every job on GitHub's free runners: `ubuntu-latest` and `ubuntu-24.04-arm`, 4 CPUs and 15.6 GiB each.
+- A private repo runs x64 on ARC, which is never billed. Setting `GH_RUNNER_MODE=free` on the repo moves it to GitHub-hosted runners, billed at 2 vCPU and 8 GB.
+- arm64 always runs on `ubuntu-24.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
+- Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
 
-Namespace profiles are named `namespace-profile-hyperi-<arch>-<CPU>x<GiB>`. Quality and Test stay on ARC: a Namespace job reaches neither the NFS sccache nor the hosted cache, whose step skips self-hosted runners. A failing ARC job is fixed on ARC, not moved off it. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
-
-Namespace runs at most 64 Linux CPUs for the org at once (`nsc workspace concurrency`). One amd64 32x64 Build and one arm64 32x64 Build fill it, and the arm64 parity builds and container legs queue behind them.
+The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
 
 ## Runner modes
 
 | Mode | Runners | Cache | Toolchain |
 |---|---|---|---|
-| `self-hosted` | ARC runners on the DevEx RKE2 cluster | persistent NFS sccache/ccache | pre-baked in the runner image |
-| `free` | GitHub-hosted `ubuntu-latest` | none between runs | installed per job by `setup-runtime` |
+| `self-hosted` | ARC runners on the DevEx RKE2 cluster for x64, `ubuntu-24.04-arm` for arm64 | persistent NFS sccache/ccache | pre-baked in the runner image |
+| `free` | GitHub-hosted `ubuntu-latest` and `ubuntu-24.04-arm` | none between runs | installed per job by `setup-runtime` |
 
-`free` lets any GitHub org use the reusable workflows with no self-hosted infrastructure, at the cost of cold compiles and per-job toolchain installs.
+Plan resolves the mode once, in `predict-version`'s `runner_mode.py`, and every later job reads its `runner-mode` output. The caller's `runner-mode` input wins, then `GH_RUNNER_MODE`. With neither set, a public repo runs free and a private or internal one self-hosted. Visibility comes from the event payload, else the repositories API. A repo whose visibility cannot be read runs self-hosted. Plan and Commit messages start before the mode exists, so they read the payload's visibility themselves, and a payload with no repository lands them on `GH_RUNNER_DEFAULT`.
 
 In `free` mode each Rust Quality, Test and Build job adds a swap file in `$RUNNER_TEMP` before cargo runs. It brings swap up to twice the runner's RAM, at most 32 GiB and at most a quarter of the free disk, so a build that outgrows 15.6 GiB runs slower instead of being killed. The `cargo jobs:` log line and the runner-fit record carry the swap size. Other modes never add swap.
 
@@ -31,6 +28,7 @@ Resolution, highest wins:
 flowchart TD
     A["inputs.runner-mode (ci.yml)"] -->|set| R{"mode == free?"}
     B["vars.GH_RUNNER_MODE"] -->|else| R
+    V["repo visibility: public = free"] -->|else| R
     R -->|yes| F["ubuntu-latest"]
     R -->|no| J["inputs.runner-JOB"]
     J -->|unset| L["vars.GH_RUNNER_LANG"]
@@ -45,18 +43,17 @@ gh variable list --org hyperi-io          # what is set now
 gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16x32
 ```
 
-A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-test` / `runner-build` / `runner-build-arm64` / `runner-arm64-check` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
+A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-test` / `runner-build` / `runner-build-arm64` workflow inputs, which only self-hosted mode reads.
 
-### Which chain each job takes
+The chain each job takes:
 
 | Job | Chain | Why |
 |---|---|---|
-| Quality, Test, Build | renovate carve-out, unless the repo set the `runner-<job>` input (or `test-matrix` for Test) -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain. A repo that sized its own runner keeps it on a Renovate PR, whose dependency bump needs the same memory |
-| Plan, Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git, python3 and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
-| Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
-| arm64 build leg | `runner-build-arm64` input -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |
-| arm64 parity build | `runner-arm64-check` input -> `GH_RUNNER_ARM64_CHECK` -> the arm64 build leg's chain | no PGO or BOLT, so it fits a smaller runner than a release build |
-| arm64 container leg | `free` -> `ubuntu-24.04-arm`, else `GH_RUNNER_ARM64_CONTAINER` -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | arm64 images build natively, never under emulation on x64. A Dockerfile's COPY and apt steps fit a far smaller runner than a Rust Build |
+| Quality, Test, Build | `free` -> `runner-<job>` input (or `test-matrix` for Test) -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
+| Plan, Commit messages | explicit `free`, or no explicit mode and a public payload -> `ubuntu-latest`, else `GH_RUNNER_DEFAULT` | start before Plan resolves the mode. Need only git, python3 and uv |
+| Gate, release tail (x64) | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | need only uv. The tail takes Plan's mode as its `runner-mode` input |
+| arm64 build legs and parity build | `free` -> `ubuntu-24.04-arm`, else `runner-build-arm64` input -> `ubuntu-24.04-arm` | the parity build skips PGO and BOLT, so it takes the same runner |
+| arm64 container leg | `ubuntu-24.04-arm` | arm64 images build natively, never under emulation on x64 |
 
 Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml` (version: `tools.pyyaml` in `versions.yaml`). No image needs PyYAML or yq. A config that exists and cannot be read raises a `::warning::` naming the file, and its settings take their defaults.
 
@@ -130,8 +127,8 @@ Multi-arch builds use a native runner per architecture:
 
 | Arch | Runner | Source var |
 |---|---|---|
-| x86_64 (amd64) | ARC, or Namespace 32x64 for the heaviest builds | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
-| aarch64 (arm64) | Namespace `namespace-profile-hyperi-arm64-<CPU>x<GiB>`, else GitHub `ubuntu-24.04-arm` | `GH_RUNNER_ARM64`, `runner-build-arm64` input |
+| x86_64 (amd64) | `ubuntu-latest` in free mode, else ARC | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
+| aarch64 (arm64) | GitHub `ubuntu-24.04-arm` | `runner-build-arm64` input in self-hosted mode |
 
 Each leg builds its own arch, so no build cross-compiles (see [No cross-compilation](#no-cross-compilation)).
 

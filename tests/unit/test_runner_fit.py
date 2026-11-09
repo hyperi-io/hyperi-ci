@@ -241,11 +241,13 @@ class TestSettings:
         for arch in ("amd64", "arm64"):
             sizes = [p.memory_gib for p in parsed.profiles if p.arch == arch]
             assert sizes and sizes == sorted(sizes), arch
-        # x64 under 32 cores runs on ARC, so ARC sizes come before Namespace.
-        amd64 = [p.label for p in parsed.profiles if p.arch == "amd64"]
-        assert amd64[-1].startswith("namespace-profile-") and all(
-            label.startswith("arc-") for label in amd64[:-1]
-        )
+        # Self-hosted x64 runs on ARC, and arm64 only ever on GitHub's runner.
+        labels = {p.arch: [] for p in parsed.profiles}
+        for p in parsed.profiles:
+            labels[p.arch].append(p.label)
+        assert all(label.startswith("arc-") for label in labels["amd64"])
+        assert labels["arm64"] == ["ubuntu-24.04-arm"]
+        assert not any("namespace" in p.label for p in parsed.profiles)
 
     @pytest.mark.parametrize(
         "raw",
@@ -802,10 +804,8 @@ class TestReport:
         )
 
     def test_a_row_that_should_move_prints_its_reason(self) -> None:
-        big = _record(
-            [runner_fit.Phase("release build", 600.0, 26 * GIB)],
-            limit=MemoryLimit(64 * GIB, "cgroup v2 memory.max"),
-        )
+        # 12 GiB over 2 jobs fits the cheaper 8x16 set, so the 16x32 run moves.
+        big = _record([runner_fit.Phase("release build", 600.0, 12 * GIB)])
         text, _rc = runner_report.report(
             ["dfe-loader"],
             api=_api({"hyperi-io/dfe-loader": [4]}, {4}),

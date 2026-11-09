@@ -17,7 +17,7 @@ on:
       runner-mode:
         type: string
         default: ""
-        description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
+        description: "Runner mode: free (GitHub-hosted) or self-hosted. Empty takes GH_RUNNER_MODE, else the repo's visibility: public free, private self-hosted"
       publish-target:
         type: string
         default: "oss"
@@ -41,11 +41,11 @@ on:
       runner-build-arm64:
         type: string
         default: ""
-        description: "Runner for the arm64 build leg (default: GH_RUNNER_ARM64, else ubuntu-24.04-arm)"
+        description: "Runner for the arm64 build legs in self-hosted mode (default: ubuntu-24.04-arm). Free mode always uses ubuntu-24.04-arm."
       runner-arm64-check:
         type: string
         default: ""
-        description: "Runner for the arm64 parity build on a release-worthy main push that does not release, which skips PGO and BOLT (default: GH_RUNNER_ARM64_CHECK, else the arm64 build leg's runner)"
+        description: "Ignored. The arm64 parity build runs on the arm64 build leg's runner. Kept so a caller that passes it still starts."
       test-matrix:
         type: string
         default: ""
@@ -211,8 +211,6 @@ env:
   # per-run input only, never a repo variable, because the tier adds PGO and
   # BOLT to every build it reaches (issue #257).
   HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
-  # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
-  HYPERCI_RUNNER_MODE: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
 
 # Least-privilege default (CodeQL actions/missing-workflow-permissions). Two jobs
 # elevate: release-tail (passes write down to _release-tail.yml) and plan
@@ -234,14 +232,16 @@ jobs:
   plan:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
-    # the default set is enough and no renovate carve-out applies (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # the default set is enough (issue #291). It runs before the mode is
+    # resolved, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # semantic-release's git plugin verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:
       contents: write
     outputs:
+      runner-mode: ${{ steps.predict.outputs.runner-mode }}
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
       run-arm64-check: ${{ steps.predict.outputs.run-arm64-check }}
@@ -272,6 +272,7 @@ jobs:
           bump: ${{ inputs.bump }}
           test-tier: ${{ inputs.test-tier }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
+          runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
 
       - name: Install uv (preflight)
         id: uv_try1
@@ -320,11 +321,6 @@ jobs:
         # A project listing `build.rust.targets` in .hyperi-ci.yaml ships only those
         # arches, so one whose release build does not fit the arm64 runner can still
         # release amd64 (issue #127). One listing none keeps both.
-        #
-        # The renovate/ carve-out must land on a runner with cargo, because Rust does
-        # not bootstrap its toolchain at job time and GH_RUNNER_RENOVATE /
-        # GH_RUNNER_DEFAULT carry none (issue #91). Chain: GH_RUNNER_RENOVATE_RUST
-        # -> GH_RUNNER_RUST -> hosted ubuntu-latest, which ships cargo.
         id: matrix
         shell: bash
         env:
@@ -333,10 +329,10 @@ jobs:
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
-          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-build && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-24.04-arm' || inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || inputs.runner-build-arm64 || 'ubuntu-24.04-arm' }}
           # Its own runner, so a parity build does not take a release-sized slot.
-          ARM64_CHECK_RUNNER: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-24.04-arm' || inputs.runner-arm64-check || vars.GH_RUNNER_ARM64_CHECK || inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          ARM64_CHECK_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || inputs.runner-build-arm64 || 'ubuntu-24.04-arm' }}
         run: |
           set -euo pipefail
           run_build="$RUN_BUILD"
@@ -373,9 +369,9 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
-    # Needs only git and uv, so no language variable and no renovate carve-out
-    # (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Needs only git and uv, so no language variable (issue #291). It does not
+    # wait for Plan, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # pull-requests: read reads the PR title live. A job-level block replaces the
     # workflow default, so contents: read is restated.
     permissions:
@@ -416,9 +412,11 @@ jobs:
     # dfe-transform-elastic's 39-minute feature matrix (issue #262).
     timeout-minutes: 90
     needs: [plan]
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
-    # Renovate branches use lightweight runners.
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-quality && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -500,11 +498,14 @@ jobs:
     # which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.test-timeout-minutes || 360 }}
     needs: [plan]
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.test-matrix && !inputs.runner-test && format('["{0}"]', vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -635,6 +636,9 @@ jobs:
     # fallback covers a dispatch, which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     # The second clause is the arm64-parity case (issue #249): a release-worthy
     # merge to main builds the arm64 leg alone. See the plan job's matrix step.
     if: needs.plan.outputs.run-build == 'true' || needs.plan.outputs.run-arm64-check == 'true'
@@ -747,7 +751,7 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: rust
-      runner-mode: ${{ inputs.runner-mode }}
+      runner-mode: ${{ needs.plan.outputs.runner-mode }}
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       fork: ${{ needs.plan.outputs.fork }}
@@ -780,7 +784,7 @@ jobs:
     # push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.
