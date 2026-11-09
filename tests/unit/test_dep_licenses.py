@@ -17,6 +17,7 @@ from hyperi_ci.languages.python import licenses
 from hyperi_ci.languages.python.licenses import (
     findings_for,
     notice_entries,
+    repository,
     runtime_packages,
 )
 from hyperi_ci.languages.rust import licenses as rust_licenses
@@ -32,6 +33,7 @@ from hyperi_ci.quality.dep_licenses import (
     Verdict,
     blocking,
     check_notices,
+    fill_and_judge,
     find_override,
     finish,
     judge,
@@ -41,6 +43,7 @@ from hyperi_ci.quality.dep_licenses import (
     report,
     restrict_override_only,
 )
+from hyperi_ci.quality.upstream_licences import Upstream
 
 # The first lines of pysigma-backend-clickhouse 1.1.1's wheel licence file, as
 # pip-licenses 5.5.5 returns them. Its PyPI license and license_expression are null.
@@ -459,6 +462,18 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 _NAME_CLAUSE = _BSD3[_BSD3.index("3.  Neither") : _BSD3.index("THIS SOFTWARE")]
 _BSD2 = _BSD3.replace(_NAME_CLAUSE, "")
+_ZERO_BSD = """\
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+"""
 
 
 @pytest.mark.parametrize(
@@ -507,6 +522,42 @@ _BSD2 = _BSD3.replace(_NAME_CLAUSE, "")
             None,
         ),
         (_BSD3.replace("must retain", "should retain"), None),
+        # sphinx-doc's LICENCE.rst: an rst title, its underline, and a pointer.
+        (
+            "License for sphinxcontrib-applehelp\n===================================\n\n"
+            "Copyright (c) 2007-2019 by the Sphinx team\n"
+            "(see https://github.com/sphinx-doc/sphinx/blob/master/AUTHORS).\n"
+            "All rights reserved.\n\n" + _BSD2,
+            "BSD-2-Clause",
+        ),
+        # A pointer line with words in it is not decoration.
+        (
+            "(see https://example.org/terms for further restrictions).\n" + _BSD2,
+            None,
+        ),
+        # alabaster's reworded name clause is not BSD-3-Clause's.
+        (
+            _BSD3.replace(
+                "Neither the name of the copyright holder nor the names of its\n"
+                "    contributors may be used",
+                "The names of the contributors may not be used",
+            ),
+            None,
+        ),
+        (_ZERO_BSD, "0BSD"),
+        (
+            "BSD Zero Clause Licence\n\nCopyright 2022, Adam Turner\n\n" + _ZERO_BSD,
+            "0BSD",
+        ),
+        # ISC asks for the notice to be kept, so it is not 0BSD.
+        (
+            _ZERO_BSD.replace(
+                "hereby granted.",
+                "hereby granted, provided that the above copyright notice and this "
+                "permission notice appear in all copies.",
+            ),
+            None,
+        ),
         ("", None),
         (None, None),
     ],
@@ -820,8 +871,10 @@ def test_repo_notices_are_held_to_the_lock(
     (tmp_path / "mit.txt").write_text("MIT text from the repo", encoding="utf-8")
     overrides = [Override("mit-with-notice", "MIT", "upstream", None, "mit.txt")]
     findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
-    entries = notice_entries(_NOTICE_PACKAGES, findings)
-    check_notices(entries, "warn", overrides)
+    _, entries = fill_and_judge(
+        findings, notice_entries(_NOTICE_PACKAGES, findings), policy, overrides
+    )
+    check_notices(entries, "warn")
     current = (tmp_path / ".hyperi-ci" / "THIRD-PARTY-NOTICES").read_text(
         encoding="utf-8"
     )
@@ -829,7 +882,7 @@ def test_repo_notices_are_held_to_the_lock(
     if repo_copy is not None:
         text = current if repo_copy == "current" else "old\n"
         (tmp_path / "THIRD-PARTY-NOTICES").write_text(text, encoding="utf-8")
-    assert check_notices(entries, mode, overrides) is passes
+    assert check_notices(entries, mode) is passes
 
 
 @pytest.mark.parametrize(("mode", "passes"), [("blocking", False), ("warn", True)])
@@ -843,8 +896,80 @@ def test_missing_licence_text_fails_instead_of_shipping_a_placeholder(
         {"Name": "vendor", "Version": "1", "License": "LicenseRef-Vendor"},
     ]
     findings = findings_for(packages, {"vendor": "1"}, policy, [])
-    entries = notice_entries(packages, findings)
+    _, entries = fill_and_judge(findings, notice_entries(packages, findings), policy)
     assert check_notices(entries, mode) is passes
+
+
+@pytest.mark.parametrize(
+    ("declared", "upstream_text", "spdx", "verdict"),
+    [
+        ("BSD License", _ZERO_BSD, "0BSD", Verdict.OBLIGATIONS),
+        ("BSD License", _BSD3, "BSD-3-Clause", Verdict.OBLIGATIONS),
+        ("BSD License", _BSD3 + "\nNo military use.\n", "BSD License", Verdict.ASK),
+        ("BSD License", None, "BSD License", Verdict.ASK),
+        # A declared licence is never second-guessed by the text.
+        ("GPL-3.0-only", _ZERO_BSD, "GPL-3.0-only", Verdict.DENY),
+    ],
+)
+def test_a_bare_bsd_is_judged_from_text_fetched_from_its_repository(
+    policy, declared, upstream_text, spdx, verdict
+):
+    packages = [{"Name": "sphinxcontrib-jquery", "Version": "4.1", "License": declared}]
+    findings = findings_for(packages, {"sphinxcontrib-jquery": "4.1"}, policy, [])
+    entries = notice_entries(packages, findings)
+    licence = f"Licence text from repo at tag v4.1: LICENCE.\n\n{upstream_text}"
+    upstream = Upstream(licence if upstream_text else None)
+    judged, filled = fill_and_judge(findings, entries, policy, (), lambda *_: upstream)
+    (finding,) = judged
+    assert (finding.spdx, finding.verdict) == (spdx, verdict)
+    assert filled[0].finding == finding
+    if spdx != declared:
+        assert finding.source == "license-file"
+        assert finding.evidence.endswith("Licence text from repo at tag v4.1: LICENCE.")
+
+
+_APPLEHELP_LINKS = [
+    (
+        "Changelog",
+        "https://github.com/sphinx-doc/sphinxcontrib-applehelp/blob/master/CHANGES.rst",
+    ),
+    ("Code", "https://github.com/sphinx-doc/sphinxcontrib-applehelp/"),
+    ("Download", "https://pypi.org/project/sphinxcontrib-applehelp/"),
+    ("Homepage", "https://www.sphinx-doc.org/"),
+    ("Issue tracker", "https://github.com/sphinx-doc/sphinx/issues/"),
+]
+
+
+@pytest.mark.parametrize(
+    ("links", "url", "expected"),
+    [
+        (
+            _APPLEHELP_LINKS,
+            "https://www.sphinx-doc.org/",
+            "https://github.com/sphinx-doc/sphinxcontrib-applehelp/",
+        ),
+        # An issue tracker on a forge is another repository's.
+        (
+            [("Issue tracker", "https://github.com/sphinx-doc/sphinx/issues/")],
+            "https://www.sphinx-doc.org/",
+            "https://www.sphinx-doc.org/",
+        ),
+        ([], "https://github.com/pallets/jinja/", "https://github.com/pallets/jinja/"),
+        (
+            [("Docs", "https://jinja.palletsprojects.com/")],
+            None,
+            "https://jinja.palletsprojects.com/",
+        ),
+        (
+            [("Source", "https://gitlab.com/g/p")],
+            "https://example.org/",
+            "https://gitlab.com/g/p",
+        ),
+        ([], None, None),
+    ],
+)
+def test_the_repository_is_the_source_link_before_the_homepage(links, url, expected):
+    assert repository(links, url) == expected
 
 
 def _crate(root, name, licence, *, kinds=("lib",), files=None, license_file=None):

@@ -28,6 +28,7 @@ from hyperi_ci import __version__
 from hyperi_ci.common import error, info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import upstream_licences
+from hyperi_ci.quality.bsd_text import BARE_BSD, bsd_licence
 from hyperi_ci.quality.upstream_licences import Upstream
 
 _POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "license-policy.yaml"
@@ -675,6 +676,7 @@ def finish(
         True if the pipeline should continue, False on a blocking failure.
 
     """
+    findings, entries = fill_and_judge(findings, entries, policy, overrides)
     findings = [restrict_override_only(f, policy) for f in findings]
     entries = [
         replace(e, finding=restrict_override_only(e.finding, policy)) for e in entries
@@ -691,7 +693,7 @@ def finish(
     info(
         f"  dep licences: {len(findings)} shipped dependencies judged, see {REPORT_PATH}"
     )
-    notices_current = check_notices(entries, mode, overrides)
+    notices_current = check_notices(entries, mode)
     held = blocking(findings)
     for finding in held:
         (warn if mode == "warn" else error)(f"  {finding.line()}")
@@ -757,21 +759,70 @@ def _with_upstream_texts(
     return filled
 
 
-def check_notices(
-    entries: Sequence[NoticeEntry], mode: str, overrides: Sequence[Override] = ()
-) -> bool:
+def _judged_from_text(entry: NoticeEntry, policy: Policy) -> NoticeEntry:
+    """Judge a bare BSD classifier from the licence text filled in for it."""
+    finding = entry.finding
+    bare = (finding.spdx or "").strip().upper() in BARE_BSD
+    if finding.source != "metadata" or finding.rule != "unrecognised" or not bare:
+        return entry
+    named = bsd_licence(upstream_licences.licence_body(entry.licence_text))
+    if named is None:
+        return entry
+    spdx, verdict, obligations, rule = judge(named, finding.mode, policy)
+    first_line = str(entry.licence_text).strip().splitlines()[0]
+    judged = replace(
+        finding,
+        spdx=spdx,
+        source="license-file",
+        evidence=f"{named} text, {first_line}",
+        verdict=verdict,
+        obligations=obligations,
+        rule=rule,
+    )
+    return replace(entry, finding=judged)
+
+
+def fill_and_judge(
+    findings: Sequence[Finding],
+    entries: Sequence[NoticeEntry],
+    policy: Policy,
+    overrides: Sequence[Override] = (),
+    fetch: Callable[[str, str, str | None], Upstream] = upstream_licences.fetch,
+) -> tuple[list[Finding], list[NoticeEntry]]:
+    """Fill in missing licence text, then judge a bare BSD classifier from it.
+
+    The text comes from an override's ``licence_file``, else the repository at
+    the version's tag, else the SPDX standard text.
+
+    Returns:
+        The findings with any bare BSD the text names judged, and the entries
+        with their texts.
+
+    """
+    filled = [
+        _judged_from_text(entry, policy)
+        for entry in _with_upstream_texts(
+            _with_licence_files(entries, overrides), fetch
+        )
+    ]
+    judged = {
+        (e.finding.ecosystem, e.finding.name, e.finding.version): e.finding
+        for e in filled
+    }
+    return [judged.get((f.ecosystem, f.name, f.version), f) for f in findings], filled
+
+
+def check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
     """Write the generated notices and hold the repo's copy to them, if it has one.
 
-    A dependency with no licence text fails the check rather than shipping a
-    placeholder. Its override's ``licence_file`` supplies the text, else its
-    repository at the version's tag, else the SPDX standard text.
+    A dependency with no licence text, after :func:`fill_and_judge`, fails the
+    check rather than shipping a placeholder.
 
     Returns:
         True unless text is missing or the repo's copy is stale, and the mode
         blocks.
 
     """
-    entries = _with_upstream_texts(_with_licence_files(entries, overrides))
     generated = render_notices(entries)
     NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
     missing = [

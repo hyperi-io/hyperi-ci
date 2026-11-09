@@ -20,6 +20,7 @@ filenames and fetches only the ones read.
 import re
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -36,6 +37,8 @@ _NOTICE_PREFIXES = ("NOTICE",)
 # Hosts whose repository is the first two path segments of a URL into it.
 _FORGES = frozenset({"github.com", "gitlab.com", "codeberg.org", "bitbucket.org"})
 _TREE = re.compile(r"/(?:-/)?(?:tree|blob|src)/[^/]+/?(?P<sub>.*)$")
+# Opens the paragraph that says where fetched text came from.
+_SOURCE_PREFIX = "Licence text from "
 # git's stderr for a failure that may not happen next time.
 _NETWORK = (
     "could not resolve host",
@@ -66,6 +69,13 @@ class Upstream:
     reachable: bool = True
 
 
+def licence_body(text: str | None) -> str | None:
+    """Return licence text without the provenance paragraph :func:`fetch_from` adds."""
+    if text and text.startswith(_SOURCE_PREFIX):
+        return text.partition("\n\n")[2]
+    return text
+
+
 def repository_source(repository: str | None) -> tuple[str, str] | None:
     """Return the clone URL and the package's subdirectory from its repository link.
 
@@ -90,6 +100,26 @@ def repository_source(repository: str | None) -> tuple[str, str] | None:
         path = "/".join(path.split("/")[:3])
     path = path.removesuffix(".git")
     return f"https://{parts.netloc}{path}", subdir
+
+
+def pick_repository(urls: Iterable[str | None]) -> str | None:
+    """Return the first URL on a known forge, else the first URL given.
+
+    A package's homepage is often a docs site git cannot clone, while one of
+    its other links is the repository.
+
+    Args:
+        urls: Candidate links, most likely first.
+
+    Returns:
+        The link to read licence text from, or None when there is none.
+
+    """
+    candidates = [url.strip() for url in urls if url and url.strip()]
+    for url in candidates:
+        if urlsplit(url).netloc.lower() in _FORGES and repository_source(url):
+            return url
+    return candidates[0] if candidates else None
 
 
 def tag_candidates(name: str, version: str) -> list[str]:
@@ -214,7 +244,7 @@ def fetch_from(clone_url: str, subdir: str, name: str, version: str) -> Upstream
                 if text is None:
                     continue
                 source = (
-                    f"Licence text from {clone_url} at tag {tag}: {', '.join(licences)}."
+                    f"{_SOURCE_PREFIX}{clone_url} at tag {tag}: {', '.join(licences)}."
                     " The published package ships none."
                 )
                 return Upstream(f"{source}\n\n{text}", _show(work, notices))

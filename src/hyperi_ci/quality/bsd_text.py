@@ -8,11 +8,14 @@
 
 The ``BSD License`` trove classifier covers BSD-4-Clause too, so it names no
 licence on its own. A file whose whole text, copyright lines aside, is the
-BSD-2-Clause or BSD-3-Clause clause text is that licence. Anything left over,
-an added clause or a line of prose, is no match.
+BSD-2-Clause, BSD-3-Clause or 0BSD clause text is that licence. Anything left
+over, an added clause or a line of prose, is no match.
 """
 
 import re
+
+# Licence metadata that says BSD without saying which.
+BARE_BSD = frozenset({"BSD", "BSD LICENSE"})
 
 # A copyright or rights line, not a clause wrapped to start "copyright notice".
 _COPYRIGHT = re.compile(
@@ -20,8 +23,14 @@ _COPYRIGHT = re.compile(
     re.IGNORECASE,
 )
 _TITLE = re.compile(
-    r"^\W*(the )?((new|simplified|modified|revised) )?bsd( [23]-clause)?"
+    r"^\W*(the )?((new|simplified|modified|revised) )?bsd( [23]-clause| zero[- ]clause)?"
     r"( licen[cs]e)?\W*$",
+    re.IGNORECASE,
+)
+# Lines no clause can hide in: an rst underline, "License for <package>", and a
+# bare "(see <url>)" pointer under a copyright line.
+_DECORATION = re.compile(
+    r"^\W*$|^\W*licen[cs]e for [\w.-]+\W*$|^\s*\(see https?://\S+\)\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -56,9 +65,20 @@ _DISCLAIMER = (
     r"arising in any way out of the use of this software, even if advised of the "
     r"possibility of such damage\."
 )
+_ZERO_CLAUSE = (
+    r"permission to use, copy, modify, and/or distribute this software for any "
+    r"purpose with or without fee is hereby granted\. the software is provided as is "
+    r"and the author disclaims all warranties with regard to this software including "
+    r"all implied warranties of merchantability and fitness\. in no event shall the "
+    r"author be liable for any special, direct, indirect, or consequential damages or "
+    r"any damages whatsoever resulting from loss of use, data or profits, whether in "
+    r"an action of contract, negligence or other tortious action, arising out of or "
+    r"in connection with the use or performance of this software\."
+)
 _TEMPLATES = {
     "BSD-2-Clause": re.compile(_CONDITIONS + _DISCLAIMER),
     "BSD-3-Clause": re.compile(_CONDITIONS + _NAME_CLAUSE + _DISCLAIMER),
+    "0BSD": re.compile(_ZERO_CLAUSE),
 }
 
 # List markers (`1.`, `a)`, `(ii)`, `-`) and markdown emphasis.
@@ -79,7 +99,7 @@ def _normalise(text: str) -> str:
     kept = [
         line
         for line in text.splitlines()
-        if not _COPYRIGHT.match(line) and not _TITLE.match(line)
+        if not any(pattern.match(line) for pattern in (_COPYRIGHT, _TITLE, _DECORATION))
     ]
     out = _QUOTES.sub("", " ".join(kept).lower())
     for marker in _MARKERS:
@@ -88,14 +108,14 @@ def _normalise(text: str) -> str:
 
 
 def bsd_licence(text: str | None) -> str | None:
-    """Return ``BSD-2-Clause`` or ``BSD-3-Clause`` when that is all ``text`` holds.
+    """Return ``BSD-2-Clause``, ``BSD-3-Clause`` or ``0BSD`` when that is all ``text`` holds.
 
     Args:
         text: A licence file's content.
 
     Returns:
         The SPDX id, or None when anything beyond copyright lines and one of
-        the two clause texts remains.
+        the clause texts remains.
 
     """
     body = _normalise(text or "")
