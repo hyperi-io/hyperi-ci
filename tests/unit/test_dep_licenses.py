@@ -909,6 +909,40 @@ def test_rust_ships_normal_dependencies_and_nothing_compile_time(rust_metadata):
     assert [p["name"] for p in shipped] == ["aws-lc", "ring", "serde", "tokio"]
 
 
+@pytest.mark.parametrize(
+    ("optional", "table", "resolved", "ships"),
+    [
+        (False, {}, [], True),
+        (True, {"rt": ["dep:tokio"]}, ["rt"], True),
+        (True, {"rt": ["tokio"]}, ["rt"], True),
+        (True, {"rt": ["tokio/rt"]}, ["rt"], True),
+        (True, {}, ["tokio"], True),
+        (True, {"rt": ["tokio?/rt"]}, ["rt"], False),
+        (True, {"rt": ["dep:tokio"]}, [], False),
+        (True, {}, [], False),
+    ],
+)
+def test_rust_optional_dependency_ships_only_when_a_feature_turns_it_on(
+    optional, table, resolved, ships
+):
+    edge = {"pkg": "tokio-id", "dep_kinds": _NORMAL}
+    metadata = {
+        "packages": [
+            {
+                "id": "app-id",
+                "name": "app",
+                "dependencies": [{"name": "tokio", "kind": None, "optional": optional}],
+                "features": table,
+            },
+            {"id": "tokio-id", "name": "tokio", "targets": [{"kind": ["lib"]}]},
+        ],
+        "workspace_members": ["app-id"],
+        "resolve": {"nodes": [{"id": "app-id", "features": resolved, "deps": [edge]}]},
+    }
+    shipped = [p["name"] for p in rust_licenses.shipped_packages(metadata)]
+    assert shipped == (["tokio"] if ships else [])
+
+
 def test_rust_crates_are_judged_as_static_links(policy, rust_metadata, monkeypatch):
     monkeypatch.chdir(rust_metadata["packages"][0]["manifest_path"].rsplit("/", 2)[0])
     shipped = rust_licenses.shipped_packages(rust_metadata)
