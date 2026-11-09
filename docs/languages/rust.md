@@ -10,8 +10,8 @@ For PGO workload script specifics, see [`pgo-bolt.md`](../runtime/pgo-bolt.md).
 
 ## What you get
 
-Measured on dfe-receiver v1.15.7 release canary (production workload mix -
-HTTP/gRPC/OTLP/Kafka):
+From an initial manual spike on dfe-receiver v1.15.7 (production workload mix -
+HTTP/gRPC/OTLP/Kafka). The throughput figures are rough and not yet re-measured:
 
 | Build | Binary size | vs baseline | When it applies |
 |---|---|---|---|
