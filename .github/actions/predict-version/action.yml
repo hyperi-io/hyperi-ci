@@ -48,6 +48,10 @@ inputs:
     description: "'true' to run build + container on pull_request events (branch-mode: PRs validate the full pipeline; whether the container also pushes a dev image is the separate publish.container.dev_push opt-in in .hyperi-ci.yaml)"
     required: false
     default: ""
+  runner-mode:
+    description: "The caller's runner-mode input or GH_RUNNER_MODE, empty when neither is set. Empty resolves from repo visibility: public free, private self-hosted."
+    required: false
+    default: ""
   python-version:
     description: "Fallback Python version. The project's own declaration wins over it -- a pegged .python-version, else the requires-python floor."
     required: false
@@ -96,6 +100,9 @@ outputs:
   rust-targets:
     description: "build.rust.targets from the project config, space-separated. Empty means every target, and is what a project without Cargo.toml gets"
     value: ${{ steps.targets.outputs.rust-targets }}
+  runner-mode:
+    description: "free or self-hosted -- the mode every later job of the run routes by"
+    value: ${{ steps.mode.outputs.runner-mode }}
 
 runs:
   using: composite
@@ -610,3 +617,12 @@ runs:
       env:
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
       run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rust_targets.py"
+
+    - name: Resolve the runner mode
+      id: mode
+      shell: bash
+      env:
+        RUNNER_MODE: ${{ inputs.runner-mode }}
+        REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: python3 "$GITHUB_ACTION_PATH/runner_mode.py"

@@ -402,8 +402,9 @@ build:
     # 2 GiB per job left 5-9% headroom. A higher `memory_per_job_gib` wins.
     free_memory_per_job_gib: 4
     # Advice in runner-fit.json on which runner profile holds the Build. It
-    # never changes a runner. `profiles` run cheapest first: x64 under 32 cores
-    # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when it
+    # never changes a runner. `profiles` run cheapest first: the ARC sets for
+    # x64 and GitHub's arm64 runner, the only arm64 runner. A free-mode run has
+    # one size, so its advice is only whether it fits. A profile is recommended when it
     # has a CPU for each cargo job the build ran (at least `min_jobs`) and that
     # many jobs at the measured per-job peak fit its memory with `min_headroom`
     # free. `per_job_drift` is the relative gap to
@@ -417,11 +418,7 @@ build:
         - {label: arc-native-4x8, arch: amd64, cpus: 4, memory_gib: 8}
         - {label: arc-native-8x16, arch: amd64, cpus: 8, memory_gib: 16}
         - {label: arc-native-16x32, arch: amd64, cpus: 16, memory_gib: 32}
-        - {label: namespace-profile-hyperi-amd64-32x64, arch: amd64, cpus: 32, memory_gib: 64}
-        - {label: namespace-profile-hyperi-arm64-4x8, arch: arm64, cpus: 4, memory_gib: 8}
-        - {label: namespace-profile-hyperi-arm64-8x16, arch: arm64, cpus: 8, memory_gib: 16}
-        - {label: namespace-profile-hyperi-arm64-16x32, arch: arm64, cpus: 16, memory_gib: 32}
-        - {label: namespace-profile-hyperi-arm64-32x64, arch: arm64, cpus: 32, memory_gib: 64}
+        - {label: ubuntu-24.04-arm, arch: arm64, cpus: 4, memory_gib: 15.6}
     # LLVM major for bolt-NN / lld-NN / clang-NN, shimmed ahead of the runner's
     # own unversioned ld.lld and clang. HYPERCI_LLVM_VERSION beats this key, and
     # versions.yaml `runtimes.llvm` is the default, so no value is set here.

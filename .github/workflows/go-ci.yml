@@ -20,7 +20,7 @@ on:
       runner-mode:
         type: string
         default: ""
-        description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
+        description: "Runner mode: free (GitHub-hosted) or self-hosted. Empty takes GH_RUNNER_MODE, else the repo's visibility: public free, private self-hosted"
       publish-target:
         type: string
         default: "oss"
@@ -197,14 +197,16 @@ jobs:
   plan:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
-    # the default set is enough and no renovate carve-out applies (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # the default set is enough (issue #291). It runs before the mode is
+    # resolved, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # semantic-release's git plugin verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:
       contents: write
     outputs:
+      runner-mode: ${{ steps.predict.outputs.runner-mode }}
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
       will-release: ${{ steps.predict.outputs.will-release }}
@@ -236,6 +238,7 @@ jobs:
           bump: ${{ inputs.bump }}
           test-tier: ${{ inputs.test-tier }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
+          runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
 
       - name: Install uv (preflight)
         id: uv_try1
@@ -279,8 +282,8 @@ jobs:
         shell: bash
         # Inputs travel as env, so a workflow input is never read as shell.
         env:
-          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-build && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-24.04-arm' || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || 'ubuntu-24.04-arm' }}
           WILL_RELEASE: ${{ steps.predict.outputs.will-release }}
         run: |
           set -euo pipefail
@@ -304,9 +307,9 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
-    # Needs only git and uv, so no language variable and no renovate carve-out
-    # (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Needs only git and uv, so no language variable (issue #291). It does not
+    # wait for Plan, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # pull-requests: read reads the PR title live. A job-level block replaces the
     # workflow default, so contents: read is restated.
     permissions:
@@ -347,7 +350,7 @@ jobs:
     timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.runner-quality && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -407,7 +410,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && !inputs.test-matrix && !inputs.runner-test && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -557,7 +560,7 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: golang
-      runner-mode: ${{ inputs.runner-mode }}
+      runner-mode: ${{ needs.plan.outputs.runner-mode }}
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       fork: ${{ needs.plan.outputs.fork }}
@@ -589,7 +592,7 @@ jobs:
     # push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.
