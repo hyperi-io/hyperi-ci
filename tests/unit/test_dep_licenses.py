@@ -830,8 +830,12 @@ def test_missing_licence_text_fails_instead_of_shipping_a_placeholder(
 ):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".hyperi-ci").mkdir()
-    findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
-    entries = notice_entries(_NOTICE_PACKAGES, findings)
+    # No file, no repository, and no SPDX standard text for a LicenseRef.
+    packages = [
+        {"Name": "vendor", "Version": "1", "License": "LicenseRef-Vendor"},
+    ]
+    findings = findings_for(packages, {"vendor": "1"}, policy, [])
+    entries = notice_entries(packages, findings)
     assert check_notices(entries, mode) is passes
 
 

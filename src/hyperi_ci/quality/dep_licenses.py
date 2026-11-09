@@ -15,7 +15,7 @@ cite, so a licence verdict never comes from anyone's memory.
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
@@ -27,6 +27,8 @@ from packaging.licenses import InvalidLicenseExpression, canonicalize_license_ex
 from hyperi_ci import __version__
 from hyperi_ci.common import error, info, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.quality import upstream_licences
+from hyperi_ci.quality.upstream_licences import Upstream
 
 _POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "license-policy.yaml"
 
@@ -550,11 +552,16 @@ def _gnu_texts(findings: Iterable[Finding]) -> list[str]:
 
 @dataclass(frozen=True, slots=True)
 class NoticeEntry:
-    """One dependency's attribution: its finding and the texts it shipped."""
+    """One dependency's attribution: its finding and the texts it shipped.
+
+    ``repository`` is where its licence text is read from when the package
+    ships none.
+    """
 
     finding: Finding
     licence_text: str | None
     notice_text: str | None
+    repository: str | None = None
 
 
 def render_notices(entries: Iterable[NoticeEntry]) -> str:
@@ -718,20 +725,53 @@ def _with_licence_files(
     return filled
 
 
+def _with_upstream_texts(
+    entries: Sequence[NoticeEntry],
+    fetch: Callable[[str, str, str | None], Upstream] = upstream_licences.fetch,
+) -> list[NoticeEntry]:
+    """Fill in missing licence text from the repository, else the SPDX standard text.
+
+    A repository git could not reach leaves the text missing, so a network
+    failure never changes the notices.
+    """
+    filled = []
+    for entry in entries:
+        if _shipped(entry.licence_text):
+            filled.append(entry)
+            continue
+        finding = entry.finding
+        found = fetch(finding.name, finding.version, entry.repository)
+        licence = found.licence
+        if licence is None and found.reachable:
+            licence = upstream_licences.standard_text(finding.spdx)
+        if licence is None:
+            if not found.reachable:
+                warn(f"  dep licences: could not reach {entry.repository}")
+            filled.append(entry)
+            continue
+        info(
+            f"  dep licences: {finding.name} {finding.version}: {licence.splitlines()[0]}"
+        )
+        notice = entry.notice_text if _shipped(entry.notice_text) else found.notice
+        filled.append(replace(entry, licence_text=licence, notice_text=notice))
+    return filled
+
+
 def check_notices(
     entries: Sequence[NoticeEntry], mode: str, overrides: Sequence[Override] = ()
 ) -> bool:
     """Write the generated notices and hold the repo's copy to them, if it has one.
 
     A dependency with no licence text fails the check rather than shipping a
-    placeholder. Its override's ``licence_file`` supplies the text.
+    placeholder. Its override's ``licence_file`` supplies the text, else its
+    repository at the version's tag, else the SPDX standard text.
 
     Returns:
         True unless text is missing or the repo's copy is stale, and the mode
         blocks.
 
     """
-    entries = _with_licence_files(entries, overrides)
+    entries = _with_upstream_texts(_with_licence_files(entries, overrides))
     generated = render_notices(entries)
     NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
     missing = [
