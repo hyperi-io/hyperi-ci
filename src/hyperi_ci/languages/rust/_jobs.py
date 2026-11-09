@@ -35,6 +35,7 @@ from hyperi_ci.memory import (
     cgroup_v2_peak_file,
     memory_limit,
 )
+from hyperi_ci.swap import ensure_free_runner_swap
 
 JOBS_ENV = "CARGO_BUILD_JOBS"
 
@@ -127,6 +128,7 @@ def cargo_jobs_env(
     cwd: Path | None = None,
     limit: MemoryLimit | None = None,
     cpus: int | None = None,
+    swap_bytes: int | None = None,
 ) -> dict[str, str]:
     """Return the ``CARGO_BUILD_JOBS`` setting a Rust stage should run with.
 
@@ -136,6 +138,7 @@ def cargo_jobs_env(
         cwd: The directory cargo runs in; the process cwd if None.
         limit: The memory limit; read from the host if None.
         cpus: The CPU budget; read from the host if None.
+        swap_bytes: Active swap, logged beside the memory limit when known.
 
     Returns:
         ``{"CARGO_BUILD_JOBS": "<n>"}``, or empty when the job count is
@@ -164,6 +167,8 @@ def cargo_jobs_env(
         if limit is not None
         else "no memory limit found"
     )
+    if swap_bytes is not None:
+        memory += f", {swap_bytes / GIB:.1f} GiB swap"
     info(
         f"cargo jobs: {jobs} ({memory}, {gib_per_job:g} GiB per job, CPU budget {cpus},"
         f" CPU {cpu_model() or 'unknown'})"
@@ -182,6 +187,9 @@ def capped_cargo_jobs(
 ) -> Iterator[None]:
     """Set ``CARGO_BUILD_JOBS`` for the duration of a Rust stage.
 
+    On a free runner swap is added first, so memory short of the build costs
+    time instead of the job.
+
     Args:
         config: Merged CI configuration.
         environ: The environment to set it in; ``os.environ`` if None.
@@ -194,7 +202,11 @@ def capped_cargo_jobs(
 
     """
     target = os.environ if environ is None else environ
-    updates = cargo_jobs_env(config, target, cwd=cwd, limit=limit, cpus=cpus)
+    limit = limit if limit is not None else memory_limit()
+    swap = ensure_free_runner_swap(limit.limit_bytes, target) if limit else None
+    updates = cargo_jobs_env(
+        config, target, cwd=cwd, limit=limit, cpus=cpus, swap_bytes=swap
+    )
     target.update(updates)
     try:
         yield

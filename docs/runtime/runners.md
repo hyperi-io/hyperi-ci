@@ -21,7 +21,11 @@ Namespace runs at most 64 Linux CPUs for the org at once (`nsc workspace concurr
 | `self-hosted` | ARC runners on the DevEx RKE2 cluster | persistent NFS sccache/ccache | pre-baked in the runner image |
 | `free` | GitHub-hosted `ubuntu-latest` | none between runs | installed per job by `setup-runtime` |
 
-`free` lets any GitHub org use the reusable workflows with no self-hosted infrastructure, at the cost of cold compiles and per-job toolchain installs. Resolution, highest wins:
+`free` lets any GitHub org use the reusable workflows with no self-hosted infrastructure, at the cost of cold compiles and per-job toolchain installs.
+
+In `free` mode each Rust Quality, Test and Build job adds a swap file in `$RUNNER_TEMP` before cargo runs. It brings swap up to twice the runner's RAM, at most 32 GiB and at most a quarter of the free disk, so a build that outgrows 15.6 GiB runs slower instead of being killed. The `cargo jobs:` log line and the runner-fit record carry the swap size. Other modes never add swap.
+
+Resolution, highest wins:
 
 ```mermaid
 flowchart TD

@@ -408,6 +408,7 @@ def _record(
     exit_code: int = 0,
     limit: MemoryLimit | None = LIMIT,
     config: CIConfig | None = None,
+    swap_bytes: int | None = None,
 ) -> dict[str, Any]:
     return runner_fit.build_record(
         config or CIConfig(_raw={}),
@@ -420,6 +421,7 @@ def _record(
         cpus=16,
         cpu_name="AMD EPYC",
         machine="x86_64",
+        swap_bytes=swap_bytes,
     )
 
 
@@ -429,7 +431,7 @@ class TestRecord:
             runner_fit.Phase("pgo-instrument", 300.0, 8 * GIB),
             runner_fit.Phase("release build", 590.0, 12 * GIB),
         ]
-        got = _record(phases)
+        got = _record(phases, swap_bytes=31 * GIB)
         assert got | {"verdict": None, "phases": None} == {
             "schema": 1,
             "repo": "hyperi-io/dfe-loader",
@@ -441,6 +443,7 @@ class TestRecord:
             "cpu_budget": 16,
             "memory_limit_gib": 32.0,
             "memory_limit_source": "cgroup v2 /sys/fs/cgroup/memory.max",
+            "swap_gib": 31.0,
             "cargo_jobs": 2,
             "memory_per_job_gib": 2.0,
             "optimization": "pgo+bolt",
@@ -488,6 +491,7 @@ class TestRecord:
         got = _record([runner_fit.Phase("release build", 1.0, GIB)], limit=None)
         assert got["memory_limit_gib"] is None
         assert got["memory_limit_source"] is None
+        assert got["swap_gib"] is None
         assert got["verdict"]["status"] == "unknown"
 
     @pytest.mark.parametrize(
