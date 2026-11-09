@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.56](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.55...v2.14.56) (2026-11-09)
+
+### Bug Fixes
+
+* **ci:** route runners by repo visibility, one mode per run ([dbc12ad](https://github.com/hyperi-io/hyperi-ci/commit/dbc12adaa804cbb06b451e2b383fc321bf92f923))
+* **licences:** judge a bare BSD from upstream text ([ecb13d5](https://github.com/hyperi-io/hyperi-ci/commit/ecb13d55030c4980b1d6d876290dc7dc6b05b048))
+
 ## [2.14.55](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.54...v2.14.55) (2026-11-09)
 
 ### Bug Fixes
