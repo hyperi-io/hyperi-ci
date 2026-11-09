@@ -200,6 +200,8 @@ def run_pgo_phase(
             )
             build_phase.stash(cwd, target, handover, pipeline.binaries)
             _defer(outcome)
+        else:
+            build_phase.stash(cwd, target, build_phase.PhaseState(done=True))
         return 0
 
     if outcome:
