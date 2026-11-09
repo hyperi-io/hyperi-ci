@@ -236,6 +236,24 @@ def cgroup_v2_peak(
     return int(raw) if raw and raw.isdigit() else None
 
 
+def cgroup_v2_swap_peak(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> int | None:
+    """Return the most swap this process's cgroup has used, in bytes.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The peak, or None where ``memory.swap.peak`` is missing or unreadable.
+
+    """
+    path = cgroup_v2_peak_file(root, proc_self_cgroup).with_name("memory.swap.peak")
+    raw = _read_text(path)
+    return int(raw) if raw and raw.isdigit() else None
+
+
 def available_memory(
     *,
     cgroup_root: Path = CGROUP_ROOT,
