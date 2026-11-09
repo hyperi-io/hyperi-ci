@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.55](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.54...v2.14.55) (2026-11-09)
+
+### Bug Fixes
+
+* **check:** run a local check in a memory-capped scope ([7260d53](https://github.com/hyperi-io/hyperi-ci/commit/7260d539da3784200c050c0d3688bf361cc2e7ac))
+* **rust:** log memory stall time and OOM kills per phase ([e0a6e3d](https://github.com/hyperi-io/hyperi-ci/commit/e0a6e3d79588b6eec9bd0cdddf043000a6263937))
+
 ## [2.14.54](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.53...v2.14.54) (2026-11-09)
 
 ### Bug Fixes
