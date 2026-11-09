@@ -63,7 +63,7 @@ Templates for common app shapes (HTTP server, gRPC server, Kafka producer/consum
 - Egress to apt.llvm.org, because `bolt-NN` (LLVM's post-link optimiser) isn't in Ubuntu's universe repo. hyperi-ci adds the repo when it's missing, whatever filename a runner already holds it under.
 - Egress to crates.io, for `cargo install cargo-pgo --locked`.
 - Linux. BOLT doesn't apply to macOS or Windows targets.
-- A native arm64 runner for arm64: Namespace `namespace-profile-hyperi-arm64-<CPU>x<GiB>`, or `ubuntu-24.04-arm` in `free` mode. An amd64 host can't run the instrumented arm64 binary, so it can't collect the profile.
+- A native arm64 runner for arm64: `ubuntu-24.04-arm`. An amd64 host can't run the instrumented arm64 binary, so it can't collect the profile.
 
 ## Reading the result in the log
 

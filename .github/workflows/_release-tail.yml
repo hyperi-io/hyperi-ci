@@ -145,7 +145,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: read
@@ -260,10 +260,9 @@ jobs:
     timeout-minutes: 135
     needs: [container-plan]
     if: github.event.pull_request.head.repo.fork != true && needs.container-plan.outputs.ships-container == 'true' && needs.container-plan.outputs.reuse != 'true'
-    # arm64 builds on a native arm64 runner, never under emulation on x64.
-    # GH_RUNNER_ARM64_CONTAINER goes ahead of the Build legs' GH_RUNNER_ARM64, so a
-    # Dockerfile's COPY and apt steps need not take a large Rust Build profile.
-    runs-on: ${{ matrix.platform == 'linux/arm64' && ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-24.04-arm' || vars.GH_RUNNER_ARM64_CONTAINER || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm') || ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
+    # arm64 builds on GitHub's native arm64 runner in every mode, never under
+    # emulation on x64. ARC has no arm64 nodes.
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || (inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
     permissions:
       contents: read
       packages: write
@@ -439,7 +438,7 @@ jobs:
           && needs.container-plan.outputs.push == 'true'
           && (needs.container-build.result == 'success'
               || needs.container-plan.outputs.reuse == 'true') }}
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -543,7 +542,7 @@ jobs:
     # no secret and a read-only token, and Tag & Release only uploads what it
     # leaves (issue #409).
     if: inputs.will-publish == 'true'
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -674,7 +673,7 @@ jobs:
     # notice never fires. Its own job, because prepare holds no write token.
     needs: [prepare]
     if: failure() && needs.prepare.result == 'failure'
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       issues: write
@@ -754,7 +753,7 @@ jobs:
     # ARC, like the rest of the tail. The image lacks the aws CLI needed for R2, so
     # hyperi-ci installs AWS's signed v2 bundle on demand
     # (native_deps.ensure_aws_cli).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: write
       issues: write
