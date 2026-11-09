@@ -29,6 +29,9 @@ from hyperi_ci.project_config import read_project_config
 #: Where the list lives in the project config.
 TARGETS_KEY = "build.rust.targets"
 
+#: What an empty list builds in CI.
+DEFAULT_CI_TRIPLES = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
+
 
 def declared_targets(config: dict[str, Any]) -> list[str]:
     """Return ``build.rust.targets`` from a parsed config.
@@ -55,6 +58,18 @@ def declared_targets(config: dict[str, Any]) -> list[str]:
             f"{TARGETS_KEY} must be a list of target triples, not {targets!r}"
         )
     return [target.strip() for target in targets if target.strip()]
+
+
+def ci_targets(config: dict[str, Any]) -> tuple[str, ...]:
+    """Return the targets CI builds: the declared list, else the default pair.
+
+    An unreadable list falls back to the default pair too, and the Plan job
+    reports it.
+    """
+    try:
+        return tuple(declared_targets(config)) or DEFAULT_CI_TRIPLES
+    except ValueError:
+        return DEFAULT_CI_TRIPLES
 
 
 def read_rust_targets(root: Path) -> tuple[list[str], str]:
