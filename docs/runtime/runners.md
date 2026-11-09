@@ -8,6 +8,7 @@ CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Cont
 - A private repo runs x64 on ARC, which is never billed. Setting `GH_RUNNER_MODE=free` on the repo moves it to GitHub-hosted runners, billed at 2 vCPU and 8 GB.
 - arm64 always runs on `ubuntu-24.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
+- A public repo whose build outgrows a free runner, or the 6-hour job limit, moves to ARC with `runner-mode: self-hosted`. Every ARC set but the two 4-CPU ones scales to zero, so the big runners hold no RAM until a job asks for one.
 
 The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
 
@@ -21,6 +22,8 @@ The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. 
 Plan resolves the mode once, in `predict-version`'s `runner_mode.py`, and every later job reads its `runner-mode` output. The caller's `runner-mode` input wins, then `GH_RUNNER_MODE`. With neither set, a public repo runs free and a private or internal one self-hosted. Visibility comes from the event payload, else the repositories API. A repo whose visibility cannot be read runs self-hosted. Plan and Commit messages start before the mode exists, so they read the payload's visibility themselves, and a payload with no repository lands them on `GH_RUNNER_DEFAULT`.
 
 In `free` mode each Rust Quality, Test and Build job adds a swap file in `$RUNNER_TEMP` before cargo runs. It brings swap up to twice the runner's RAM, at most 32 GiB and at most a quarter of the free disk, so a build that outgrows 15.6 GiB runs slower instead of being killed. The `cargo jobs:` log line and the runner-fit record carry the swap size. Other modes never add swap.
+
+A job fits its runner when it has no OOM kills and its full memory stall is under about 1% of its time. Both are on every phase line. `memory.peak` is no guide, because it counts page cache, which a Rust build fills to the limit.
 
 Resolution, highest wins:
 
