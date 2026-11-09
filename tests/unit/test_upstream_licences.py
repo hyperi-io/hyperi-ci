@@ -49,6 +49,27 @@ def test_repository_source(repository, expected):
     assert up.repository_source(repository) == expected
 
 
+@pytest.mark.parametrize(
+    ("urls", "expected"),
+    [
+        (
+            ["https://docs.example.org/", "https://github.com/o/r"],
+            "https://github.com/o/r",
+        ),
+        (
+            ["https://codeberg.org/o/r", "https://github.com/o/r"],
+            "https://codeberg.org/o/r",
+        ),
+        (["https://docs.example.org/", None, " "], "https://docs.example.org/"),
+        (["https://git.sr.ht/~u/repo"], "https://git.sr.ht/~u/repo"),
+        ([None, ""], None),
+        ([], None),
+    ],
+)
+def test_pick_repository_prefers_a_forge(urls, expected):
+    assert up.pick_repository(urls) == expected
+
+
 def test_tag_candidates_cover_the_usual_release_tags():
     tags = up.tag_candidates("opentelemetry_sdk", "0.31.0")
     assert tags[:2] == ["v0.31.0", "0.31.0"]
