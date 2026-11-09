@@ -14,6 +14,7 @@ crate is linked into the binary, so it is judged as ``static``.
 """
 
 import json
+import re
 from collections import deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -49,6 +50,8 @@ _METADATA = [
 ]
 
 # Files a crate ships its licence or notice in, matched on the name's start.
+_SLASH = re.compile(r"\s*/\s*")
+
 _LICENCE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "UNLICENSE")
 _NOTICE_PREFIXES = ("NOTICE",)
 
@@ -135,6 +138,9 @@ def findings_for(
             raw, source, evidence = override.licence, "override", override.reason
         else:
             raw, source, evidence = package.get("license"), "metadata", "license"
+            if raw:
+                # crates.io reads the legacy `MIT/Apache-2.0` form as an OR.
+                raw = _SLASH.sub(" OR ", str(raw))
         spdx, verdict, obligations, rule = judge(raw, Mode.STATIC, policy)
         if rule == "undeclared":
             files = licence_files(package)

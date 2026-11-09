@@ -895,6 +895,21 @@ def test_rust_crates_are_judged_as_static_links(policy, rust_metadata, monkeypat
     )
 
 
+@pytest.mark.parametrize(
+    ("declared", "spdx", "verdict"),
+    [
+        ("MIT/Apache-2.0", "MIT OR Apache-2.0", Verdict.OBLIGATIONS),
+        ("Apache-2.0 / MIT", "Apache-2.0 OR MIT", Verdict.OBLIGATIONS),
+        ("MIT/GPL-3.0-only", "MIT OR GPL-3.0-only", Verdict.OBLIGATIONS),
+        ("GPL-3.0-only/AGPL-3.0-only", "GPL-3.0-only OR AGPL-3.0-only", Verdict.DENY),
+    ],
+)
+def test_legacy_slash_crate_licence_reads_as_or(policy, declared, spdx, verdict):
+    crate = {"name": "core_detect", "version": "1.0.0", "license": declared}
+    (finding,) = rust_licenses.findings_for([crate], policy, [])
+    assert (finding.spdx, finding.verdict) == (spdx, verdict)
+
+
 def test_rust_notices_carry_crate_licence_and_notice_files(policy, rust_metadata):
     shipped = rust_licenses.shipped_packages(rust_metadata)
     findings = rust_licenses.findings_for(shipped, policy, [])
