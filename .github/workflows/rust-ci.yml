@@ -211,6 +211,8 @@ env:
   # per-run input only, never a repo variable, because the tier adds PGO and
   # BOLT to every build it reaches (issue #257).
   HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
+  # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+  HYPERCI_RUNNER_MODE: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
 
 # Least-privilege default (CodeQL actions/missing-workflow-permissions). Two jobs
 # elevate: release-tail (passes write down to _release-tail.yml) and plan

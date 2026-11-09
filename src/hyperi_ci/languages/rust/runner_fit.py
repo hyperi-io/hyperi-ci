@@ -22,10 +22,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from hyperi_ci.common import append_step_summary, info, warn
+from hyperi_ci.common import append_step_summary, info, is_linux, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.cpu import cpu_budget, cpu_model
 from hyperi_ci.memory import GIB, MemoryLimit, memory_limit
+from hyperi_ci.swap import swap_total_bytes
 
 SCHEMA = 1
 RECORD_FILE = "runner-fit.json"
@@ -351,6 +352,7 @@ def build_record(
     cpus: int,
     cpu_name: str | None,
     machine: str,
+    swap_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Return the ``runner-fit.json`` content for a finished build.
 
@@ -365,6 +367,7 @@ def build_record(
         cpus: The CPU budget.
         cpu_name: The CPU model, or None.
         machine: ``platform.machine()``.
+        swap_bytes: Active swap at the end of the build, or None when unread.
 
     Returns:
         A JSON-ready mapping with ``schema`` 1.
@@ -398,6 +401,7 @@ def build_record(
         "cpu_budget": cpus,
         "memory_limit_gib": _rounded(limit.gib if limit else None, 2),
         "memory_limit_source": limit.source if limit else None,
+        "swap_gib": _rounded(_gib(swap_bytes), 2),
         "cargo_jobs": jobs,
         "memory_per_job_gib": planned,
         "optimization": optimization,
@@ -487,6 +491,7 @@ def finish(
             cpus=cpus if cpus is not None else cpu_budget(),
             cpu_name=cpu_model(),
             machine=platform.machine(),
+            swap_bytes=swap_total_bytes() if is_linux() else None,
         )
         target = (root or Path.cwd()) / RECORD_FILE
         target.write_text(
