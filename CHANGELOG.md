@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.53](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.52...v2.14.53) (2026-11-09)
+
+### Bug Fixes
+
+* **licences:** allow CDLA-Permissive-2.0 with the permissive group ([4946549](https://github.com/hyperi-io/hyperi-ci/commit/494654928990808b1a23bdb3e519b89574cc14f4))
+* **rust:** plan 4 GiB per cargo job on free runners ([c0cf920](https://github.com/hyperi-io/hyperi-ci/commit/c0cf9203c4a99b3a7664034aeb47c463535be1ef))
+
 ## [2.14.52](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.51...v2.14.52) (2026-11-09)
 
 ### Bug Fixes
