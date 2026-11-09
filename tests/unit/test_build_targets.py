@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.build_targets import declared_targets, read_rust_targets
+from hyperi_ci.build_targets import ci_targets, declared_targets, read_rust_targets
 
 _AMD64 = "x86_64-unknown-linux-gnu"
 _ARM64 = "aarch64-unknown-linux-gnu"
@@ -42,6 +42,21 @@ class TestDeclaredTargets:
     def test_anything_but_a_list_of_strings_is_refused(self, value: object) -> None:
         with pytest.raises(ValueError, match="build.rust.targets"):
             declared_targets({"build": {"rust": {"targets": value}}})
+
+
+@pytest.mark.parametrize(
+    ("targets", "expected"),
+    [
+        (None, (_AMD64, _ARM64)),
+        ([], (_AMD64, _ARM64)),
+        ([_ARM64], (_ARM64,)),
+        (_AMD64, (_AMD64, _ARM64)),  # unreadable: the default pair
+    ],
+)
+def test_ci_targets_are_the_list_else_the_linux_pair(
+    targets: object, expected: tuple[str, ...]
+) -> None:
+    assert ci_targets({"build": {"rust": {"targets": targets}}}) == expected
 
 
 class TestReadRustTargets:
