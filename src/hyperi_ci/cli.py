@@ -1246,7 +1246,8 @@ def release_notify_cmd(
     is waiting in the morning; `--outcome commit-back-failed` records a release
     that shipped but could not push VERSION and CHANGELOG.md back to main. All
     are idempotent, and all always exit 0 -- a notification must never be the
-    thing that fails a release.
+    thing that fails a release. A success that is a hotfix on a
+    `release.candidates` repo is also reported to the alert bridge.
 
     Slack is off unless `notify.slack.webhook_env` names an env var holding a
     webhook URL.
@@ -1254,6 +1255,7 @@ def release_notify_cmd(
     from hyperi_ci.release_notify import (
         notify_commit_back_failed,
         notify_failure,
+        notify_hotfix,
         notify_slack,
         notify_success,
     )
@@ -1269,7 +1271,9 @@ def release_notify_cmd(
         rc = notify_commit_back_failed(version=version, run_url=run_url)
         notify_slack(cfg, text=f"Released v{bare}, but its commit-back to main FAILED")
     else:
-        rc = notify_success(version=version, cwd=str(dir_path) if dir_path else None)
+        cwd = str(dir_path) if dir_path else None
+        rc = notify_success(version=version, cwd=cwd)
+        notify_hotfix(cfg, version=version, cwd=cwd)
         notify_slack(cfg, text=f"Released v{bare}")
     raise typer.Exit(rc)
 

@@ -107,6 +107,8 @@ on:
         default: ""
         description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
     secrets:
+      ALERT_BRIDGE_TOKEN:
+        required: false
       CARGO_REGISTRY_TOKEN:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:

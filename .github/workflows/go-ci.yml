@@ -91,6 +91,8 @@ on:
         default: ""
         description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for Go today, kept for parity."
     secrets:
+      ALERT_BRIDGE_TOKEN:
+        required: false
       GITLEAKS_GH_ACTIONS_KEY:
         required: false
       R2_ACCESS_KEY_ID:
