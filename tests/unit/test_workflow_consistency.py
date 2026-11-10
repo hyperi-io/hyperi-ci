@@ -1100,6 +1100,10 @@ class TestBranchModeThreading:
 
 _GH_EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
 
+#: How the plan's seed step and the tail's first-release step both find a
+#: stable tag. They must agree, or the two pick different first versions.
+_STABLE_TAG_GREP = "grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$'"
+
 # The derive step's inputs, by the expression each is assigned from. Named
 # here so a reworded expression fails the render rather than silently leaving
 # a literal `${{ ... }}` in the script under test.
@@ -1111,7 +1115,7 @@ _DERIVE_INPUTS = {
     "${{ steps.worthy.outputs.release-worthy }}": "release_worthy",
     "${{ steps.worthy.outputs.code-changed }}": "code_changed",
     "${{ steps.worthy.outputs.touched }}": "touched",
-    "${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
+    "${{ steps.rc.outputs.version || steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
 }
 
 _MATRIX_INPUTS = {
@@ -1766,10 +1770,12 @@ class TestFirstReleaseAndOrphanGuards:
         # manifest via seed_version.py, never from the committed VERSION file
         # (issue #85 -- that file is an artefact, frozen in every repo).
         run = str(self._predict_step()["run"])
-        # Polarity: only on a genuinely tag-less repo.
-        assert '-z "$tags_all"' in run, (
-            "seed override must fire only on a tag-less repo"
+        # Polarity: only on a repo with no stable tag, which a candidate's
+        # X.Y.Z-rc.N tag is not.
+        assert '-z "$tags_stable"' in run, (
+            "seed override must fire only on a repo with no stable tag"
         )
+        assert _STABLE_TAG_GREP in run
         assert "seed_version.py" in run, (
             "starting version must come from the shared seed resolver"
         )
@@ -1828,8 +1834,8 @@ class TestFirstReleaseAndOrphanGuards:
         # Polarity: the -z (tag-less) branch runs tag-head; the else
         # branch runs semantic-release. Substring presence alone would
         # stay green with the branches swapped or the predicate inverted.
-        assert "if [ -z \"$(git tag --list 'v[0-9]*')\" ]" in run, (
-            "Tag step must branch on the tag-less (-z) predicate"
+        assert f"if [ -z \"$(git tag --list 'v[0-9]*' | {_STABLE_TAG_GREP}" in run, (
+            "Tag step must branch on the no-stable-tag (-z) predicate the plan uses"
         )
         idx_if = run.index("if [ -z ")
         idx_tag_head = run.index('tag-head --bump "$RELEASE_VERSION"')
@@ -2327,7 +2333,7 @@ def test_every_workflow_pins_the_cli_interpreter() -> None:
 _PUSHING_STEPS = (
     "Tag (semantic-release)",
     "Tag HEAD (forced bump / explicit version)",
-    "Tag HEAD (fork, first-parent version)",
+    "Tag HEAD (fork or release candidate)",
     "Commit rendered release artefacts",
 )
 
@@ -2448,58 +2454,74 @@ def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
 _SETUP_SEMANTIC_RELEASE = (
     "Setup semantic-release (shared toolchain -- single source of truth)"
 )
-_FORK_TAG = "Tag HEAD (fork, first-parent version)"
+_FORK_TAG = "Tag HEAD (fork or release candidate)"
+#: The plan outputs that make the tail tag the plan's version with tag-head.
+_PLAN_TAGGED = ("fork", "candidate")
 
 
 class TestReleaseTailForkTagging:
-    """A fork on main is tagged at the plan's first-parent version by tag-head.
+    """A fork or a release candidate is tagged at the plan's version by tag-head.
 
-    Plan's predict-version composite is the only reader of the classification.
-    Its ``fork`` output reaches the tail as the ``fork`` input.
+    Plan's predict-version composite is the only reader of the classification
+    and of ``release.candidates``. Its ``fork`` and ``candidate`` outputs reach
+    the tail as inputs of the same names.
     """
 
     def _step(self, name: str) -> dict:
         steps = _tag_and_release_steps()
         return next(s for s in steps if s.get("name") == name)
 
-    def test_the_composite_declares_the_fork_output(self) -> None:
+    @pytest.mark.parametrize(
+        ("output", "source"),
+        [
+            ("fork", "steps.firstparent.outputs.first-parent"),
+            ("candidate", "steps.rc.outputs.candidate"),
+        ],
+    )
+    def test_the_composite_declares_the_output(self, output: str, source: str) -> None:
         path = ACTIONS_DIR / "predict-version" / "action.yml"
         outputs = yaml.safe_load(path.read_text(encoding="utf-8"))["outputs"]
-        assert outputs["fork"]["value"] == (
-            "${{ steps.firstparent.outputs.first-parent == 'true' "
-            "&& 'true' || 'false' }}"
+        assert (
+            outputs[output]["value"]
+            == f"${{{{ {source} == 'true' && 'true' || 'false' }}}}"
         )
 
-    def test_the_tail_declares_an_optional_fork_input(self) -> None:
+    @pytest.mark.parametrize("name", _PLAN_TAGGED)
+    def test_the_tail_declares_an_optional_input(self, name: str) -> None:
         wf = _load_workflow("_release-tail.yml")
         on = wf.get("on") or wf.get(True, {})
-        spec = on["workflow_call"]["inputs"]["fork"]
+        spec = on["workflow_call"]["inputs"][name]
         assert spec["type"] == "string"
         assert spec["default"] == ""
         assert not spec.get("required", False)
 
+    @pytest.mark.parametrize("name", _PLAN_TAGGED)
     @pytest.mark.parametrize("workflow_name", [*LANGUAGE_WORKFLOWS, "ci.yml"])
-    def test_the_plan_fork_output_reaches_the_tail(self, workflow_name: str) -> None:
+    def test_the_plan_output_reaches_the_tail(
+        self, workflow_name: str, name: str
+    ) -> None:
         jobs = _load_workflow(workflow_name)["jobs"]
-        assert jobs["plan"]["outputs"]["fork"] == "${{ steps.predict.outputs.fork }}"
+        assert (
+            jobs["plan"]["outputs"][name] == f"${{{{ steps.predict.outputs.{name} }}}}"
+        )
         tail = [j for j in jobs.values() if "_release-tail.yml" in str(j.get("uses"))]
         assert len(tail) == 1, f"{workflow_name}: expected one _release-tail call"
-        assert tail[0]["with"]["fork"] == "${{ needs.plan.outputs.fork }}"
+        assert tail[0]["with"][name] == f"${{{{ needs.plan.outputs.{name} }}}}"
 
     def test_the_tail_reads_no_config_for_the_classification(self) -> None:
         text = (WORKFLOW_DIR / "_release-tail.yml").read_text(encoding="utf-8")
         assert "config --json" not in text
         assert "steps.classification" not in text
 
+    @pytest.mark.parametrize("flag", _PLAN_TAGGED)
     @pytest.mark.parametrize(
         "name", [_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"]
     )
-    def test_semantic_release_stands_down_for_a_fork(self, name: str) -> None:
-        assert "inputs.fork != 'true'" in str(self._step(name)["if"])
+    def test_semantic_release_stands_down(self, name: str, flag: str) -> None:
+        assert f"inputs.{flag} != 'true'" in str(self._step(name)["if"])
 
-    def test_a_fork_is_tagged_at_the_plans_version(self) -> None:
+    def test_the_plans_version_is_tagged_with_tag_head(self) -> None:
         step = self._step(_FORK_TAG)
-        assert str(step["if"]) == "${{ inputs.fork == 'true' }}"
         assert (
             step["run"]
             == '${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"'
@@ -2508,37 +2530,38 @@ class TestReleaseTailForkTagging:
         names = [s.get("name") for s in _tag_and_release_steps()]
         assert names.index(_FORK_TAG) < names.index("Publish")
 
+    _SEMREL = frozenset({_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"})
+
     @pytest.mark.parametrize(
-        ("fork", "event", "from_head", "bump", "expected"),
+        ("fork", "candidate", "event", "from_head", "bump", "expected"),
         [
-            # An older caller passes no fork input, which reads as not a fork.
-            (
-                "",
-                "push",
-                "",
-                "auto",
-                {_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"},
-            ),
-            (
-                "false",
-                "push",
-                "",
-                "auto",
-                {_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)"},
-            ),
-            ("true", "push", "", "auto", {_FORK_TAG}),
-            ("true", "workflow_dispatch", "true", "auto", {_FORK_TAG}),
-            ("false", "workflow_dispatch", "true", "patch", set()),
+            # An older caller passes neither input, which reads as false.
+            ("", "", "push", "", "auto", _SEMREL),
+            ("false", "false", "push", "", "auto", _SEMREL),
+            ("true", "", "push", "", "auto", {_FORK_TAG}),
+            ("true", "", "workflow_dispatch", "true", "auto", {_FORK_TAG}),
+            ("false", "false", "workflow_dispatch", "true", "patch", set()),
+            ("", "true", "push", "", "auto", {_FORK_TAG}),
+            ("false", "true", "workflow_dispatch", "true", "auto", {_FORK_TAG}),
+            # A forced candidate is tagged by the forced-bump step instead.
+            ("false", "true", "workflow_dispatch", "true", "patch", set()),
         ],
     )
     def test_which_tagger_runs(
-        self, fork: str, event: str, from_head: str, bump: str, expected: set[str]
+        self,
+        fork: str,
+        candidate: str,
+        event: str,
+        from_head: str,
+        bump: str,
+        expected: set[str],
     ) -> None:
         context = {
             "github.event_name": event,
             "inputs.from-head": from_head,
             "inputs.bump": bump,
             "inputs.fork": fork,
+            "inputs.candidate": candidate,
         }
         taggers = (_SETUP_SEMANTIC_RELEASE, "Tag (semantic-release)", _FORK_TAG)
         fired = {
@@ -3457,20 +3480,21 @@ class TestTheBranchGuardRunsBeforeEveryPublish:
         guard = steps[self._guard_index(steps)]
         assert guard["with"]["version"] == "${{ inputs.next-version }}"
 
-    # (event, tag, from-head, bump, fork, guarded). Only a release
+    # (event, tag, from-head, bump, fork, candidate, guarded). Only a release
     # semantic-release tags is guarded: tag-head tags github.sha whatever the tip.
     CASES = (
-        ("push", "", "", "auto", "", True),
-        ("workflow_dispatch", "", "true", "auto", "", True),
-        ("workflow_dispatch", "", "true", "patch", "", False),
-        ("workflow_dispatch", "", "true", "1.2.3", "", False),
-        ("push", "", "", "auto", "true", False),
-        ("workflow_dispatch", "v1.2.3", "", "auto", "", False),
+        ("push", "", "", "auto", "", "", True),
+        ("workflow_dispatch", "", "true", "auto", "", "", True),
+        ("workflow_dispatch", "", "true", "patch", "", "", False),
+        ("workflow_dispatch", "", "true", "1.2.3", "", "", False),
+        ("push", "", "", "auto", "true", "", False),
+        ("push", "", "", "auto", "", "true", False),
+        ("workflow_dispatch", "v1.2.3", "", "auto", "", "", False),
     )
 
     @pytest.mark.parametrize("job", ["container", "tag-and-release"])
     @pytest.mark.parametrize(
-        ("event", "tag", "from_head", "bump", "fork", "guarded"), CASES
+        ("event", "tag", "from_head", "bump", "fork", "candidate", "guarded"), CASES
     )
     def test_it_guards_only_an_auto_bump(
         self,
@@ -3480,6 +3504,7 @@ class TestTheBranchGuardRunsBeforeEveryPublish:
         from_head: str,
         bump: str,
         fork: str,
+        candidate: str,
         guarded: bool,
     ) -> None:
         steps = self._steps(job)
@@ -3490,6 +3515,7 @@ class TestTheBranchGuardRunsBeforeEveryPublish:
             "inputs.from-head": from_head,
             "inputs.bump": bump,
             "inputs.fork": fork,
+            "inputs.candidate": candidate,
             "inputs.will-publish": "true",
             "steps.resolve.outputs.build": "true",
         }
@@ -3504,6 +3530,7 @@ class TestTheBranchGuardRunsBeforeEveryPublish:
             "inputs.from-head": "",
             "inputs.bump": "auto",
             "inputs.fork": "",
+            "inputs.candidate": "",
             "inputs.will-publish": "false",
             "steps.resolve.outputs.build": "true",
         }

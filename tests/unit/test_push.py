@@ -370,30 +370,64 @@ class TestPublishPush:
             rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 1
 
-    def test_amends_when_no_trailer_then_pushes(self) -> None:
-        # HEAD has no Publish: true trailer → amend → rebase + push.
+    @pytest.mark.parametrize(
+        ("head", "hotfix", "added"),
+        [
+            pytest.param("fix: thing\n", None, ["Release: true"], id="release"),
+            pytest.param(
+                "fix: thing\n",
+                "CVE-2026-1",
+                ["Release: true", "Hotfix: CVE-2026-1"],
+                id="hotfix",
+            ),
+            pytest.param(
+                "fix: thing\n\nRelease: true\n",
+                "CVE-2026-1",
+                ["Hotfix: CVE-2026-1"],
+                id="hotfix-on-a-release-head",
+            ),
+        ],
+    )
+    def test_amends_the_missing_trailers_then_pushes(
+        self, head: str, hotfix: str | None, added: list[str]
+    ) -> None:
         with (
             patch("hyperi_ci.push.require_gh", return_value=True),
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
             patch("hyperi_ci.push._bump_gate", return_value=0),
-            patch(
-                "hyperi_ci.push._get_last_commit_message",
-                return_value="fix: thing\n",
-            ),
-            patch(
-                "hyperi_ci.push._amend_publish_trailer", return_value=0
-            ) as mock_amend,
+            patch("hyperi_ci.push._get_last_commit_message", return_value=head),
+            patch("hyperi_ci.push._amend_trailers", return_value=0) as mock_amend,
             patch("hyperi_ci.push._pull_rebase", return_value=0),
             patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
+            rc = _publish_push(
+                dry_run=False, force=False, bump=None, cwd=None, hotfix=hotfix
+            )
             assert rc == 0
-            mock_amend.assert_called_once()
+            mock_amend.assert_called_once_with(added, cwd=None)
             mock_push.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("branch", "hotfix", "no_ci"),
+        [("main", "  ", False), ("main", "CVE-1", True), ("beta", "CVE-1", False)],
+        ids=["no-reason", "with-no-ci", "off-main"],
+    )
+    def test_a_hotfix_is_refused(self, branch: str, hotfix: str, no_ci: bool) -> None:
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value=branch),
+            patch("hyperi_ci.push._amend_trailers", return_value=0) as mock_amend,
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
+        ):
+            from hyperi_ci.push import push
+
+            assert push(hotfix=hotfix, no_ci=no_ci) == 1
+            mock_amend.assert_not_called()
+            mock_push.assert_not_called()
 
     def test_skips_amend_when_trailer_already_present(self) -> None:
         with (
@@ -406,9 +440,7 @@ class TestPublishPush:
                 "hyperi_ci.push._get_last_commit_message",
                 return_value="fix: thing\n\nPublish: true\n",
             ),
-            patch(
-                "hyperi_ci.push._amend_publish_trailer", return_value=0
-            ) as mock_amend,
+            patch("hyperi_ci.push._amend_trailers", return_value=0) as mock_amend,
             patch("hyperi_ci.push._pull_rebase", return_value=0),
             patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
@@ -430,9 +462,7 @@ class TestPublishPush:
                 "hyperi_ci.push._get_last_commit_message",
                 return_value="fix: thing\n",
             ),
-            patch(
-                "hyperi_ci.push._amend_publish_trailer", return_value=0
-            ) as mock_amend,
+            patch("hyperi_ci.push._amend_trailers", return_value=0) as mock_amend,
             patch("hyperi_ci.push._pull_rebase", return_value=0),
             patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):

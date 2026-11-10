@@ -100,7 +100,8 @@ ALLOWED_RUN_LINES = {
         r'echo "::error::Predicted \$\{predicted\} already exists [^"`;|&]*"',
         r"exit 1",
         r'echo "\$\{predicted\} already exists at HEAD [^"$`;|&]*"',
-        r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*'\)\" \]; then",
+        r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*' \| grep -E "
+        r"'\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$' \|\| true\)\" \]; then",
         rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
         # helm dependency build, package and push render no template and run no hook.
@@ -276,7 +277,7 @@ class TestPublishRunsNoRepoCode:
             "Guard -- predicted tag must not already exist off-HEAD",
             "Tag (semantic-release)",
             "Tag HEAD (forced bump / explicit version)",
-            "Tag HEAD (fork, first-parent version)",
+            "Tag HEAD (fork or release candidate)",
         ):
             assert verify < names.index(after)
 
