@@ -225,7 +225,9 @@ runs:
           # registry.
           if [[ -z "$DISPATCH_TAG" && "$FROM_HEAD" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Bare workflow_dispatch -- validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
+            # A notice: a validate-only dispatch is deliberate, and alert sweeps
+            # count warnings.
+            echo "::notice::Bare workflow_dispatch -- validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
             exit 0
           fi
 
