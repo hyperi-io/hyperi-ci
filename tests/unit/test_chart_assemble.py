@@ -976,6 +976,47 @@ class TestBuildEmitsTheContract:
         assert json.loads(raw) == _contract()
         assert hashlib.sha256(raw).hexdigest() in emitted.name
 
+    @pytest.mark.parametrize(
+        ("phase", "packaged", "emits"),
+        [
+            ("", True, True),
+            ("pgo-profile", True, True),
+            ("pgo-profile", False, False),
+            ("pgo-optimize", False, False),
+            ("bolt", True, True),
+            ("bolt", False, False),
+        ],
+        ids=[
+            "whole-build",
+            "profile-built-plain",
+            "profile-handed-on",
+            "optimize-handed-on",
+            "bolt-finished",
+            "bolt-after-an-earlier-finish",
+        ],
+    )
+    def test_only_the_rust_phase_that_packaged_emits(
+        self,
+        repo: Path,
+        producer: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        phase: str,
+        packaged: bool,
+        emits: bool,
+    ) -> None:
+        def build(*_args: object, **_kwargs: object) -> int:
+            if packaged:
+                (repo / "dist").mkdir(exist_ok=True)
+                (repo / "dist" / "app-linux-amd64").write_bytes(b"")
+            return 0
+
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        monkeypatch.setattr(dispatch, "_dispatch_to_handler", build)
+        monkeypatch.setenv("HYPERCI_BUILD_PHASE", phase)
+        monkeypatch.chdir(repo)
+        assert dispatch.stage_build("rust", config) == 0
+        assert bool(_emitted(repo)) is emits
+
     def test_a_contract_an_earlier_build_left_is_replaced(
         self, repo: Path, producer: Path
     ) -> None:
