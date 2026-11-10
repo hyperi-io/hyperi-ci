@@ -72,7 +72,10 @@ outputs:
     value: ${{ steps.gate.outputs.will-publish }}
   version:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
-    value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+    value: ${{ steps.rc.outputs.version || steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+  candidate:
+    description: "'true' iff this run releases a candidate (X.Y.Z-rc.N) because the repo sets release.candidates, so the release tail tags HEAD with tag-head and skips semantic-release; else 'false'"
+    value: ${{ steps.rc.outputs.candidate == 'true' && 'true' || 'false' }}
   fork:
     description: "'true' iff this run versions a fork from its first-parent commits, so the release tail tags HEAD with tag-head instead of running semantic-release; else 'false'"
     value: ${{ steps.firstparent.outputs.first-parent == 'true' && 'true' || 'false' }}
@@ -386,7 +389,12 @@ runs:
         # A prerelease keeps semantic-release's own answer: the seed names a
         # stable starting version, and stamping it over `1.0.0-beta.1` would
         # cut the first stable release off a prerelease branch.
-        if [[ -z "$tags_all" && "$version" != *-* ]]; then
+        #
+        # "No release" means no stable tag: semantic-release ignores prerelease
+        # tags on main, so a repo with only X.Y.Z-rc.N tags still starts from
+        # the seed. The release tail tests the same thing.
+        tags_stable=$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags_all" || true)
+        if [[ -z "$tags_stable" && "$version" != *-* ]]; then
           start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
           if [[ -n "$start" && "$start" != "$version" ]]; then
             echo "::notice::First release on a tag-less repo -- starting at $start (semantic-release default was $version)"
@@ -475,6 +483,19 @@ runs:
         RELEASE_TAG: ${{ inputs.tag }}
       run: python3 "$GITHUB_ACTION_PATH/tag_version.py"
 
+    - name: Resolve a release candidate
+      # A repo with release.candidates on ships every release from main as
+      # X.Y.Z-rc.N, and the release tail tags it from the plan, never through
+      # semantic-release. A tag dispatch keeps the tag's own version, which is
+      # how `hyperi-ci promote` ships the GA.
+      id: rc
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.ref == 'refs/heads/main' && inputs.tag == '' }}
+      shell: bash
+      env:
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rc_version.py"
+
     - name: Detect a release-worthy push, and what it changed
       # Checks run on PRs and RELEASE-WORTHY pushes. The release trailer marks only
       # pushes that PUBLISH, a smaller set, so a squash merge of a fix: to main
@@ -511,7 +532,7 @@ runs:
         RELEASE_WORTHY: ${{ steps.worthy.outputs.release-worthy }}
         CODE_CHANGED: ${{ steps.worthy.outputs.code-changed }}
         TOUCHED: ${{ steps.worthy.outputs.touched }}
-        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+        PLANNED_VERSION: ${{ steps.rc.outputs.version || steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
       run: |
         set -euo pipefail
         will_publish="$WILL_PUBLISH"

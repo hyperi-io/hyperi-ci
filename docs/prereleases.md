@@ -67,6 +67,14 @@ adds about 14 minutes per arch and the arches build in parallel.
 `release-unoptimized` guards the stable row only, and only where Tier 2 would
 have run. It protects the version users install, and a prerelease spends none.
 
+## Release candidates from main
+
+With `release.candidates: true`, every release from main ships as `X.Y.Z-rc.N`: a GitHub prerelease, no GHCR `:latest`, R2 `rc/`, and a plain Rust build. semantic-release still predicts `X.Y.Z`, as it never counts a prerelease tag as the last release. Plan appends `-rc.N`, one past the highest `vX.Y.Z-rc.N` tag, and Tag & Release cuts it with `tag-head`.
+
+`hyperi-ci promote v2.2.3-rc.2` tags that candidate's commit `v2.2.3` and dispatches the tag's release, which rebuilds it as a GA with PGO and BOLT. The next release predicts `2.2.4`.
+
+`hyperi-ci push --hotfix CVE-2026-1234` skips the candidate and ships `X.Y.Z` with PGO and BOLT. It adds a `Hotfix:` trailer beside `Release: true`, and Plan prints the reason as a warning.
+
 ## What a cron cannot promise
 
 A prerelease branch is commit-driven like any other branch. A scheduled run on

@@ -120,13 +120,23 @@ class TestNodeManifest:
 
 
 class TestRejectedVersions:
-    """Only a plain X.Y.Z can seed a tag -- the tag format is `v${version}`."""
+    """Only an X.Y.Z can seed a tag -- the tag format is `v${version}`."""
 
     def test_rejects_a_pep_440_prerelease(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "thing"\nversion = "0.1.0a1"\n', encoding="utf-8"
         )
         assert declared_version(tmp_path) is None
+
+    @pytest.mark.parametrize("stamped", ["0.4.0-rc.1", "v0.4.0-beta.2"])
+    def test_a_semver_prerelease_seeds_its_core(
+        self, tmp_path: Path, stamped: str
+    ) -> None:
+        # A release candidate's commit-back leaves this in the manifest.
+        (tmp_path / "Cargo.toml").write_text(
+            f'[package]\nname = "thing"\nversion = "{stamped}"\n', encoding="utf-8"
+        )
+        assert declared_version(tmp_path) == ("0.4.0", "Cargo.toml")
 
     def test_rejects_a_two_part_version(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text(

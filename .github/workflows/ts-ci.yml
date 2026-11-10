@@ -216,6 +216,7 @@ jobs:
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
       fork: ${{ steps.predict.outputs.fork }}
+      candidate: ${{ steps.predict.outputs.candidate }}
       test-tier: ${{ steps.predict.outputs.test-tier }}
       full-required-for-release: ${{ steps.predict.outputs.full-required-for-release }}
     steps:
@@ -553,6 +554,7 @@ jobs:
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       fork: ${{ needs.plan.outputs.fork }}
+      candidate: ${{ needs.plan.outputs.candidate }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}
       bump: ${{ inputs.bump }}

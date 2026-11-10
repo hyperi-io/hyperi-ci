@@ -7,7 +7,8 @@
 """Trigger a release through workflow_dispatch: from HEAD, or on an existing tag.
 
 The usual path is `hyperi-ci push --release`. This one retries a failed
-publish without re-tagging, or releases HEAD without a marker commit.
+publish without re-tagging, releases HEAD without a marker commit, or promotes
+a release candidate to its GA.
 """
 
 from hyperi_ci.common import (
@@ -19,6 +20,8 @@ from hyperi_ci.common import (
     success,
     warn,
 )
+from hyperi_ci.gh import gh_api
+from hyperi_ci.release_candidate import candidate_version
 
 # A consumer's `on.workflow_dispatch.inputs` must declare all of these or the
 # dispatch fails with HTTP 422 (issue #88); `hyperi-ci audit-callers` checks it.
@@ -203,5 +206,92 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
         return result.returncode
 
     success(f"Publish dispatched for {tag}")
+    info("Watch progress: hyperi-ci watch")
+    return 0
+
+
+def _sha_of(api: str, kind: str) -> tuple[str, str]:
+    """Return the ``(type, sha)`` of the object a git-data endpoint returns."""
+    found = gh_api([f"repos/{{owner}}/{{repo}}/{api}"])
+    obj = found.data.get(kind) if isinstance(found.data, dict) else None
+    if not isinstance(obj, dict):
+        return "", ""
+    return str(obj.get("type", "")), str(obj.get("sha", ""))
+
+
+def _tag_commit(tag: str) -> str:
+    """Return the commit tag ``tag`` points at, empty when no such tag exists.
+
+    Reads ``refs/tags/<tag>`` exactly, so a branch of the same name never
+    answers, and peels an annotated tag to its commit.
+    """
+    kind, sha = _sha_of(f"git/ref/tags/{tag}", "object")
+    if kind == "tag":
+        kind, sha = _sha_of(f"git/tags/{sha}", "object")
+    return sha if kind == "commit" else ""
+
+
+def promote(tag: str, *, dry_run: bool = False) -> int:
+    """Ship release candidate ``tag`` as its GA version.
+
+    Tags the candidate's commit ``vX.Y.Z`` on GitHub and dispatches that tag's
+    release, which rebuilds the commit as a GA rather than re-labelling the
+    candidate's artefacts. Re-running after the tag exists dispatches again.
+
+    Args:
+        tag: The candidate, ``vX.Y.Z-rc.N``.
+        dry_run: Print the tag and dispatch without making either.
+
+    Returns:
+        Exit code: 0 once the release is dispatched.
+
+    """
+    candidate = candidate_version(tag)
+    if candidate is None:
+        error(f"'{tag}' is not a release candidate tag (vX.Y.Z-rc.N)")
+        return 1
+    rc_tag = f"v{candidate}"
+    ga_tag = f"v{candidate.split('-', 1)[0]}"
+
+    sha = _tag_commit(rc_tag)
+    if not sha:
+        error(f"No tag {rc_tag} on GitHub")
+        return 1
+
+    cmd = _dispatch_cmd(_WORKFLOW_FILE, {"tag": ga_tag})
+    if dry_run:
+        info(f"Would tag {ga_tag} at {sha[:8]} ({rc_tag})")
+        info(f"Would run: {' '.join(cmd)}")
+        return 0
+
+    created = gh_api(
+        [
+            "--method",
+            "POST",
+            "repos/{owner}/{repo}/git/refs",
+            "-f",
+            f"ref=refs/tags/{ga_tag}",
+            "-f",
+            f"sha={sha}",
+        ]
+    )
+    if created.data is not None:
+        success(f"Tagged {ga_tag} at {sha[:8]}, the commit behind {rc_tag}")
+    else:
+        existing = _tag_commit(ga_tag)
+        if existing != sha:
+            error(
+                f"{ga_tag} could not be tagged at {rc_tag}'s commit {sha[:8]}: "
+                f"{created.reason}"
+            )
+            return 1
+        info(f"{ga_tag} already tags {rc_tag}'s commit -- dispatching its release")
+
+    info(f"Dispatching the {ga_tag} release via {_WORKFLOW_FILE}...")
+    result = run_cmd(cmd, check=False)
+    if result.returncode != 0:
+        error("Failed to dispatch workflow")
+        return result.returncode
+    success(f"{rc_tag} promoted: {ga_tag} is building")
     info("Watch progress: hyperi-ci watch")
     return 0

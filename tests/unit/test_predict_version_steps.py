@@ -72,6 +72,18 @@ _MAIN = "refs/heads/main"
 _BETA = "refs/heads/beta"
 _FEATURE = "refs/heads/feature/x"
 
+#: The derive step's planned-version expression, first answer wins.
+_VERSION_CHAIN = (
+    "steps.rc.outputs.version || steps.predict.outputs.version"
+    " || steps.firstparent.outputs.version || steps.forkforced.outputs.version"
+    " || steps.forced.outputs.version || steps.tagged.outputs.version"
+)
+#: The rc step's input: the same chain without itself or a tag dispatch.
+_RC_INPUT = (
+    "steps.predict.outputs.version || steps.firstparent.outputs.version"
+    " || steps.forkforced.outputs.version || steps.forced.outputs.version"
+)
+
 
 def _steps() -> dict[str, dict]:
     action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
@@ -223,7 +235,7 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "steps.worthy.outputs.release-worthy": "",
             "steps.worthy.outputs.code-changed": "",
             "steps.worthy.outputs.touched": "",
-            "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            _VERSION_CHAIN: "",
         },
         repo,
     )[0]
@@ -689,6 +701,115 @@ class TestAForkForcedBump:
         assert expected in str(_steps()["derive"]["env"])
 
 
+def _commit(repo: Path, message: str, *tags: str) -> None:
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-q", "-m", message],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    for tag in tags:
+        subprocess.run(["git", "tag", tag], cwd=repo, check=True, capture_output=True)
+
+
+@needs_uv
+class TestAReleaseCandidate:
+    """An opted-in repo releases X.Y.Z-rc.N from main, one past its last rc."""
+
+    @pytest.mark.parametrize(
+        ("config", "tags", "planned", "expected"),
+        [
+            pytest.param(None, (), "1.2.3", ("1.2.3", "false"), id="no-config"),
+            pytest.param("false", (), "1.2.3", ("1.2.3", "false"), id="off"),
+            pytest.param("true", (), "1.2.3", ("1.2.3-rc.1", "true"), id="first"),
+            pytest.param("'yes'", (), "1.2.3", ("1.2.3-rc.1", "true"), id="quoted"),
+            pytest.param(
+                "true",
+                ("v1.2.3-rc.1", "v1.2.3-rc.4", "v1.2.2-rc.9", "v1.2.30-rc.7"),
+                "1.2.3",
+                ("1.2.3-rc.5", "true"),
+                id="past-the-highest-of-this-version-only",
+            ),
+            pytest.param(
+                "true", (), "1.2.3-beta.1", ("1.2.3-beta.1", "false"), id="prerelease"
+            ),
+        ],
+    )
+    def test_the_version_released(
+        self,
+        released_head: Path,
+        config: str | None,
+        tags: tuple[str, ...],
+        planned: str,
+        expected: tuple[str, str],
+    ) -> None:
+        if config is not None:
+            (released_head / ".hyperi-ci.yaml").write_text(
+                f"release:\n  candidates: {config}\n", encoding="utf-8"
+            )
+        for tag in tags:
+            _commit(released_head, f"fix: {tag}", tag)
+        outputs, stdout = _run_step("rc", {_RC_INPUT: planned}, released_head)
+        assert (outputs["version"], outputs["candidate"]) == expected
+        assert stdout.startswith(f"::notice title=release candidate::v{expected[0]}")
+
+    @pytest.mark.parametrize(
+        ("body", "trailers", "said"),
+        [
+            pytest.param(
+                "release:\n  candidates: true\n",
+                "Hotfix: CVE-2026-1234\nHotfix: INC-77",
+                "hotfix, no candidate: CVE-2026-1234 INC-77",
+                id="hotfix-trailers-on-one-line",
+            ),
+            pytest.param(
+                "release: [\n", "", "names no candidates", id="unparsed-never-opted-in"
+            ),
+        ],
+    )
+    def test_the_ga_ships_with_a_warning(
+        self, released_head: Path, body: str, trailers: str, said: str
+    ) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(body, encoding="utf-8")
+        _commit(released_head, f"fix: patch it\n\nRelease: true\n{trailers}")
+        outputs, stdout = _run_step("rc", {_RC_INPUT: "1.2.3"}, released_head)
+        assert outputs == {"version": "1.2.3", "candidate": "false"}
+        assert stdout.startswith("::warning title=release candidate::v1.2.3")
+        assert said in stdout
+        assert stdout.count("\n") == 1
+
+    @pytest.mark.parametrize(
+        ("planned", "body"),
+        [
+            ("1.2.3", "release:\n  candidates: [true\n"),
+            ("", "release:\n  candidates: true\n"),
+        ],
+        ids=["unparsed-and-opted-in", "no-version"],
+    )
+    def test_a_doubtful_answer_fails_the_step(
+        self, released_head: Path, planned: str, body: str
+    ) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(body, encoding="utf-8")
+        outputs, stdout = _run_step(
+            "rc", {_RC_INPUT: planned}, released_head, returncode=1
+        )
+        assert outputs == {}
+        assert stdout.startswith("::error title=release candidate::")
+
+    def test_the_step_never_renames_a_tag_dispatch(self) -> None:
+        condition = str(_steps()["rc"]["if"])
+        assert "steps.gate.outputs.will-publish == 'true'" in condition
+        assert "github.ref == 'refs/heads/main'" in condition
+        assert "inputs.tag == ''" in condition
+        assert "steps.tagged" not in str(_steps()["rc"]["env"])
+
+    def test_the_outputs_read_the_step_first(self) -> None:
+        action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
+        assert action["outputs"]["version"]["value"] == f"${{{{ {_VERSION_CHAIN} }}}}"
+        assert "steps.rc.outputs.candidate" in action["outputs"]["candidate"]["value"]
+        assert _VERSION_CHAIN in str(_steps()["derive"]["env"])
+
+
 _AMD64 = "x86_64-unknown-linux-gnu"
 _ARM64 = "aarch64-unknown-linux-gnu"
 
@@ -855,7 +976,7 @@ class TestAPython3WithoutPyYAML:
                 "steps.worthy.outputs.release-worthy": "true",
                 "steps.worthy.outputs.code-changed": "",
                 "steps.worthy.outputs.touched": "",
-                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                _VERSION_CHAIN: "",
             },
             released_head,
             bare_python3,
@@ -978,7 +1099,7 @@ class TestUvCannotSupplyPyYAML:
                 "steps.worthy.outputs.release-worthy": "true",
                 "steps.worthy.outputs.code-changed": "",
                 "steps.worthy.outputs.touched": "",
-                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                _VERSION_CHAIN: "",
             },
             released_head,
             env=broken_uv,
@@ -986,6 +1107,34 @@ class TestUvCannotSupplyPyYAML:
         )
         assert outputs["run-checks"] == "true"
         assert outputs["run-arm64-check"] == "false"
+
+    @pytest.mark.parametrize(
+        ("opted_in", "returncode"), [(False, 0), (True, 1)], ids=["plain", "opted-in"]
+    )
+    def test_the_rc_step_fails_only_a_repo_that_opted_in(
+        self,
+        released_head: Path,
+        bare_python3: Path,
+        broken_uv: dict[str, str],
+        opted_in: bool,
+        returncode: int,
+    ) -> None:
+        body = self.CONFIG + ("release:\n  candidates: true\n" if opted_in else "")
+        (released_head / ".hyperi-ci.yaml").write_text(body, encoding="utf-8")
+        outputs, stdout = _run_step(
+            "rc",
+            {_RC_INPUT: "1.2.3"},
+            released_head,
+            env=broken_uv,
+            path_first=bare_python3,
+            returncode=returncode,
+        )
+        if opted_in:
+            assert outputs == {}
+            assert stdout.startswith("::error title=release candidate::")
+        else:
+            assert outputs == {"version": "1.2.3", "candidate": "false"}
+            assert stdout.startswith("::warning title=release candidate::v1.2.3")
 
 
 @needs_uv
@@ -1075,7 +1224,7 @@ class TestAChoreMergeThatEditsCode:
                 "steps.worthy.outputs.release-worthy": probe["release-worthy"],
                 "steps.worthy.outputs.code-changed": probe["code-changed"],
                 "steps.worthy.outputs.touched": probe["touched"],
-                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                _VERSION_CHAIN: "",
             },
             repo,
         )

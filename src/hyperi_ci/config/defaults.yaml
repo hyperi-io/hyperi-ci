@@ -457,6 +457,11 @@ release:
   # carries its own label, which wins over this.
   channel: release
 
+  # true ships every release from main as X.Y.Z-rc.N, a GitHub prerelease with
+  # no PGO or BOLT. `hyperi-ci promote vX.Y.Z-rc.N` tags that commit vX.Y.Z and
+  # rebuilds it as the GA. `hyperi-ci push --hotfix <reason>` releases X.Y.Z directly.
+  candidates: false
+
   # A push to main with no release trailer reports the releasable commits the
   # last v* tag lacks. It is a notice until the oldest of them is more than
   # this many days old, then a warning. 0 warns on any unreleased work.
