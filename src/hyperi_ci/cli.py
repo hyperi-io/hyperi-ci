@@ -1658,6 +1658,59 @@ def vendor_check_cmd(
     raise typer.Exit(run(load_config(project_dir=root), root))
 
 
+licenses_app = typer.Typer(help="Dependency licence policy")
+app.add_typer(licenses_app, name="licenses")
+
+
+@licenses_app.command(name="judge")
+def licenses_judge_cmd(
+    licence: Annotated[
+        str,
+        typer.Argument(help="SPDX id, expression or alias, as an override names it"),
+    ],
+    mode: Annotated[
+        str,
+        typer.Option("--mode", help="import, static, vendored or modified"),
+    ] = "import",
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the answer as JSON"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Print the verdict this repo's licence policy gives an override naming LICENCE."""
+    from hyperi_ci.quality.dep_licenses import (
+        Mode,
+        PolicyError,
+        judge_override,
+        load_settings,
+    )
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    if mode not in {m.value for m in Mode}:
+        typer.echo(f"--mode {mode!r}: use one of {', '.join(Mode)}", err=True)
+        raise typer.Exit(2)
+    try:
+        policy, _ = load_settings(load_config(project_dir=root))
+    except PolicyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    answer = judge_override(licence, Mode(mode), policy)
+    if as_json:
+        typer.echo(json.dumps(answer))
+        return
+    obligations = (
+        f" [{', '.join(answer['obligations'])}]" if answer["obligations"] else ""
+    )
+    typer.echo(
+        f"{answer['spdx'] or 'unknown'} {mode} -> {answer['verdict']}{obligations} "
+        f"(rule {answer['rule'] or 'none'})"
+    )
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[

@@ -72,3 +72,5 @@ quality:
 ```
 
 Our own packages (dfe-schemas and the like declare BUSL-1.1, which the table leaves ask) take `licence: LicenseRef-HyperI` in an override. That id is allowed only from an override, so package metadata claiming it stays ask and a squatted name cannot pass as ours.
+
+`hyperi-ci licenses judge <licence> --mode <mode> --json`, run in the repo, prints the verdict an override naming that licence gets under the repo's policy: `{licence, spdx, mode, verdict, obligations, rule, override_only, policy}`. `policy` is the same digest `licenses.json` carries. `override_only` is true for a group, such as first-party, whose verdict holds only through an override. A malformed `quality.dep_licenses.policy` or an unknown mode exits 2.
