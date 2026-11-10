@@ -8,8 +8,8 @@
 
 The ``BSD License`` trove classifier covers BSD-4-Clause too, so it names no
 licence on its own. A file whose whole text, copyright lines aside, is the
-BSD-2-Clause, BSD-3-Clause or 0BSD clause text is that licence. Anything left
-over, an added clause or a line of prose, is no match.
+BSD-2-Clause, BSD-3-Clause, 0BSD or ISC clause text is that licence. Anything
+left over, an added clause or a line of prose, is no match.
 """
 
 import re
@@ -23,8 +23,8 @@ _COPYRIGHT = re.compile(
     re.IGNORECASE,
 )
 _TITLE = re.compile(
-    r"^\W*(the )?((new|simplified|modified|revised) )?bsd( [23]-clause| zero[- ]clause)?"
-    r"( licen[cs]e)?\W*$",
+    r"^\W*(the )?(((new|simplified|modified|revised) )?bsd( [23]-clause| zero[- ]clause)?"
+    r"|isc)( licen[cs]e)?( \(iscl\))?\W*$",
     re.IGNORECASE,
 )
 # Lines no clause can hide in: an rst underline, "License for <package>", and a
@@ -65,9 +65,17 @@ _DISCLAIMER = (
     r"arising in any way out of the use of this software, even if advised of the "
     r"possibility of such damage\."
 )
-_ZERO_CLAUSE = (
-    r"permission to use, copy, modify, and/or distribute this software for any "
-    r"purpose with or without fee is hereby granted\. the software is provided as is "
+_GRANT = (
+    r"permission to use, copy, modify, and(/or)? distribute this software for any "
+    r"purpose with or without fee is hereby granted"
+)
+# ISC is the 0BSD grant plus this one condition.
+_ISC_NOTICE = (
+    r", provided that the above copyright notice and this permission notice appear "
+    r"in all copies"
+)
+_WARRANTY = (
+    r"\. the software is provided as is "
     r"and the author disclaims all warranties with regard to this software including "
     r"all implied warranties of merchantability and fitness\. in no event shall the "
     r"author be liable for any special, direct, indirect, or consequential damages or "
@@ -78,7 +86,8 @@ _ZERO_CLAUSE = (
 _TEMPLATES = {
     "BSD-2-Clause": re.compile(_CONDITIONS + _DISCLAIMER),
     "BSD-3-Clause": re.compile(_CONDITIONS + _NAME_CLAUSE + _DISCLAIMER),
-    "0BSD": re.compile(_ZERO_CLAUSE),
+    "0BSD": re.compile(_GRANT + _WARRANTY),
+    "ISC": re.compile(_GRANT + _ISC_NOTICE + _WARRANTY),
 }
 
 # List markers (`1.`, `a)`, `(ii)`, `-`) and markdown emphasis.
@@ -108,7 +117,7 @@ def _normalise(text: str) -> str:
 
 
 def bsd_licence(text: str | None) -> str | None:
-    """Return ``BSD-2-Clause``, ``BSD-3-Clause`` or ``0BSD`` when that is all ``text`` holds.
+    """Return ``BSD-2-Clause``, ``BSD-3-Clause``, ``0BSD`` or ``ISC`` when that is all ``text`` holds.
 
     Args:
         text: A licence file's content.

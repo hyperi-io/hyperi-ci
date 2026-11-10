@@ -474,6 +474,11 @@ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 """
+_ISC = _ZERO_BSD.replace(
+    "hereby granted.",
+    "hereby granted, provided that the above copyright notice and this "
+    "permission notice appear in all copies.",
+)
 
 
 @pytest.mark.parametrize(
@@ -549,15 +554,12 @@ PERFORMANCE OF THIS SOFTWARE.
             "BSD Zero Clause Licence\n\nCopyright 2022, Adam Turner\n\n" + _ZERO_BSD,
             "0BSD",
         ),
-        # ISC asks for the notice to be kept, so it is not 0BSD.
-        (
-            _ZERO_BSD.replace(
-                "hereby granted.",
-                "hereby granted, provided that the above copyright notice and this "
-                "permission notice appear in all copies.",
-            ),
-            None,
-        ),
+        # ISC asks for the notice to be kept, so it is ISC, not 0BSD.
+        (_ISC, "ISC"),
+        # requests-oauthlib 2.0.0 ships this under a `BSD License` classifier.
+        ("ISC License\n\nCopyright (c) 2014 Kenneth Reitz.\n\n" + _ISC, "ISC"),
+        (_ISC.replace("and/or distribute", "and distribute"), "ISC"),
+        (_ISC + "\nThis software may not be used for military purposes.\n", None),
         ("", None),
         (None, None),
     ],
@@ -571,6 +573,7 @@ def test_bsd_licence_needs_the_whole_text_to_be_one_bsd(text, expected):
     [
         ("BSD License", _BSD3, "BSD-3-Clause", Verdict.OBLIGATIONS),
         ("BSD", _BSD2, "BSD-2-Clause", Verdict.OBLIGATIONS),
+        ("BSD License", _ISC, "ISC", Verdict.OBLIGATIONS),
         ("BSD License", _BSD3 + "\nNo military use.\n", "BSD License", Verdict.ASK),
         ("BSD License", "UNKNOWN", "BSD License", Verdict.ASK),
         # Only a bare BSD is read from the file. A declared licence is never second-guessed.
