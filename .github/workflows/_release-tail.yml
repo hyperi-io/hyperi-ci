@@ -57,6 +57,10 @@ on:
         type: string
         default: ""
         description: "'true' iff the caller's plan versioned a fork from its first-parent commits (predict-version's `fork` output). Tag & Release then tags HEAD with tag-head and skips semantic-release. Empty reads as not a fork."
+      candidate:
+        type: string
+        default: ""
+        description: "'true' iff the caller's plan cut a release candidate, X.Y.Z-rc.N (predict-version's `candidate` output). Empty reads as not a candidate."
       tag:
         type: string
         default: ""
