@@ -502,6 +502,36 @@ def restrict_override_only(finding: Finding, policy: Policy) -> Finding:
     return replace(finding, verdict=Verdict.ASK, obligations=(), rule="override-only")
 
 
+def judge_override(licence: str, mode: Mode, policy: Policy) -> dict[str, Any]:
+    """Return the policy's answer for an override that names ``licence``.
+
+    ``policy`` in the answer is the digest a licenses.json report carries, so a
+    caller can tie the answer to the report it overrides. ``override_only``
+    marks a group whose verdict holds only because an override named it.
+
+    Args:
+        licence: The override's ``licence``: an SPDX id, expression or alias.
+        mode: How the dependency reaches what ships.
+        policy: The effective policy.
+
+    Returns:
+        ``licence``, ``spdx``, ``mode``, ``verdict``, ``obligations``,
+        ``rule``, ``override_only`` and ``policy``.
+
+    """
+    spdx, verdict, obligations, rule = judge(licence, mode, policy)
+    return {
+        "licence": licence,
+        "spdx": spdx,
+        "mode": mode.value,
+        "verdict": verdict.value,
+        "obligations": list(obligations),
+        "rule": rule,
+        "override_only": bool(set(rule.split("+")) & policy.override_only),
+        "policy": policy.digest,
+    }
+
+
 def blocking(findings: Iterable[Finding]) -> list[Finding]:
     """Return the findings a blocking gate fails on: every deny and ask."""
     return [f for f in findings if f.verdict in (Verdict.DENY, Verdict.ASK)]

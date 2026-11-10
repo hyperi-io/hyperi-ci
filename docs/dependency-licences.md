@@ -32,7 +32,7 @@ Each language's quality stage reads its own dependencies:
 | Rust | `cargo tree -e normal,no-proc-macro --all-features --target <t>` for each `build.rust.targets` entry (default the two Linux GNU targets), `cargo metadata` for licences and files | what a build for those targets links. Not dev or build dependencies, proc-macros, or crates only another platform links | `static` |
 | TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production`, for npm, pnpm and yarn alike | `import` |
 
-A Python package declaring only `BSD License` is BSD-2-Clause, BSD-3-Clause or 0BSD when its licence file, or its repository's, is that full text alone, else ask. A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its `deny.toml` checks too.
+A Python package declaring only `BSD License` is BSD-2-Clause, BSD-3-Clause, 0BSD or ISC when its licence file, or its repository's, is that full text alone, else ask. A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its `deny.toml` checks too.
 
 Copied-in source is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
 
@@ -72,3 +72,5 @@ quality:
 ```
 
 Our own packages (dfe-schemas and the like declare BUSL-1.1, which the table leaves ask) take `licence: LicenseRef-HyperI` in an override. That id is allowed only from an override, so package metadata claiming it stays ask and a squatted name cannot pass as ours.
+
+`hyperi-ci licenses judge <licence> --mode <mode> --json`, run in the repo, prints the verdict an override naming that licence gets under the repo's policy: `{licence, spdx, mode, verdict, obligations, rule, override_only, policy}`. `policy` is the same digest `licenses.json` carries. `override_only` is true for a group, such as first-party, whose verdict holds only through an override. A malformed `quality.dep_licenses.policy` or an unknown mode exits 2.
