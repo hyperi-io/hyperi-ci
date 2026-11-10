@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.58](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.57...v2.14.58) (2026-11-10)
+
+### Bug Fixes
+
+* **ci:** declare the release tail's candidate input ([eadd9a1](https://github.com/hyperi-io/hyperi-ci/commit/eadd9a1dadffbe0f6dfca80bb7716116a694c03f))
+* **ci:** split Rust GA builds into three jobs ([3c82ff3](https://github.com/hyperi-io/hyperi-ci/commit/3c82ff3d81d902b0aae6d95bbc5bc9ccc856c78e))
+* **rust:** emit the contract only from the phase that packaged ([010011a](https://github.com/hyperi-io/hyperi-ci/commit/010011a65fe884a71936222f4f358b7b85ac33fa))
+
 ## [2.14.57](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.56...v2.14.57) (2026-11-10)
 
 ### Bug Fixes
