@@ -4,9 +4,9 @@ CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Cont
 
 ## Runner policy
 
-- A public repo runs every job on GitHub's free runners: `ubuntu-latest` and `ubuntu-24.04-arm`, 4 CPUs and 15.6 GiB each.
+- A public repo runs every job on GitHub's free runners: `ubuntu-latest` and `ubuntu-26.04-arm`, 4 CPUs and 15.6 GiB each.
 - A private repo runs x64 on ARC, which is never billed. Setting `GH_RUNNER_MODE=free` on the repo moves it to GitHub-hosted runners, billed at 2 vCPU and 8 GB.
-- arm64 always runs on `ubuntu-24.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
+- arm64 always runs on `ubuntu-26.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
 - A public repo whose build outgrows a free runner, or the 6-hour job limit, moves to ARC with `runner-mode: self-hosted`. Every ARC set but the two 4-CPU ones scales to zero, so the big runners hold no RAM until a job asks for one.
 
@@ -16,8 +16,8 @@ The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. 
 
 | Mode | Runners | Cache | Toolchain |
 |---|---|---|---|
-| `self-hosted` | ARC runners on the DevEx RKE2 cluster for x64, `ubuntu-24.04-arm` for arm64 | persistent NFS sccache/ccache | pre-baked in the runner image |
-| `free` | GitHub-hosted `ubuntu-latest` and `ubuntu-24.04-arm` | none between runs | installed per job by `setup-runtime` |
+| `self-hosted` | ARC runners on the DevEx RKE2 cluster for x64, `ubuntu-26.04-arm` for arm64 | persistent NFS sccache/ccache | pre-baked in the runner image |
+| `free` | GitHub-hosted `ubuntu-latest` and `ubuntu-26.04-arm` | none between runs | installed per job by `setup-runtime` |
 
 Plan resolves the mode once, in `predict-version`'s `runner_mode.py`, and every later job reads its `runner-mode` output. The caller's `runner-mode` input wins, then `GH_RUNNER_MODE`. With neither set, a public repo runs free and a private or internal one self-hosted. Visibility comes from the event payload, else the repositories API. A repo whose visibility cannot be read runs self-hosted. Plan and Commit messages start before the mode exists, so they read the payload's visibility themselves, and a payload with no repository lands them on `GH_RUNNER_DEFAULT`.
 
@@ -55,8 +55,8 @@ The chain each job takes:
 | Quality, Test, Build | `free` -> `runner-<job>` input (or `test-matrix` for Test) -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
 | Plan, Commit messages | explicit `free`, or no explicit mode and a public payload -> `ubuntu-latest`, else `GH_RUNNER_DEFAULT` | start before Plan resolves the mode. Need only git, python3 and uv |
 | Gate, release tail (x64) | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | need only uv. The tail takes Plan's mode as its `runner-mode` input |
-| arm64 build legs and parity build | `free` -> `ubuntu-24.04-arm`, else `runner-build-arm64` input -> `ubuntu-24.04-arm` | the parity build skips PGO and BOLT, so it takes the same runner |
-| arm64 container leg | `ubuntu-24.04-arm` | arm64 images build natively, never under emulation on x64 |
+| arm64 build legs and parity build | `free` -> `ubuntu-26.04-arm`, else `runner-build-arm64` input -> `ubuntu-26.04-arm` | the parity build skips PGO and BOLT, so it takes the same runner |
+| arm64 container leg | `ubuntu-26.04-arm` | arm64 images build natively, never under emulation on x64 |
 
 Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml` (version: `tools.pyyaml` in `versions.yaml`). No image needs PyYAML or yq. A config that exists and cannot be read raises a `::warning::` naming the file, and its settings take their defaults.
 
@@ -131,7 +131,7 @@ Multi-arch builds use a native runner per architecture:
 | Arch | Runner | Source var |
 |---|---|---|
 | x86_64 (amd64) | `ubuntu-latest` in free mode, else ARC | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
-| aarch64 (arm64) | GitHub `ubuntu-24.04-arm` | `runner-build-arm64` input in self-hosted mode |
+| aarch64 (arm64) | GitHub `ubuntu-26.04-arm` | `runner-build-arm64` input in self-hosted mode |
 
 Each leg builds its own arch, so no build cross-compiles (see [No cross-compilation](#no-cross-compilation)).
 

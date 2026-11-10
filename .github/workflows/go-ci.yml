@@ -286,7 +286,7 @@ jobs:
         # Inputs travel as env, so a workflow input is never read as shell.
         env:
           AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || 'ubuntu-24.04-arm' }}
+          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || 'ubuntu-26.04-arm' }}
           WILL_RELEASE: ${{ steps.predict.outputs.will-release }}
         run: |
           set -euo pipefail

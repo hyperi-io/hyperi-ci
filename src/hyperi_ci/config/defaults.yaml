@@ -418,7 +418,7 @@ build:
         - {label: arc-native-4x8, arch: amd64, cpus: 4, memory_gib: 8}
         - {label: arc-native-8x16, arch: amd64, cpus: 8, memory_gib: 16}
         - {label: arc-native-16x32, arch: amd64, cpus: 16, memory_gib: 32}
-        - {label: ubuntu-24.04-arm, arch: arm64, cpus: 4, memory_gib: 15.6}
+        - {label: ubuntu-26.04-arm, arch: arm64, cpus: 4, memory_gib: 15.6}
     # LLVM major for bolt-NN / lld-NN / clang-NN, shimmed ahead of the runner's
     # own unversioned ld.lld and clang. HYPERCI_LLVM_VERSION beats this key, and
     # versions.yaml `runtimes.llvm` is the default, so no value is set here.
