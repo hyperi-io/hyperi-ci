@@ -1107,11 +1107,13 @@ jobs:
 
       - name: Announce the release
         # semantic-release's `success` step: comment on every issue and PR the
-        # release carries. Idempotent, and never fails a shipped release.
+        # release carries, and report a hotfix to the alert bridge. Idempotent,
+        # and never fails a shipped release.
         if: steps.publish.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALERT_BRIDGE_TOKEN: ${{ secrets.ALERT_BRIDGE_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify

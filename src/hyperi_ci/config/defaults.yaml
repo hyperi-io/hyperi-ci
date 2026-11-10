@@ -578,6 +578,13 @@ description: ""
 notify:
   slack:
     webhook_env: ""
+  # A hotfix (release.candidates on, a `Hotfix:` trailer) posts its reason to
+  # this alert bridge. The bearer token comes from the variable named here, and
+  # an unset variable or an empty url posts nothing.
+  alerts:
+    url: https://hooks.hyperi.io/infra
+    token_env: ALERT_BRIDGE_TOKEN
+    route: build
 
 # Issue labelling (`hyperi-ci labels`). The org label set is read at run time
 # from `labels.path` on the default branch of the org's `.github` repo. With no
