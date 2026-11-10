@@ -20,6 +20,9 @@ normal:
   open issue per repo carries it, gated ``next-patch``, with a comment per
   later version, because the cause is repo configuration, not the version.
 
+* **hotfix** -- a release that skipped its candidate is reported in the run,
+  the job summary, the release notes and the alert bridge.
+
 Slack is off unless ``notify.slack.webhook_env`` names an environment variable
 holding a webhook URL.
 """
@@ -31,12 +34,21 @@ from pathlib import Path
 from urllib.parse import quote
 
 from hyperi_ci.commit_range import last_version_tag
-from hyperi_ci.common import announce, error, info, run_cmd, success, warn
+from hyperi_ci.common import (
+    announce,
+    append_step_summary,
+    error,
+    info,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 from hyperi_ci.curl_config import config_line
 from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_api
 from hyperi_ci.labels import expected_labels
+from hyperi_ci.release_candidate import hotfix_reason, wants_candidates
 
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
 _ISSUE_REF = re.compile(r"(?:^|[\s(\[,])#(\d+)\b")
@@ -46,6 +58,7 @@ _RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 # Marks our own comments so a re-run recognises them. Invisible when rendered.
 _MARKER = "<!-- hyperi-ci:release-notify -->"
+_HOTFIX_MARKER = "<!-- hyperi-ci:hotfix -->"
 
 _FAILURE_TITLE = "Release v{version} failed"
 
@@ -623,4 +636,116 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         warn("release-notify: Slack post failed")
         return 0
     success("release-notify: posted to Slack")
+    return 0
+
+
+def _prepend_release_notes(repo: str, tag: str, reason: str) -> None:
+    """Put the hotfix reason at the top of the GitHub Release, once."""
+    release = _api([f"repos/{repo}/releases/tags/{tag}"])
+    if not isinstance(release, dict) or "id" not in release:
+        warn(f"release-notify: no GitHub Release for {tag} -- notes left as they are")
+        return
+    body = str(release.get("body") or "")
+    if _HOTFIX_MARKER in body:
+        return
+    notes = f"{_HOTFIX_MARKER}\n**Hotfix:** {reason}\n\n{body}"
+    if not _api(
+        ["-X", "PATCH", f"repos/{repo}/releases/{release['id']}"],
+        body={"body": notes},
+    ):
+        warn(f"release-notify: could not add the hotfix reason to {tag}'s notes")
+
+
+def _post_alert(config: CIConfig, payload: dict[str, str]) -> None:
+    """POST ``payload`` to the alert bridge, warning on any refusal."""
+    url = str(config.setting("notify.alerts.url") or "")
+    variable = str(config.setting("notify.alerts.token_env") or "")
+    token = os.environ.get(variable, "") if variable else ""
+    if not url or not token:
+        warn(
+            f"release-notify: no alert bridge url or {variable or 'token'} -- no alert"
+        )
+        return
+    # No retry: a retried POST alerts twice. The token travels on stdin.
+    result = run_cmd(
+        [
+            "curl",
+            "-sS",
+            "--max-time",
+            "20",
+            "-X",
+            "POST",
+            "-K",
+            "-",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            json.dumps(payload),
+            "-o",
+            os.devnull,
+            "-w",
+            "%{http_code}",
+        ],
+        capture=True,
+        check=False,
+        stdin_text=config_line("url", url)
+        + config_line("header", f"Authorization: Bearer {token}"),
+    )
+    status = result.stdout.strip()
+    if result.returncode == 0 and status == "200":
+        success("release-notify: hotfix alert posted")
+    elif status == "401":
+        warn("release-notify: the alert bridge refused the token (401)")
+    else:
+        warn(f"release-notify: hotfix alert not posted (HTTP {status or 'none'})")
+
+
+def notify_hotfix(
+    config: CIConfig,
+    *,
+    version: str,
+    repo: str | None = None,
+    cwd: str | None = None,
+) -> int:
+    """Report a release that skipped its release candidate.
+
+    Only on a ``release.candidates`` repo whose released commit carries a
+    ``Hotfix:`` trailer: a run warning, the job summary, the reason at the top
+    of the GitHub Release notes, and a post to the alert bridge.
+
+    Returns:
+        0 always -- a notification must never fail a release that shipped.
+
+    """
+    root = Path(cwd) if cwd else Path.cwd()
+    try:
+        wanted, _, _ = wants_candidates(root)
+    except ValueError as exc:
+        warn(f"release-notify: {exc} -- no hotfix report")
+        return 0
+    reason = hotfix_reason(root)
+    if not (wanted and reason):
+        return 0
+
+    version = version.removeprefix("v").strip()
+    repo = repo or os.environ.get("GITHUB_REPOSITORY", "")
+    tag = f"v{version}"
+    url = f"https://github.com/{repo}/releases/tag/{tag}"
+    line = f"{tag} is a hotfix, released with no candidate: {reason}"
+    announce(line, "hotfix")
+    append_step_summary(f"### Hotfix {tag}\n\n{reason}\n\n{url}\n")
+    if repo:
+        _prepend_release_notes(repo, tag, reason)
+    _post_alert(
+        config,
+        {
+            "route": str(config.setting("notify.alerts.route") or "build"),
+            "source": "hyperi-ci hotfix",
+            "host": repo,
+            "severity": "warning",
+            "title": f"Hotfix {repo} {tag}",
+            "message": line[:1500],
+            "url": url,
+        },
+    )
     return 0

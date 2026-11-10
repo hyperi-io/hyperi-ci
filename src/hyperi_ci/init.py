@@ -52,6 +52,7 @@ _LICENSE_MARKERS = licenses.LICENSE_MARKERS
 # The caller passes exactly the secrets each reusable workflow declares in
 # `workflow_call`. test_init pins these to the workflow files.
 _SHARED_SECRETS = (
+    "ALERT_BRIDGE_TOKEN",
     "GITLEAKS_GH_ACTIONS_KEY",
     "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY",
