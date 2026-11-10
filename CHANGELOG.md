@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.57](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.56...v2.14.57) (2026-11-10)
+
+### Bug Fixes
+
+* **ci:** report a bare workflow_dispatch as a notice ([7b33e05](https://github.com/hyperi-io/hyperi-ci/commit/7b33e0593ec0d6cc0cf12c1738463c28ddbfd949)), closes [#alerts-build](https://github.com/hyperi-io/hyperi-ci/issues/alerts-build)
+* **rust:** mark the build done when the optimise phase finishes it ([f4ed682](https://github.com/hyperi-io/hyperi-ci/commit/f4ed68288867defbe116fe5f0d25da3d2a77c93b))
+* **rust:** run a PGO + BOLT build one phase per job ([7b23148](https://github.com/hyperi-io/hyperi-ci/commit/7b23148b3d1b9d9924900682dcaaafeb77c8f354))
+
 ## [2.14.56](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.55...v2.14.56) (2026-11-09)
 
 ### Bug Fixes
