@@ -60,7 +60,7 @@ on:
       candidate:
         type: string
         default: ""
-        description: "'true' iff the caller's plan cut a release candidate, X.Y.Z-rc.N (predict-version's `candidate` output). Empty reads as not a candidate."
+        description: "'true' iff the caller's plan cut a release candidate, X.Y.Z-rc.N (predict-version's `candidate` output). Tag & Release then tags HEAD with tag-head and skips semantic-release, as for a fork. Empty reads as not a candidate."
       tag:
         type: string
         default: ""
@@ -516,7 +516,7 @@ jobs:
         # tags nothing once main moves, and the image would ship untagged (issue #717).
         if: >-
           ${{ inputs.will-publish == 'true'
-              && inputs.tag == '' && inputs.fork != 'true'
+              && inputs.tag == '' && inputs.fork != 'true' && inputs.candidate != 'true'
               && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
         uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
         with:
@@ -910,8 +910,8 @@ jobs:
       - name: Setup semantic-release (shared toolchain -- single source of truth)
         # Runs the version oracle on a push, and on a from-head `auto`
         # dispatch (release/retry HEAD letting semantic-release pick the
-        # version from commits). Forced bumps and a fork use tag-head instead.
-        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' }}
+        # version from commits). Forced bumps, a fork and a candidate use tag-head instead.
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' && inputs.candidate != 'true' }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Guard -- predicted tag must not already exist off-HEAD
@@ -939,7 +939,7 @@ jobs:
       - name: Guard -- the branch has not moved past this release
         # Before the charts, which publish ahead of the tag, as in the Container job.
         if: >-
-          ${{ inputs.tag == '' && inputs.fork != 'true'
+          ${{ inputs.tag == '' && inputs.fork != 'true' && inputs.candidate != 'true'
               && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
         uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
         with:
@@ -974,24 +974,25 @@ jobs:
         # version oracle, so its next-version is materialised via tag-head
         # (idempotent, off-HEAD-guarded, works with persist-credentials: false).
         # Once the first tag exists this branch never fires again.
-        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' }}
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' && inputs.candidate != 'true' }}
         env:
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
-          if [ -z "$(git tag --list 'v[0-9]*')" ]; then
+          if [ -z "$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)" ]; then
             echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
             ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
             semantic-release --repository-url "https://github.com/${GITHUB_REPOSITORY}"
           fi
 
-      - name: Tag HEAD (fork, first-parent version)
-        # The plan predicted this version from the fork's first-parent commits,
-        # and semantic-release's real run would tag its own from every commit.
-        # CHANGELOG.md gets no entry, as on a tag-less repo's first release.
-        if: ${{ inputs.fork == 'true' }}
+      - name: Tag HEAD (fork or release candidate)
+        # The plan predicted this version: a fork's from its first-parent
+        # commits, a candidate's with its -rc.N suffix. semantic-release's real
+        # run would tag a version of its own. CHANGELOG.md gets no entry, as on
+        # a tag-less repo's first release. A forced bump tags in the next step.
+        if: ${{ inputs.fork == 'true' || (inputs.candidate == 'true' && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto'))) }}
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}

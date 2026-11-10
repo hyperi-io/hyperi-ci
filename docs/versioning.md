@@ -175,7 +175,8 @@ footer.
 - [versioning-commit-back.md](versioning-commit-back.md) -- how VERSION gets
   committed back after a release, and the stamp_cmd mechanics
 - [prereleases.md](prereleases.md) -- cutting `1.2.0-beta.1` off a branch so a
-  release can be rehearsed without the stable sequence moving
+  release can be rehearsed without the stable sequence moving, and release
+  candidates from main with `hyperi-ci promote`
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) -- how this
   per-repo line relates to a DFE stack version, and which ladder owns `rc`
 - [architecture.md](architecture.md) -- the job graph these versions flow through

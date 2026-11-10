@@ -522,6 +522,18 @@ def push(
         bool,
         typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
     ] = False,
+    hotfix: Annotated[
+        str | None,
+        typer.Option(
+            "--hotfix",
+            help=(
+                "Release X.Y.Z straight away on a release.candidates repo, "
+                "with no release candidate. Takes the reason, a CVE, advisory "
+                "or incident id, and adds it as a `Hotfix:` trailer. Implies "
+                "--release. From main only."
+            ),
+        ),
+    ] = None,
     allow_feat: Annotated[
         bool,
         typer.Option(
@@ -606,6 +618,7 @@ def push(
         dry_run=dry_run,
         force=force,
         project_dir=dir_path,
+        hotfix=hotfix,
     )
     raise typer.Exit(rc)
 
@@ -2583,6 +2596,29 @@ def publish(
     _release_impl(
         tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
     )
+
+
+@app.command()
+def promote(
+    tag: Annotated[
+        str,
+        typer.Argument(help="The release candidate to ship, e.g. v2.2.3-rc.2"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show the tag and dispatch only"),
+    ] = False,
+) -> None:
+    """Ship a release candidate as its GA version.
+
+    Tags the candidate's commit ``vX.Y.Z`` and dispatches that tag's release.
+    The run rebuilds the commit as a GA, with PGO and BOLT where the project
+    builds them, and marks the GitHub Release latest unless a newer GA holds
+    it. For a repo that sets ``release.candidates``.
+    """
+    from hyperi_ci.release.dispatch import promote as promote_candidate
+
+    raise typer.Exit(promote_candidate(tag, dry_run=dry_run))
 
 
 @app.command(name="tag-head", hidden=True)

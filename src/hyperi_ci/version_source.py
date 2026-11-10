@@ -39,9 +39,14 @@ from pathlib import Path
 # Greenfield start: 0.x makes no stability promise, and 1.0.0 is a decision.
 DEFAULT_SEED_VERSION = "0.1.0"
 
-# Plain X.Y.Z only, so a pre-release or PEP 440 local version (`0.1.0a1`,
+# Plain X.Y.Z only, so a PEP 440 pre-release or local version (`0.1.0a1`,
 # `1.2.3.post1`) falls through to the next manifest.
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+# A semver prerelease seeds its X.Y.Z, because a release candidate's
+# commit-back stamps `0.4.0-rc.1` into the manifest before any GA exists.
+_SEMVER_PRERELEASE_RE = re.compile(
+    r"^(\d+\.\d+\.\d+)-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$"
+)
 
 # `v` + the released version, including prereleases (`v1.2.0-beta.1`). The `v`
 # is required because publish names the release `v{version}`.
@@ -56,6 +61,15 @@ def _usable(value: object) -> str | None:
         return None
     candidate = value.strip().removeprefix("v")
     return candidate if _SEMVER_RE.match(candidate) else None
+
+
+def _declared(value: object) -> str | None:
+    """Normalise a manifest version to ``X.Y.Z``, a semver prerelease to its core."""
+    if isinstance(value, str):
+        prerelease = _SEMVER_PRERELEASE_RE.match(value.strip().removeprefix("v"))
+        if prerelease:
+            return prerelease.group(1)
+    return _usable(value)
 
 
 def load_toml(path: Path) -> dict:
@@ -78,12 +92,12 @@ def _pyproject_version(path: Path) -> str | None:
         dynamic = project.get("dynamic")
         declared_dynamic = isinstance(dynamic, list) and "version" in dynamic
         if not declared_dynamic:
-            found = _usable(project.get("version"))
+            found = _declared(project.get("version"))
             if found:
                 return found
     poetry = data.get("tool", {}).get("poetry")
     if isinstance(poetry, dict):
-        return _usable(poetry.get("version"))
+        return _declared(poetry.get("version"))
     return None
 
 
@@ -94,12 +108,12 @@ def _cargo_version(path: Path) -> str | None:
     in ``[workspace.package]`` for every member to inherit.
     """
     data = load_toml(path)
-    workspace_version = _usable(
+    workspace_version = _declared(
         data.get("workspace", {}).get("package", {}).get("version")
     )
     package = data.get("package")
     if isinstance(package, dict):
-        found = _usable(package.get("version"))
+        found = _declared(package.get("version"))
         if found:
             return found
         # `version.workspace = true` parses as a table, not a string.
@@ -113,7 +127,7 @@ def _package_json_version(path: Path) -> str | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return _usable(data.get("version")) if isinstance(data, dict) else None
+    return _declared(data.get("version")) if isinstance(data, dict) else None
 
 
 # The first manifest yielding a usable version wins. Python leads because a

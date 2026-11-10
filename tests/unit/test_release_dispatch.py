@@ -22,6 +22,7 @@ import typer
 import hyperi_ci.release as release_pkg
 from hyperi_ci import common, push
 from hyperi_ci.cli import _release_impl
+from hyperi_ci.gh import ApiResult as GhApiResult
 from hyperi_ci.release import dispatch as d
 
 
@@ -259,25 +260,37 @@ class TestTagHead:
         assert "version=1.2.3" in text
         assert "tag=v1.2.3" in text
 
-    def test_invalid_bump_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert push.tag_head(bump="major", dry_run=True) == 1
+    @pytest.mark.parametrize(
+        "bump", ["major", "1.2.3-rc.0", "1.2.3-beta.1", "1.2.3-rc", "1.2.3rc1"]
+    )
+    def test_invalid_bump_rejected(self, bump: str) -> None:
+        assert push.tag_head(bump=bump, dry_run=True) == 1
 
+    @pytest.mark.parametrize(
+        ("bump", "version"),
+        [
+            ("1.18.4", "1.18.4"),
+            ("v2.2.3-rc.1", "2.2.3-rc.1"),
+            ("2.2.3-rc.12", "2.2.3-rc.12"),
+        ],
+    )
     def test_explicit_version_used_verbatim(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bump: str, version: str
     ) -> None:
-        # An explicit X.Y.Z (the --version override) is tagged as-is, with no
-        # last-tag math -- proven by making _compute_next_version blow up.
+        # An explicit X.Y.Z (the --version override) or a candidate the plan
+        # resolved is tagged as-is, with no last-tag math -- proven by making
+        # _compute_next_version blow up.
         def _boom(**k):
             raise AssertionError("must not compute a bump for an explicit version")
 
         monkeypatch.setattr(push, "_compute_next_version", _boom)
         out = tmp_path / "gh_output"
         monkeypatch.setenv("GITHUB_OUTPUT", str(out))
-        rc = push.tag_head(bump="1.18.4", dry_run=True)
+        rc = push.tag_head(bump=bump, dry_run=True)
         assert rc == 0
         text = out.read_text()
-        assert "version=1.18.4" in text
-        assert "tag=v1.18.4" in text
+        assert f"version={version}" in text
+        assert f"tag=v{version}" in text
 
     def test_no_version_available_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(push, "_compute_next_version", lambda **k: None)
@@ -357,3 +370,98 @@ class TestTagHead:
 
         monkeypatch.setattr(push, "run_cmd", fake_run_cmd)
         assert push.tag_head(bump="patch") == 0
+
+
+_RC_SHA = "a" * 40
+_OTHER_SHA = "b" * 40
+_TAG_OBJECT = "c" * 40
+
+
+class TestPromote:
+    """`promote` tags the candidate's commit vX.Y.Z and dispatches that tag."""
+
+    def _github(
+        self, monkeypatch: pytest.MonkeyPatch, refs: dict[str, str]
+    ) -> list[list[str]]:
+        dispatched: list[list[str]] = []
+
+        def fake_api(args: list[str], **_: object) -> GhApiResult:
+            if "--method" in args:
+                tag = next(a for a in args if a.startswith("ref=")).split("/")[-1]
+                if tag in refs:
+                    return GhApiResult(None, "HTTP 422: Reference already exists", "")
+                refs[tag] = next(a for a in args if a.startswith("sha="))[4:]
+                return GhApiResult({"ref": f"refs/tags/{tag}"}, "", None)
+            name = args[0].rsplit("/", 1)[-1]
+            if "/git/tags/" in args[0]:
+                # An annotated tag object, which peels to the candidate commit.
+                obj = {"type": "commit", "sha": _RC_SHA}
+            elif "/git/ref/tags/" in args[0] and name in refs:
+                annotated = refs[name] == _TAG_OBJECT
+                obj = {"type": "tag" if annotated else "commit", "sha": refs[name]}
+            else:
+                return GhApiResult(None, "HTTP 404: Not Found", "")
+            return GhApiResult({"object": obj}, "", None)
+
+        monkeypatch.setattr(d, "gh_api", fake_api)
+        monkeypatch.setattr(
+            d, "run_cmd", lambda cmd, **k: (dispatched.append(cmd), _ok())[1]
+        )
+        return dispatched
+
+    @pytest.mark.parametrize(
+        ("refs", "rc", "ga_after", "dispatches"),
+        [
+            pytest.param({"v2.2.3-rc.2": _RC_SHA}, 0, _RC_SHA, True, id="fresh"),
+            pytest.param(
+                {"v2.2.3-rc.2": _TAG_OBJECT}, 0, _RC_SHA, True, id="annotated-tag"
+            ),
+            pytest.param(
+                {"v2.2.3-rc.2": _RC_SHA, "v2.2.3": _RC_SHA},
+                0,
+                _RC_SHA,
+                True,
+                id="rerun",
+            ),
+            pytest.param(
+                {"v2.2.3-rc.2": _RC_SHA, "v2.2.3": _OTHER_SHA},
+                1,
+                _OTHER_SHA,
+                False,
+                id="ga-taken-elsewhere",
+            ),
+            pytest.param({}, 1, None, False, id="no-such-candidate"),
+        ],
+    )
+    def test_promote(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        refs: dict[str, str],
+        rc: int,
+        ga_after: str | None,
+        dispatches: bool,
+    ) -> None:
+        dispatched = self._github(monkeypatch, refs)
+        assert d.promote("v2.2.3-rc.2") == rc
+        assert refs.get("v2.2.3") == ga_after
+        expected = [["gh", "workflow", "run", "ci.yml", "-f", "tag=v2.2.3"]]
+        assert dispatched == (expected if dispatches else [])
+
+    @pytest.mark.parametrize("tag", ["v2.2.3", "2.2.3-beta.1", "v2.2.3-rc.0", "rc.1"])
+    def test_only_a_candidate_tag_is_promoted(
+        self, monkeypatch: pytest.MonkeyPatch, tag: str
+    ) -> None:
+        refs = {tag: _RC_SHA}
+        dispatched = self._github(monkeypatch, refs)
+        assert d.promote(tag) == 1
+        assert refs == {tag: _RC_SHA}
+        assert dispatched == []
+
+    def test_a_dry_run_tags_and_dispatches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        refs = {"v2.2.3-rc.2": _RC_SHA}
+        dispatched = self._github(monkeypatch, refs)
+        assert d.promote("v2.2.3-rc.2", dry_run=True) == 0
+        assert refs == {"v2.2.3-rc.2": _RC_SHA}
+        assert dispatched == []
