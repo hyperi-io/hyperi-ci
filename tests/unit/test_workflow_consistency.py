@@ -43,6 +43,11 @@ EXPECTED_JOBS: dict[str, str] = {
     "build": BUILD_GATE,
 }
 
+# Rust splits run-build between its plain build and the phased PGO + BOLT build.
+GATE_OVERRIDES: dict[tuple[str, str], str] = {
+    ("rust-ci.yml", "build"): "needs.plan.outputs.run-plain-build == 'true'",
+}
+
 
 def _load_workflow(name: str) -> dict:
     path = WORKFLOW_DIR / name
@@ -1178,6 +1183,19 @@ def _render_env(
     return rendered
 
 
+_RUN_UNLESS_A_NEED_FAILED = (
+    "always() && !cancelled() && !contains(needs.*.result, 'failure') && "
+)
+
+# Plan outputs derived from predict-version's gates: run-build split into the
+# plain and the phased (PGO + BOLT) build, and the arm64 parity leg on its own.
+_RUN_BUILD_SPLIT = {
+    "run-plain-build": "run-build",
+    "run-phased-build": "run-build",
+    "run-arm64-parity": "run-arm64-check",
+}
+
+
 def _gate_outputs(expression: str) -> set[str]:
     """The plan outputs whose ``'true'`` makes a job's ``if:`` fire.
 
@@ -1186,7 +1204,9 @@ def _gate_outputs(expression: str) -> set[str]:
     never pass by looking familiar.
     """
     names = set()
-    for clause in str(expression).split("||"):
+    # A job behind both build paths runs unless one failed, then reads its gates.
+    expression = str(expression).removeprefix(_RUN_UNLESS_A_NEED_FAILED)
+    for clause in expression.split("||"):
         match = re.fullmatch(
             r"needs\.plan\.outputs\.([a-z0-9-]+) == 'true'", clause.strip()
         )
@@ -1315,8 +1335,12 @@ class TestArm64Parity:
                 )
 
     def _build_runs(self, gates: dict[str, str]) -> bool:
-        condition = _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
-        firing = _gate_outputs(condition)
+        jobs = _load_workflow("rust-ci.yml")["jobs"]
+        firing = {
+            _RUN_BUILD_SPLIT.get(name, name)
+            for job in ("build", "build-pgo-profile")
+            for name in _gate_outputs(jobs[job]["if"])
+        }
         return any(gates.get(name) == "true" for name in firing)
 
     @pytest.mark.parametrize(
@@ -1380,15 +1404,33 @@ class TestArm64Parity:
     def test_only_rust_widens_its_build_gate(self) -> None:
         # python/ts/go have no arm64 leg to run, so the parity signal must not
         # reach their build gates -- it would build everything they have.
-        assert "run-arm64-check" in str(
+        assert "run-arm64-parity" in str(
             _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
         )
         for name in ("python-ci.yml", "go-ci.yml", "ts-ci.yml", "ci.yml"):
             condition = str(_load_workflow(name)["jobs"]["build"].get("if", ""))
-            assert "run-arm64-check" not in condition, (
+            assert "run-arm64" not in condition, (
                 f"{name}: build gate reads run-arm64-check, which only rust-ci.yml "
                 "has a matrix leg for"
             )
+
+    def test_a_release_push_never_starts_both_build_paths(self) -> None:
+        # predict-version sets run-arm64-check on a release push too, so the
+        # plain build must key off the parity-only output, or a GA release
+        # runs both paths and uploads build-dist-<arch> twice.
+        wf = _load_workflow("rust-ci.yml")
+        plain = _gate_outputs(wf["jobs"]["build"]["if"])
+        assert plain == {"run-plain-build", "run-arm64-parity"}
+        parity = wf["jobs"]["plan"]["outputs"]["run-arm64-parity"]
+        assert "steps.predict.outputs.run-build != 'true'" in parity
+
+    def test_a_validate_only_phased_build_does_not_read_as_shipping(self) -> None:
+        # A literal HYPERCI_CHANNEL would make every phased run a ship signal
+        # and refuse bolt-optimize-args on an optimize-tier dispatch.
+        jobs = _load_workflow("rust-ci.yml")["jobs"]
+        for name in ("build-pgo-profile", "build-pgo-optimize", "build-bolt"):
+            step = next(s for s in jobs[name]["steps"] if s.get("name") == "Run build")
+            assert "will-release == 'true'" in step["env"]["HYPERCI_CHANNEL"], name
 
     def test_the_release_tail_skips_a_parity_build(self) -> None:
         # The tail used to be reached exactly when Build ran. A parity build
@@ -1670,15 +1712,17 @@ class TestBoltOptimizeArgsThreading:
         # variable, which would put unreviewed flags on every run.
         wf = _load_workflow("rust-ci.yml")
         assert "HYPERCI_BOLT_OPTIMIZE_ARGS" not in wf.get("env", {})
-        steps = wf["jobs"]["build"]["steps"]
-        run_build = next(s for s in steps if s.get("name") == "Run build")
-        assert run_build["env"]["HYPERCI_BOLT_OPTIMIZE_ARGS"] == BOLT_ARGS_ENV
-        for step in steps:
-            assert "bolt-optimize-args" not in str(step.get("run", "")), step.get(
-                "name"
-            )
+        build_jobs = ("build", "build-pgo-profile", "build-pgo-optimize", "build-bolt")
+        for job in build_jobs:
+            steps = wf["jobs"][job]["steps"]
+            run_build = next(s for s in steps if s.get("name") == "Run build")
+            assert run_build["env"]["HYPERCI_BOLT_OPTIMIZE_ARGS"] == BOLT_ARGS_ENV
+            for step in steps:
+                assert "bolt-optimize-args" not in str(step.get("run", "")), step.get(
+                    "name"
+                )
         text = (WORKFLOW_DIR / "rust-ci.yml").read_text(encoding="utf-8")
-        assert text.count("inputs.bolt-optimize-args") == 1
+        assert text.count("inputs.bolt-optimize-args") == len(build_jobs)
 
     @pytest.mark.parametrize(
         "workflow_name",
@@ -1953,6 +1997,7 @@ def test_job_uses_canonical_gate(
         )
     job = jobs[job_name]
     actual = job.get("if", "")
+    expected_gate = GATE_OVERRIDES.get((workflow_name, job_name), expected_gate)
     # Allow extra conditions joined with `||` for some jobs (e.g. test
     # job may also need `|| github.event_name == 'workflow_dispatch'`),
     # but the canonical gate string MUST appear unmodified.
