@@ -18,7 +18,7 @@ A licence verdict comes from a table, never from anyone's memory. `src/hyperi_ci
 | `vendored` | source copied into the tree |
 | `modified` | patched, forked, or copied in and edited |
 
-LGPL-3.0, for example, is allowed as an import with a notice and the LGPL and GPL texts, and denied when copied in. GPL, AGPL and SSPL are denied in every mode. Only what ships is judged, so a tool CI runs (reuse is GPL-3.0-or-later) is never in scope.
+LGPL-3.0 is allowed as an import with a notice and the LGPL and GPL texts, and denied when copied in. GPL, AGPL and SSPL are denied in every mode. Only what ships is judged, so a tool CI runs (reuse is GPL-3.0-or-later) is never in scope.
 
 - `A OR B` takes the better term, `A AND B` the worse, and AND binds tighter than OR, so `(MIT OR Apache-2.0) AND BSD-3-Clause` is judged through its brackets.
 - `A WITH LLVM-exception` is judged as `A`. Any other exception is ask.
@@ -32,7 +32,7 @@ Each language's quality stage reads its own dependencies:
 | Rust | `cargo tree -e normal,no-proc-macro --all-features --target <t>` for each `build.rust.targets` entry (default the two Linux GNU targets), `cargo metadata` for licences and files | what a build for those targets links. Not dev or build dependencies, proc-macros, or crates only another platform links | `static` |
 | TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production`, for npm, pnpm and yarn alike | `import` |
 
-A Python package declaring only `BSD License` is BSD-2-Clause, BSD-3-Clause, 0BSD or ISC when its licence file, or its repository's, is that full text alone, else ask. A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its `deny.toml` checks too.
+A Python licence is `License-Expression`, then an SPDX `License` field, then the classifiers. A bare `BSD License` is BSD-2-Clause, BSD-3-Clause, 0BSD or ISC when its licence file, or its repository's, is that text alone, else ask. A licence license-checker guessed from file text (a trailing `*`) is ask. A README never stands in for a licence file. cargo deny still runs its `deny.toml` checks too.
 
 Copied-in source is listed under `quality.dep_licenses.vendored`, each directory as `vendored` or `modified`. reuse reads every file's SPDX header, and each file is judged on its own. A file with no header takes the licence its entry gives, with a reason, or is ask.
 

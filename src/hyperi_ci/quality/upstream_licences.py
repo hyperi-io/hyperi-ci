@@ -273,14 +273,14 @@ def spdx_ids(expression: str | None) -> list[str]:
     """Return the licence ids an SPDX expression names, exceptions left out."""
     ids: list[str] = []
     after_with = False
-    for token in re.split(r"[\s()]+", expression or ""):
-        if not token or token in ("AND", "OR"):
+    for word in re.split(r"[\s()]+", expression or ""):
+        if not word or word in ("AND", "OR"):
             continue
-        if token == "WITH":
+        if word == "WITH":
             after_with = True
             continue
         if not after_with:
-            ids.append(token.removesuffix("+"))
+            ids.append(word.removesuffix("+"))
         after_with = False
     return list(dict.fromkeys(ids))
 
