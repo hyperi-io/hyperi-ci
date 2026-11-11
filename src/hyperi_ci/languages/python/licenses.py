@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from packaging.licenses import InvalidLicenseExpression, canonicalize_license_expression
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
@@ -76,6 +77,8 @@ _RUNTIME_EXPORT = [
     "requirements-txt",
 ]
 
+_UNKNOWN = "UNKNOWN"
+
 _PROJECT_PYTHON = [
     "uv",
     "run",
@@ -116,6 +119,33 @@ def runtime_packages(export_text: str) -> tuple[dict[str, str], list[str]]:
         versions = [s.version for s in requirement.specifier if s.operator == "=="]
         pins[name] = versions[0] if versions else ""
     return pins, elsewhere
+
+
+def declared_licence(record: Mapping[str, Any]) -> str:
+    """Return the most specific licence a pip-licenses ``--from=all`` record declares.
+
+    ``License-Expression`` first, then a ``License`` field that parses as SPDX,
+    then the trove classifiers, then whatever ``License`` holds. pip-licenses'
+    own ``mixed`` order puts the classifiers first, so ``License: BSD-3-Clause``
+    reads as a bare ``BSD License``.
+
+    Args:
+        record: One pip-licenses JSON record.
+
+    Returns:
+        The licence to judge, ``UNKNOWN`` when the record declares none.
+
+    """
+    expression = str(record.get("License-Expression") or _UNKNOWN)
+    if expression != _UNKNOWN:
+        return expression
+    metadata = str(record.get("License-Metadata") or _UNKNOWN)
+    try:
+        canonicalize_license_expression(metadata)
+    except InvalidLicenseExpression:
+        classifier = str(record.get("License-Classifier") or _UNKNOWN)
+        return classifier if classifier != _UNKNOWN else metadata
+    return metadata
 
 
 def findings_for(
@@ -207,7 +237,7 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
         "--python",
         python,
         "--format=json",
-        "--from=mixed",
+        "--from=all",
         "--with-license-file",
         "--with-notice-file",
         "--with-urls",
@@ -263,7 +293,10 @@ def run_gate(config: CIConfig) -> bool:
         if result.returncode != 0 or not output.is_file():
             emit_tool_output("pip-licenses", result.stderr)
             return fail("  dep licences: pip-licenses failed, nothing checked", mode)
-        packages = json.loads(output.read_text(encoding="utf-8"))
+        packages = [
+            {**record, "License": declared_licence(record)}
+            for record in json.loads(output.read_text(encoding="utf-8"))
+        ]
 
     findings = findings_for(packages, runtime, policy, overrides)
     tools = {"pip-licenses": tool_version("pip-licenses")}

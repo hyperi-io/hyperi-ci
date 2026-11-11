@@ -15,6 +15,7 @@ import hyperi_ci
 from hyperi_ci.config import load_config
 from hyperi_ci.languages.python import licenses
 from hyperi_ci.languages.python.licenses import (
+    declared_licence,
     findings_for,
     notice_entries,
     repository,
@@ -596,6 +597,30 @@ def test_bare_bsd_classifier_is_judged_from_the_licence_file(
     if verdict is Verdict.OBLIGATIONS:
         assert finding.source == "license-file"
         assert finding.evidence == f"{package['LicenseFile']}: {spdx} text"
+
+
+@pytest.mark.parametrize(
+    ("expression", "metadata", "classifier", "expected"),
+    [
+        ("MIT", "BSD-3-Clause", "BSD License", "MIT"),
+        # cloudpickle 3.1.2: an SPDX License field beats the bare classifier.
+        ("UNKNOWN", "BSD-3-Clause", "BSD License", "BSD-3-Clause"),
+        # scipy 1.18.1 puts its licence text in the License field.
+        ("UNKNOWN", "Copyright (c) 2001-2002 Enthought", "BSD License", "BSD License"),
+        ("UNKNOWN", "MIT License", "UNKNOWN", "MIT License"),
+        ("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"),
+        ("", "", "", "UNKNOWN"),
+    ],
+)
+def test_declared_licence_takes_the_most_specific_field(
+    expression, metadata, classifier, expected
+):
+    record = {
+        "License-Expression": expression,
+        "License-Metadata": metadata,
+        "License-Classifier": classifier,
+    }
+    assert declared_licence(record) == expected
 
 
 @pytest.mark.parametrize(
