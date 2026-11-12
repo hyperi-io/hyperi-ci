@@ -36,6 +36,17 @@ LANGUAGE_WORKFLOWS = ("rust-ci.yml", "python-ci.yml", "ts-ci.yml", "go-ci.yml")
 CHECKS_GATE = "needs.plan.outputs.run-checks == 'true'"
 BUILD_GATE = "needs.plan.outputs.run-build == 'true'"
 
+# GitHub has no `-latest` arm64 label, so the hosted one is pinned once, in
+# the runner_fit table, and every workflow is held to it.
+_DEFAULTS = WORKFLOW_DIR.parents[1] / "src" / "hyperi_ci" / "config" / "defaults.yaml"
+ARM64_RUNNER = next(
+    profile["label"]
+    for profile in yaml.safe_load(_DEFAULTS.read_text(encoding="utf-8"))["build"][
+        "rust"
+    ]["runner_fit"]["profiles"]
+    if profile["arch"] == "arm64"
+)
+
 # Jobs that must exist in every language workflow with the listed gates.
 EXPECTED_JOBS: dict[str, str] = {
     "quality": CHECKS_GATE,
@@ -2198,17 +2209,27 @@ class TestRunnerSelection:
                     seen += 1
                     text = str(value)
                     hosted = (
-                        "'ubuntu-24.04-arm'" if "ARM64" in key else "'ubuntu-latest'"
+                        f"'{ARM64_RUNNER}'" if "ARM64" in key else "'ubuntu-latest'"
                     )
                     assert (
                         f"steps.predict.outputs.runner-mode == 'free' && {hosted}"
                         in text
                     )
                     if "ARM64" in key:
-                        assert text.endswith("'ubuntu-24.04-arm' }}"), text
+                        assert text.endswith(f"'{ARM64_RUNNER}' }}}}"), text
                         assert "GH_RUNNER" not in text, text
         if workflow_name in ("rust-ci.yml", "go-ci.yml"):
             assert seen, f"{workflow_name}: no build matrix runner found"
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted(p for p in WORKFLOW_DIR.glob("*.yml") if p.name != "static-libs.yml"),
+        ids=lambda p: p.name,
+    )
+    def test_every_hosted_arm64_label_is_the_runner_table_one(self, path: Path) -> None:
+        # static-libs.yml pins its own older image: its archives set the glibc floor.
+        labels = set(re.findall(r"ubuntu-\d\d\.\d\d-arm\b", path.read_text("utf-8")))
+        assert labels <= {ARM64_RUNNER}, f"{path.name}: {sorted(labels)}"
 
     @pytest.mark.parametrize(
         "workflow_name", (*LANGUAGE_WORKFLOWS, "_release-tail.yml", "iac-ci.yml")
@@ -2282,7 +2303,7 @@ class TestReleaseTailRunnerMode:
         """issue #709: an arm64 image builds on arm64, never under QEMU on x64."""
         runs_on = str(_load_workflow(self.TAIL)["jobs"]["container-build"]["runs-on"])
         assert runs_on.startswith(
-            "${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || ("
+            f"${{{{ matrix.platform == 'linux/arm64' && '{ARM64_RUNNER}' || ("
         ), runs_on
         assert self.CHAIN.removeprefix("${{ ").removesuffix(" }}") in runs_on
 

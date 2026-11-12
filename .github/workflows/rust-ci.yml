@@ -41,7 +41,7 @@ on:
       runner-build-arm64:
         type: string
         default: ""
-        description: "Runner for the arm64 build legs in self-hosted mode (default: ubuntu-24.04-arm). Free mode always uses ubuntu-24.04-arm."
+        description: "Runner for the arm64 build legs in self-hosted mode (default: ubuntu-26.04-arm). Free mode always uses ubuntu-26.04-arm."
       runner-arm64-check:
         type: string
         default: ""
@@ -341,9 +341,9 @@ jobs:
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
           AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || inputs.runner-build-arm64 || 'ubuntu-24.04-arm' }}
+          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
           # Its own runner, so a parity build does not take a release-sized slot.
-          ARM64_CHECK_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-24.04-arm' || inputs.runner-build-arm64 || 'ubuntu-24.04-arm' }}
+          ARM64_CHECK_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
         run: |
           set -euo pipefail
           run_build="$RUN_BUILD"

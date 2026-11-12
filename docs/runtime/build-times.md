@@ -20,7 +20,7 @@ The runners these numbers come from:
 | Runner | vCPU | Memory | Disk |
 |---|---|---|---|
 | `ubuntu-latest` (free, public repo) | 4 | 15.6 GiB | 144 GiB workspace filesystem |
-| `ubuntu-24.04-arm` (free, public repo) | 4 | 15.6 GiB | 144 GiB workspace filesystem |
+| `ubuntu-26.04-arm` (free, public repo) | 4 | 15.6 GiB | 144 GiB workspace filesystem |
 | GitHub-hosted on a private repo | 2 | 7.75 GiB | billed |
 | `arc-*-16x32` | 16 limit, 4 requested | 32 GiB | 40 GiB ephemeral, node-local cache |
 | `namespace-profile-hyperi-<arch>-<C>x<M>` (retired 2026-11-29) | C | M GiB | set in the Namespace console |

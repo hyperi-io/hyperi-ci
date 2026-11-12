@@ -647,7 +647,7 @@ def _host_targets(targets: list[str], native: str) -> list[str] | None:
         error(
             f"Build target {names} is not this runner's arch ({native}). hyperi-ci "
             "does not cross-compile: run the leg on a runner of that arch "
-            "(ubuntu-24.04-arm for aarch64-unknown-linux-gnu)."
+            "(ubuntu-26.04-arm for aarch64-unknown-linux-gnu)."
         )
         return None
     warn(

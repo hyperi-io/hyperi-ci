@@ -266,7 +266,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true && needs.container-plan.outputs.ships-container == 'true' && needs.container-plan.outputs.reuse != 'true'
     # arm64 builds on GitHub's native arm64 runner in every mode, never under
     # emulation on x64. ARC has no arm64 nodes.
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || (inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-26.04-arm' || (inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
     permissions:
       contents: read
       packages: write

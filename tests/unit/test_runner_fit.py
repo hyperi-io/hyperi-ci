@@ -246,7 +246,7 @@ class TestSettings:
         for p in parsed.profiles:
             labels[p.arch].append(p.label)
         assert all(label.startswith("arc-") for label in labels["amd64"])
-        assert labels["arm64"] == ["ubuntu-24.04-arm"]
+        assert labels["arm64"] == ["ubuntu-26.04-arm"]
         assert not any("namespace" in p.label for p in parsed.profiles)
 
     @pytest.mark.parametrize(

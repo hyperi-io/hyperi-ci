@@ -23,7 +23,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 | "cargo-pgo unavailable - falling back to plain release build" | cargo-pgo install failed. Check network egress to crates.io, `cargo install cargo-pgo --locked` works locally. Non-fatal - Tier 1 still applies |
 | "PGO workload failed - aborting" | Workload exited non-zero. Common causes: missing tooling on runner (use coreutils only), privileged port binding (use unprivileged), testcontainer advertised-listener mismatch (check readiness via host, not `docker exec`) |
 | Release build is 3x slower than before | Expected with PGO+BOLT. Accept the cost or set `bolt.enabled: false` |
-| "Build target aarch64-unknown-linux-gnu is not this runner's arch" | The arm64 leg landed on an x64 runner. hyperi-ci does not cross-compile: point the `runner-build-arm64` input at an arm64 runner, or drop it for `ubuntu-24.04-arm` |
+| "Build target aarch64-unknown-linux-gnu is not this runner's arch" | The arm64 leg landed on an x64 runner. hyperi-ci does not cross-compile: point the `runner-build-arm64` input at an arm64 runner, or drop it for `ubuntu-26.04-arm` |
 | "Skipping aarch64-unknown-linux-gnu: not this host's arch" | A local build of a target for another arch. Expected; CI builds it on an arm64 runner |
 | "Binary not found: `<name>`" | Binary auto-detection picked up a feature-gated helper bin. Add `required-features = ["..."]` to the secondary `[[bin]]` |
 
