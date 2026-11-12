@@ -1,10 +1,10 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_dep_licenses.py
-# Purpose:   Golden table for the dependency-licence policy and the Python gate
+# Purpose:   Golden table for the dependency-licence table and the language readers
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Golden table for the dependency-licence policy and the Python gate."""
+"""Golden table for the dependency-licence table and the language readers."""
 
 import hashlib
 import json
@@ -18,23 +18,20 @@ from hyperi_ci.languages.python.licenses import (
     declared_licence,
     findings_for,
     notice_entries,
-    repository,
     runtime_packages,
 )
 from hyperi_ci.languages.rust import licenses as rust_licenses
 from hyperi_ci.languages.typescript import licenses as npm_licenses
 from hyperi_ci.quality import vendored_licenses
-from hyperi_ci.quality.bsd_text import bsd_licence
 from hyperi_ci.quality.dep_licenses import (
-    _POLICY_PATH,
+    NOTICES_OUTPUT,
+    POLICY_PATH,
     REPORT_PATH,
     Mode,
     Override,
     PolicyError,
     Verdict,
     blocking,
-    check_notices,
-    fill_and_judge,
     find_override,
     finish,
     judge,
@@ -43,9 +40,7 @@ from hyperi_ci.quality.dep_licenses import (
     parse_overrides,
     render_notices,
     report,
-    restrict_override_only,
 )
-from hyperi_ci.quality.upstream_licences import Upstream
 
 # The first lines of pysigma-backend-clickhouse 1.1.1's wheel licence file, as
 # pip-licenses 5.5.5 returns them. Its PyPI license and license_expression are null.
@@ -61,6 +56,14 @@ _GOLDEN_LGPL = {
     " Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>\n",
 }
 
+OK = Verdict.OBLIGATIONS
+ASK = Verdict.ASK
+DENY = Verdict.DENY
+N = ("notice",)
+LGPL = ("notice", "lgpl-texts", "replaceable")
+IMPORT = Mode.IMPORT
+STATIC = Mode.STATIC
+
 
 @pytest.fixture(scope="module")
 def policy():
@@ -70,260 +73,176 @@ def policy():
 @pytest.mark.parametrize(
     ("licence", "mode", "spdx", "verdict", "obligations"),
     [
-        (
-            "LGPL-3.0-only",
-            Mode.IMPORT,
-            "LGPL-3.0-only",
-            Verdict.OBLIGATIONS,
-            ("notice", "lgpl-texts", "replaceable"),
-        ),
-        ("LGPL-3.0-only", Mode.VENDORED, "LGPL-3.0-only", Verdict.DENY, ()),
-        ("LGPL-3.0-only", Mode.MODIFIED, "LGPL-3.0-only", Verdict.DENY, ()),
-        ("LGPL-3.0-only", Mode.STATIC, "LGPL-3.0-only", Verdict.ASK, ()),
+        ("LGPL-3.0-only", IMPORT, "LGPL-3.0-only", OK, LGPL),
+        # A static or copied-in LGPL ships no relinkable objects.
+        ("LGPL-3.0-only", Mode.VENDORED, "LGPL-3.0-only", ASK, ()),
+        ("LGPL-3.0-only", STATIC, "LGPL-3.0-only", ASK, ()),
+        ("LGPL-2.1-or-later", STATIC, "LGPL-2.1-or-later", ASK, ()),
         (
             "GNU Lesser General Public License v2 or later (LGPLv2+)",
-            Mode.IMPORT,
+            IMPORT,
             "LGPL-2.0-or-later",
-            Verdict.OBLIGATIONS,
-            ("notice", "lgpl-texts", "replaceable"),
+            OK,
+            LGPL,
         ),
-        ("GPL-3.0-only", Mode.IMPORT, "GPL-3.0-only", Verdict.DENY, ()),
-        ("AGPL-3.0-or-later", Mode.IMPORT, "AGPL-3.0-or-later", Verdict.DENY, ()),
-        ("SSPL-1.0", Mode.IMPORT, "SSPL-1.0", Verdict.DENY, ()),
+        ("EPL-2.0", IMPORT, "EPL-2.0", OK, N),
+        ("EPL-2.0", STATIC, "EPL-2.0", ASK, ()),
+        ("GPL-3.0-only", IMPORT, "GPL-3.0-only", DENY, ()),
+        ("AGPL-3.0-or-later", IMPORT, "AGPL-3.0-or-later", DENY, ()),
+        ("SSPL-1.0", IMPORT, "SSPL-1.0", DENY, ()),
         (
-            "Apache-2.0",
-            Mode.IMPORT,
-            "Apache-2.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text", "carry-notice"),
+            "GNU General Public License (GPL)",
+            IMPORT,
+            "LicenseRef-GPL-Unversioned",
+            DENY,
+            (),
         ),
+        # Third-party source-available or share-alike: a human decides.
+        ("BUSL-1.1", IMPORT, "BUSL-1.1", ASK, ()),
+        ("Elastic-2.0", STATIC, "Elastic-2.0", ASK, ()),
+        ("CC-BY-SA-4.0", IMPORT, "CC-BY-SA-4.0", ASK, ()),
+        ("Apache-2.0", IMPORT, "Apache-2.0", OK, N),
+        ("Apache Software License", STATIC, "Apache-2.0", OK, N),
+        ("MIT", IMPORT, "MIT", OK, N),
+        ("mit", IMPORT, "MIT", OK, N),
+        ("CC0-1.0", Mode.MODIFIED, "CC0-1.0", OK, N),
+        ("MPL-2.0", Mode.MODIFIED, "MPL-2.0", OK, ("notice", "mpl-source")),
+        ("MIT AND MPL-2.0", IMPORT, "MIT AND MPL-2.0", OK, ("notice", "mpl-source")),
+        # The classifier does not say which BSD, so it carries BSD-4-Clause's duty.
         (
-            "Apache Software License",
-            Mode.STATIC,
-            "Apache-2.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text", "carry-notice"),
+            "BSD License",
+            IMPORT,
+            "LicenseRef-BSD-Unspecified",
+            OK,
+            ("notice", "advertising"),
         ),
-        ("MIT", Mode.IMPORT, "MIT", Verdict.OBLIGATIONS, ("notice", "licence-text")),
-        ("mit", Mode.IMPORT, "MIT", Verdict.OBLIGATIONS, ("notice", "licence-text")),
-        # The classifier does not say which BSD, and BSD-4-Clause is one of them.
-        ("BSD License", Mode.IMPORT, "BSD License", Verdict.ASK, ()),
+        ("BSD-4-Clause", STATIC, "BSD-4-Clause", OK, ("notice", "advertising")),
         # Spellings real wheels use (protobuf, uritemplate).
-        (
-            "3-Clause BSD License",
-            Mode.IMPORT,
-            "BSD-3-Clause",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "BSD 3-Clause OR Apache-2.0",
-            Mode.IMPORT,
-            "BSD-3-Clause OR Apache-2.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
+        ("3-Clause BSD License", IMPORT, "BSD-3-Clause", OK, N),
+        ("BSD 3-Clause OR Apache-2.0", IMPORT, "BSD-3-Clause OR Apache-2.0", OK, N),
         (
             "BSD 3-Clause OR Apache-2.0 AND MIT",
-            Mode.IMPORT,
-            "BSD 3-Clause OR Apache-2.0 AND MIT",
-            Verdict.ASK,
-            (),
+            IMPORT,
+            "BSD-3-Clause OR (Apache-2.0 AND MIT)",
+            OK,
+            N,
         ),
-        (
-            "Some Licence OR Apache-2.0",
-            Mode.IMPORT,
-            "Some Licence OR Apache-2.0",
-            Verdict.ASK,
-            (),
-        ),
-        (
-            "ISC License (ISCL)",
-            Mode.IMPORT,
-            "ISC",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        ("CC0-1.0", Mode.MODIFIED, "CC0-1.0", Verdict.ALLOW, ()),
-        # OR takes the best term, and the lighter obligations on a tie.
+        ("Some Licence OR Apache-2.0", IMPORT, "Some Licence OR Apache-2.0", OK, N),
+        ("ISC License (ISCL)", IMPORT, "ISC", OK, N),
+        ("CDLA-Permissive-2.0", STATIC, "CDLA-Permissive-2.0", OK, N),
+        # OR takes the best term, AND the worst.
         (
             "Apache-2.0 OR GPL-2.0-or-later",
-            Mode.IMPORT,
+            IMPORT,
             "Apache-2.0 OR GPL-2.0-or-later",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text", "carry-notice"),
+            OK,
+            N,
         ),
-        (
-            "Apache Software License; MIT License",
-            Mode.IMPORT,
-            "Apache-2.0 OR MIT",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        # AND takes the worst term and every obligation.
-        (
-            "MIT AND GPL-3.0-only",
-            Mode.IMPORT,
-            "MIT AND GPL-3.0-only",
-            Verdict.DENY,
-            ("notice", "licence-text"),
-        ),
-        (
-            "Apache-2.0 AND CNRI-Python",
-            Mode.IMPORT,
-            "Apache-2.0 AND CNRI-Python",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text", "carry-notice"),
-        ),
-        # webpki-roots' licence: data, permissive, with attribution.
-        (
-            "CDLA-Permissive-2.0",
-            Mode.STATIC,
-            "CDLA-Permissive-2.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        # Nothing a human has not answered is ever allowed.
-        (None, Mode.IMPORT, None, Verdict.ASK, ()),
-        ("UNKNOWN", Mode.IMPORT, None, Verdict.ASK, ()),
-        ("", Mode.IMPORT, None, Verdict.ASK, ()),
-        (
-            "LicenseRef-Proprietary",
-            Mode.IMPORT,
-            "LicenseRef-Proprietary",
-            Verdict.ASK,
-            (),
-        ),
-        (
-            "Some Custom Licence v1",
-            Mode.IMPORT,
-            "Some Custom Licence v1",
-            Verdict.ASK,
-            (),
-        ),
+        ("Apache Software License; MIT License", IMPORT, "Apache-2.0 OR MIT", OK, N),
+        ("mit; apache-2.0", IMPORT, "MIT OR Apache-2.0", OK, N),
+        ("MIT AND GPL-3.0-only", IMPORT, "MIT AND GPL-3.0-only", DENY, ()),
+        ("Apache-2.0 AND CNRI-Python", IMPORT, "Apache-2.0 AND CNRI-Python", OK, N),
+        # Nothing a human has not answered is ever ok.
+        (None, IMPORT, None, ASK, ()),
+        ("UNKNOWN", IMPORT, None, ASK, ()),
+        ("", IMPORT, None, ASK, ()),
+        ("LicenseRef-Proprietary", IMPORT, "LicenseRef-Proprietary", ASK, ()),
+        ("Some Custom Licence v1", IMPORT, "Some Custom Licence v1", ASK, ()),
         (
             "MIT AND LicenseRef-Proprietary",
-            Mode.IMPORT,
+            IMPORT,
             "MIT AND LicenseRef-Proprietary",
-            Verdict.ASK,
+            ASK,
             (),
         ),
         # An unknown alternative may be the permissive one, so it is never a deny.
         (
             "LicenseRef-Foo OR GPL-3.0-only",
-            Mode.IMPORT,
+            IMPORT,
             "LicenseRef-Foo OR GPL-3.0-only",
-            Verdict.ASK,
+            ASK,
+            (),
+        ),
+        ("LicenseRef-Foo OR MIT", IMPORT, "LicenseRef-Foo OR MIT", OK, N),
+        # A runtime exception clears its base licence, a base on no list stays unknown.
+        (
+            "GPL-2.0-only WITH Classpath-exception-2.0",
+            IMPORT,
+            "GPL-2.0-only WITH Classpath-exception-2.0",
+            OK,
+            N,
+        ),
+        # scipy's wheel bundles libgfortran under this.
+        (
+            "GPL-3.0-or-later WITH GCC-exception-3.1",
+            STATIC,
+            "GPL-3.0-or-later WITH GCC-exception-3.1",
+            OK,
+            N,
+        ),
+        (
+            "Apache-2.0 WITH LLVM-exception",
+            STATIC,
+            "Apache-2.0 WITH LLVM-exception",
+            OK,
+            N,
+        ),
+        (
+            "LicenseRef-Foo WITH LLVM-exception",
+            STATIC,
+            "LicenseRef-Foo WITH LLVM-exception",
+            ASK,
             (),
         ),
         (
-            "LicenseRef-Foo OR MIT",
-            Mode.IMPORT,
-            "LicenseRef-Foo OR MIT",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "mit; apache-2.0",
-            Mode.IMPORT,
-            "MIT OR Apache-2.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "GPL-2.0-only WITH Classpath-exception-2.0",
-            Mode.IMPORT,
-            "GPL-2.0-only WITH Classpath-exception-2.0",
-            Verdict.ASK,
-            (),
+            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+            STATIC,
+            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+            OK,
+            N,
         ),
         # Bracketed expressions: AND binds tighter than OR.
         (
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
-            Mode.IMPORT,
+            IMPORT,
             "(MIT OR Apache-2.0) AND BSD-3-Clause",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "(Apache-2.0 OR MIT) AND Unicode-3.0",
-            Mode.STATIC,
-            "(Apache-2.0 OR MIT) AND Unicode-3.0",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
+            OK,
+            N,
         ),
         (
             "(MIT OR Apache-2.0) AND GPL-3.0-only",
-            Mode.IMPORT,
+            IMPORT,
             "(MIT OR Apache-2.0) AND GPL-3.0-only",
-            Verdict.DENY,
-            ("notice", "licence-text"),
+            DENY,
+            (),
         ),
         (
             "(MIT OR Apache-2.0) AND LicenseRef-Foo",
-            Mode.IMPORT,
+            IMPORT,
             "(MIT OR Apache-2.0) AND LicenseRef-Foo",
-            Verdict.ASK,
+            ASK,
             (),
         ),
         (
             "MIT AND (GPL-3.0-only OR LicenseRef-Foo)",
-            Mode.IMPORT,
+            IMPORT,
             "MIT AND (GPL-3.0-only OR LicenseRef-Foo)",
-            Verdict.ASK,
+            ASK,
             (),
         ),
-        # npm wraps a lone expression in brackets. Only that one pair is dropped.
-        (
-            "(MIT OR GPL-3.0-or-later)",
-            Mode.IMPORT,
-            "MIT OR GPL-3.0-or-later",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "(MIT AND Zlib)",
-            Mode.IMPORT,
-            "MIT AND Zlib",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        (
-            "(MIT) OR (GPL-3.0-only)",
-            Mode.IMPORT,
-            "(MIT) OR (GPL-3.0-only)",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
-        # A listed exception is judged as its base licence, inside an OR too.
-        (
-            "Apache-2.0 WITH LLVM-exception",
-            Mode.STATIC,
-            "Apache-2.0 WITH LLVM-exception",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text", "carry-notice"),
-        ),
-        (
-            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
-            Mode.STATIC,
-            "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
-        ),
+        # npm wraps a lone expression in brackets.
+        ("(MIT OR GPL-3.0-or-later)", IMPORT, "MIT OR GPL-3.0-or-later", OK, N),
+        ("(MIT AND Zlib)", IMPORT, "MIT AND Zlib", OK, N),
+        ("(MIT) OR (GPL-3.0-only)", IMPORT, "MIT OR GPL-3.0-only", OK, N),
         (
             "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
-            Mode.STATIC,
+            STATIC,
             "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
-            Verdict.OBLIGATIONS,
-            ("notice", "licence-text"),
+            OK,
+            N,
         ),
-        (
-            "LGPL-2.1-or-later",
-            Mode.STATIC,
-            "LGPL-2.1-or-later",
-            Verdict.ASK,
-            (),
-        ),
+        # Metadata claiming our id is what a squatted package would do.
+        ("LicenseRef-HyperI", IMPORT, "LicenseRef-HyperI", ASK, ()),
     ],
 )
 def test_judge_golden_table(policy, licence, mode, spdx, verdict, obligations):
@@ -331,50 +250,20 @@ def test_judge_golden_table(policy, licence, mode, spdx, verdict, obligations):
     assert (got_spdx, got_verdict, got_obligations) == (spdx, verdict, obligations)
 
 
-def test_every_group_judges_every_mode(policy):
-    for name, modes in policy.groups.items():
-        assert set(modes) == set(Mode), name
+def test_an_id_on_two_lists_is_refused(tmp_path):
+    table = tmp_path / "licensing.yaml"
+    table.write_text("ok: [MIT]\npoisons: [MIT]\n", encoding="utf-8")
+    with pytest.raises(PolicyError, match="in both"):
+        load_policy(table)
 
 
-@pytest.mark.parametrize(
-    ("override", "message"),
-    [
-        ({"gpl": {"import": {"verdict": "allow"}}}, "reason"),
-        ({"gpl": {"import": {"verdict": "maybe", "reason": "r"}}}, "unknown verdict"),
-        ({"gpl": {"linked": {"verdict": "allow", "reason": "r"}}}, "unknown mode"),
-        ({"nope": {"import": {"verdict": "allow", "reason": "r"}}}, "unknown group"),
-        (
-            {"lgpl": {"static": {"verdict": "allow-with-obligations", "reason": "r"}}},
-            "names no obligations",
-        ),
-        (
-            {
-                "lgpl": {
-                    "static": {
-                        "verdict": "allow-with-obligations",
-                        "obligations": ["x"],
-                        "reason": "r",
-                    }
-                }
-            },
-            "unknown obligations",
-        ),
-    ],
-)
-def test_repo_policy_override_rejects_bad_cells(override, message):
-    with pytest.raises(PolicyError, match=message):
-        load_policy(repo_policy=override)
-
-
-def test_repo_policy_override_changes_one_cell_and_the_digest(policy):
-    changed = load_policy(
-        repo_policy={
-            "lgpl": {"static": {"verdict": "deny", "reason": "no LGPL in binaries"}}
-        }
+def test_the_digest_covers_the_whole_table(tmp_path, policy):
+    table = tmp_path / "licensing.yaml"
+    text = POLICY_PATH.read_text(encoding="utf-8")
+    table.write_text(
+        text.replace("first_party: [LicenseRef-HyperI]", ""), encoding="utf-8"
     )
-    assert judge("LGPL-3.0-only", Mode.STATIC, changed)[1] is Verdict.DENY
-    assert judge("LGPL-3.0-only", Mode.IMPORT, changed)[1] is Verdict.OBLIGATIONS
-    assert changed.digest != policy.digest
+    assert load_policy(table).digest != policy.digest
 
 
 @pytest.mark.parametrize(
@@ -396,7 +285,7 @@ def test_golden_lgpl_with_no_metadata_asks_and_quotes_the_licence_file(policy):
         [_GOLDEN_LGPL], {"pysigma-backend-clickhouse": "1.1.1"}, policy, []
     )
     (finding,) = findings
-    assert finding.verdict is Verdict.ASK
+    assert finding.verdict is ASK
     assert finding.source == "license-file"
     assert finding.evidence.startswith(
         ".venv/lib/python3.14/site-packages/"
@@ -426,177 +315,13 @@ def test_golden_lgpl_answered_by_override(
         [_GOLDEN_LGPL], {"pysigma-backend-clickhouse": "1.1.1"}, policy, overrides
     )
     if applies:
-        assert (finding.verdict, finding.source) == (Verdict.OBLIGATIONS, "override")
-        assert finding.obligations == ("notice", "lgpl-texts", "replaceable")
+        assert (finding.verdict, finding.source, finding.obligations) == (
+            OK,
+            "override",
+            LGPL,
+        )
     else:
-        assert finding.verdict is Verdict.ASK
-
-
-_BSD3 = """\
-Copyright 2007 Pallets
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-1.  Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-
-2.  Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-3.  Neither the name of the copyright holder nor the names of its
-    contributors may be used to endorse or promote products derived from
-    this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
-TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
-TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-"""
-_NAME_CLAUSE = _BSD3[_BSD3.index("3.  Neither") : _BSD3.index("THIS SOFTWARE")]
-_BSD2 = _BSD3.replace(_NAME_CLAUSE, "")
-_ZERO_BSD = """\
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
-"""
-_ISC = _ZERO_BSD.replace(
-    "hereby granted.",
-    "hereby granted, provided that the above copyright notice and this "
-    "permission notice appear in all copies.",
-)
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (_BSD3, "BSD-3-Clause"),
-        (_BSD2, "BSD-2-Clause"),
-        ("BSD 3-Clause License\n\n" + _BSD3, "BSD-3-Clause"),
-        ("Copyright (c) 2001 A\nCopyright (c) 2002 B\n" + _BSD3, "BSD-3-Clause"),
-        (
-            _BSD3.replace("1.  ", "* ").replace("2.  ", "* ").replace("3.  ", "* "),
-            "BSD-3-Clause",
-        ),
-        (
-            _BSD3.replace("1.  ", "- ").replace("2.  ", "- ").replace("3.  ", "- "),
-            "BSD-3-Clause",
-        ),
-        (
-            _BSD3.replace("the copyright holder nor", "Encode OSS Ltd. nor"),
-            "BSD-3-Clause",
-        ),
-        # A clause that starts on a line beginning "copyright notice" is still text.
-        (_BSD3.replace("copyright\n    notice", "\ncopyright notice"), "BSD-3-Clause"),
-        # BSD-4-Clause: the advertising clause stays.
-        (
-            _BSD3.replace(
-                "3.  Neither",
-                "3.  All advertising materials mentioning features or use of this "
-                "software must display the following acknowledgement: This product "
-                "includes software developed by Example.\n\n4.  Neither",
-            ),
-            None,
-        ),
-        (
-            _BSD3.replace(
-                "THIS SOFTWARE", "4. Not for commercial use.\n\nTHIS SOFTWARE"
-            ),
-            None,
-        ),
-        (_BSD3 + "\nThis software may not be used by any government agency.\n", None),
-        ("This module was extracted from another package.\n" + _BSD3, None),
-        (
-            _BSD3.replace(
-                "the copyright holder nor", "the holder, who may revoke it, nor"
-            ),
-            None,
-        ),
-        (_BSD3.replace("must retain", "should retain"), None),
-        # sphinx-doc's LICENCE.rst: an rst title, its underline, and a pointer.
-        (
-            "License for sphinxcontrib-applehelp\n===================================\n\n"
-            "Copyright (c) 2007-2019 by the Sphinx team\n"
-            "(see https://github.com/sphinx-doc/sphinx/blob/master/AUTHORS).\n"
-            "All rights reserved.\n\n" + _BSD2,
-            "BSD-2-Clause",
-        ),
-        # A pointer line with words in it is not decoration.
-        (
-            "(see https://example.org/terms for further restrictions).\n" + _BSD2,
-            None,
-        ),
-        # alabaster's reworded name clause is not BSD-3-Clause's.
-        (
-            _BSD3.replace(
-                "Neither the name of the copyright holder nor the names of its\n"
-                "    contributors may be used",
-                "The names of the contributors may not be used",
-            ),
-            None,
-        ),
-        (_ZERO_BSD, "0BSD"),
-        (
-            "BSD Zero Clause Licence\n\nCopyright 2022, Adam Turner\n\n" + _ZERO_BSD,
-            "0BSD",
-        ),
-        # ISC asks for the notice to be kept, so it is ISC, not 0BSD.
-        (_ISC, "ISC"),
-        # requests-oauthlib 2.0.0 ships this under a `BSD License` classifier.
-        ("ISC License\n\nCopyright (c) 2014 Kenneth Reitz.\n\n" + _ISC, "ISC"),
-        (_ISC.replace("and/or distribute", "and distribute"), "ISC"),
-        (_ISC + "\nThis software may not be used for military purposes.\n", None),
-        ("", None),
-        (None, None),
-    ],
-)
-def test_bsd_licence_needs_the_whole_text_to_be_one_bsd(text, expected):
-    assert bsd_licence(text) == expected
-
-
-@pytest.mark.parametrize(
-    ("declared", "text", "spdx", "verdict"),
-    [
-        ("BSD License", _BSD3, "BSD-3-Clause", Verdict.OBLIGATIONS),
-        ("BSD", _BSD2, "BSD-2-Clause", Verdict.OBLIGATIONS),
-        ("BSD License", _ISC, "ISC", Verdict.OBLIGATIONS),
-        ("BSD License", _BSD3 + "\nNo military use.\n", "BSD License", Verdict.ASK),
-        ("BSD License", "UNKNOWN", "BSD License", Verdict.ASK),
-        # Only a bare BSD is read from the file. A declared licence is never second-guessed.
-        ("GPL-3.0-only", _BSD3, "GPL-3.0-only", Verdict.DENY),
-    ],
-)
-def test_bare_bsd_classifier_is_judged_from_the_licence_file(
-    policy, declared, text, spdx, verdict
-):
-    package = {
-        "Name": "jinja2",
-        "Version": "3.1.6",
-        "License": declared,
-        "LicenseFile": "jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
-        "LicenseText": text,
-    }
-    (finding,) = findings_for([package], {"jinja2": "3.1.6"}, policy, [])
-    assert (finding.spdx, finding.verdict) == (spdx, verdict)
-    if verdict is Verdict.OBLIGATIONS:
-        assert finding.source == "license-file"
-        assert finding.evidence == f"{package['LicenseFile']}: {spdx} text"
+        assert finding.verdict is ASK
 
 
 @pytest.mark.parametrize(
@@ -629,19 +354,18 @@ def test_declared_licence_takes_the_most_specific_field(
         (
             "BUSL-1.1",
             [Override("dfe-schemas", "LicenseRef-HyperI", "ours", "0.2.23")],
-            Verdict.ALLOW,
+            OK,
             "first-party",
         ),
-        # Metadata claiming our id is what a squatted package would do.
-        ("LicenseRef-HyperI", [], Verdict.ASK, "override-only"),
-        ("LicenseRef-HyperI OR MIT", [], Verdict.ASK, "override-only"),
-        ("BUSL-1.1", [], Verdict.ASK, "unrecognised"),
+        ("LicenseRef-HyperI", [], ASK, "override-only"),
+        ("LicenseRef-HyperI OR LicenseRef-Foo", [], ASK, "override-only"),
+        ("BUSL-1.1", [], ASK, "human"),
         # A pin to another version is no answer for this one.
         (
             "BUSL-1.1",
             [Override("dfe-schemas", "LicenseRef-HyperI", "ours", "0.2.22")],
-            Verdict.ASK,
-            "unrecognised",
+            ASK,
+            "human",
         ),
     ],
 )
@@ -650,49 +374,26 @@ def test_first_party_licence_passes_only_through_an_override(
 ):
     package = {"Name": "dfe-schemas", "Version": "0.2.23", "License": declared}
     (finding,) = findings_for([package], {"dfe-schemas": "0.2.23"}, policy, overrides)
-    finding = restrict_override_only(finding, policy)
     assert (finding.verdict, finding.rule) == (verdict, rule)
-
-
-def test_the_gate_holds_a_first_party_claim_from_metadata(
-    tmp_path, monkeypatch, policy
-):
-    monkeypatch.chdir(tmp_path)
-    package = {"Name": "squat", "Version": "1.0", "License": "LicenseRef-HyperI"}
-    findings = findings_for([package], {"squat": "1.0"}, policy, [])
-    assert findings[0].verdict is Verdict.ALLOW
-    assert finish(findings, [], policy, {}, "blocking") is False
-    (dep,) = json.loads(REPORT_PATH.read_text(encoding="utf-8"))["deps"]
-    assert (dep["verdict"], dep["rule"]) == ("ask", "override-only")
-
-
-def test_override_only_groups_count_in_the_policy_digest(tmp_path, policy):
-    table = tmp_path / "policy.yaml"
-    text = _POLICY_PATH.read_text(encoding="utf-8")
-    table.write_text(text.replace("override_only: true", ""), encoding="utf-8")
-    loose = load_policy(table)
-    assert loose.override_only == frozenset()
-    assert policy.override_only == frozenset({"first-party"})
-    assert loose.digest != policy.digest
 
 
 @pytest.mark.parametrize(
     ("licence", "mode", "spdx", "verdict", "rule", "override_only"),
     [
-        ("MIT", "import", "MIT", "allow-with-obligations", "permissive", False),
+        ("MIT", "import", "MIT", "allow-with-obligations", "ok", False),
         (
             "Apache Software License",
             "static",
             "Apache-2.0",
             "allow-with-obligations",
-            "apache",
+            "ok",
             False,
         ),
         (
             "LicenseRef-HyperI",
             "import",
             "LicenseRef-HyperI",
-            "allow",
+            "allow-with-obligations",
             "first-party",
             True,
         ),
@@ -701,11 +402,11 @@ def test_override_only_groups_count_in_the_policy_digest(tmp_path, policy):
             "import",
             "MIT OR GPL-3.0-only",
             "allow-with-obligations",
-            "permissive",
+            "ok",
             False,
         ),
-        ("GPL-3.0-only", "import", "GPL-3.0-only", "deny", "gpl", False),
-        ("MPL-2.0", "modified", "MPL-2.0", "ask", "mpl", False),
+        ("GPL-3.0-only", "import", "GPL-3.0-only", "deny", "poisons", False),
+        ("LGPL-3.0-only", "static", "LGPL-3.0-only", "ask", "static-link", False),
         ("Not-A-Licence", "import", "Not-A-Licence", "ask", "unrecognised", False),
         ("", "import", None, "ask", "undeclared", False),
     ],
@@ -724,50 +425,45 @@ def test_judge_override_answers_with_the_report_digest(
 
 
 @pytest.mark.parametrize(
-    ("args", "policy_yaml", "code", "verdict"),
+    ("args", "config", "code", "verdict"),
     [
         (["LGPL-3.0-only", "--mode", "static"], "", 0, "ask"),
+        # A per-repo policy block is no longer read, so it changes nothing.
         (
             ["LGPL-3.0-only", "--mode", "static"],
-            "      lgpl:\n        static: {verdict: deny, reason: no LGPL in binaries}\n",
+            "    policy:\n      lgpl:\n        static: {verdict: allow, reason: r}\n",
             0,
-            "deny",
+            "ask",
         ),
         (["MIT", "--mode", "linked"], "", 2, None),
         (
             ["MIT"],
-            "      lgpl:\n        static: {verdict: deny}\n",
+            "    overrides:\n      - {name: x}\n",
             2,
             None,
         ),
     ],
-    ids=["shipped-policy", "repo-cascade", "bad-mode", "policy-without-reason"],
+    ids=["shipped-table", "repo-policy-ignored", "bad-mode", "bad-override"],
 )
-def test_licenses_judge_command_applies_the_repo_policy(
-    tmp_path, args, policy_yaml, code, verdict
-):
+def test_licenses_judge_command(tmp_path, args, config, code, verdict, policy):
     from typer.testing import CliRunner
 
     from hyperi_ci.cli import app
 
-    config = "quality:\n  dep_licenses:\n    mode: blocking\n"
-    if policy_yaml:
-        config += "    policy:\n" + policy_yaml
-    (tmp_path / ".hyperi-ci.yaml").write_text(config, encoding="utf-8")
+    text = "quality:\n  dep_licenses:\n    mode: blocking\n" + config
+    (tmp_path / ".hyperi-ci.yaml").write_text(text, encoding="utf-8")
     result = CliRunner().invoke(
         app, ["licenses", "judge", *args, "--json", "-C", str(tmp_path)]
     )
     assert result.exit_code == code, result.output
     if verdict is not None:
-        answer = json.loads(result.stdout)
-        settings = load_config(project_dir=tmp_path).setting("quality.dep_licenses")
-        expected = load_policy(repo_policy=settings.get("policy")).digest
-        assert (answer["verdict"], answer["policy"]) == (verdict, expected)
+        answer = json.loads(result.stdout.splitlines()[-1])
+        assert (answer["verdict"], answer["policy"]) == (verdict, policy.digest)
 
 
 def test_runtime_package_not_installed_is_ask(policy):
     (finding,) = findings_for([], {"ghost": "1.0"}, policy, [])
-    assert (finding.verdict, finding.source) == (Verdict.ASK, "missing")
+    assert (finding.verdict, finding.source) == (ASK, "missing")
 
 
 def test_runtime_packages_reads_pins_and_sets_aside_other_platforms():
@@ -789,7 +485,7 @@ def test_runtime_packages_reads_pins_and_sets_aside_other_platforms():
 def test_a_direct_reference_is_judged_with_its_installed_version(policy):
     gpl = {"Name": "gitdep", "Version": "0.3.0", "License": "GPL-3.0-only"}
     (finding,) = findings_for([gpl], {"gitdep": ""}, policy, [])
-    assert (finding.version, finding.verdict) == ("0.3.0", Verdict.DENY)
+    assert (finding.version, finding.verdict) == ("0.3.0", DENY)
 
 
 @pytest.mark.parametrize(
@@ -837,14 +533,14 @@ def test_report_line_and_json_are_citable(policy):
     )
     assert findings[0].line() == (
         "licence: pypi certifi 1 MPL-2.0 import -> allow-with-obligations "
-        "[notice, licence-text] (rule mpl, source metadata)"
+        "[notice, mpl-source] (rule ok, source metadata)"
     )
     doc = json.loads(json.dumps(report(findings, policy, {"pip-licenses": "5.5.5"})))
     assert doc["schema"] == 1
     assert doc["hyperi_ci"] == hyperi_ci.__version__
     assert doc["policy"] == policy.digest
     assert doc["deps"][0]["verdict"] == "allow-with-obligations"
-    assert doc["deps"][0]["obligations"] == ["notice", "licence-text"]
+    assert doc["deps"][0]["obligations"] == ["notice", "mpl-source"]
 
 
 _NOTICE_PACKAGES = [
@@ -863,17 +559,17 @@ _NOTICE_PACKAGES = [
         "NoticeText": "Apache NOTICE",
     },
     {
-        "Name": "mit-with-notice",
+        "Name": "mit-no-file",
         "Version": "3",
         "License": "MIT",
         "LicenseText": "UNKNOWN",
-        "NoticeText": "not carried for MIT",
+        "NoticeText": "a NOTICE beside an MIT licence",
     },
     {
-        "Name": "public",
+        "Name": "certifi",
         "Version": "4",
-        "License": "CC0-1.0",
-        "LicenseText": "CC0 text",
+        "License": "MPL-2.0",
+        "LicenseText": "MPL text",
         "NoticeText": "UNKNOWN",
     },
     _GOLDEN_LGPL,
@@ -881,36 +577,39 @@ _NOTICE_PACKAGES = [
 _NOTICE_RUNTIME = {
     "zlib-ish": "1",
     "apache-thing": "2",
-    "mit-with-notice": "3",
-    "public": "4",
+    "mit-no-file": "3",
+    "certifi": "4",
     "pysigma-backend-clickhouse": "1.1.1",
 }
 
 
-def _notices(policy):
+def _entries(policy):
     findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
-    return render_notices(notice_entries(_NOTICE_PACKAGES, findings))
+    return findings, notice_entries(_NOTICE_PACKAGES, findings)
 
 
 def test_notices_list_every_shipped_dependency(policy):
-    text = _notices(policy)
+    text = render_notices(_entries(policy)[1])
     names = [line for line in text.splitlines() if line.endswith(")")]
     # An unanswered ask still ships its licence text, so it is listed too.
     assert names == [
         "Apache-Thing 2 (Apache-2.0)",
-        "mit-with-notice 3 (MIT)",
-        "public 4 (CC0-1.0)",
+        "certifi 4 (MPL-2.0)",
+        "mit-no-file 3 (MIT)",
         "pysigma-backend-clickhouse 1.1.1 (unknown)",
         "zlib-ish 1 (MIT)",
     ]
     assert "Apache text\n\nNOTICE:\n\nApache NOTICE" in text
+    assert "a NOTICE beside an MIT licence" in text
     assert "GNU LESSER GENERAL PUBLIC LICENSE" in text
-    assert "not carried for MIT" not in text
+    assert "MPL text\n\nSource: https://pypi.org/project/certifi/4/" in text
+    # A package that ships no licence file gets the SPDX standard text.
+    assert "SPDX standard text for MIT" in text
+    assert "Permission is hereby granted, free of charge" in text
 
 
 def test_notices_are_byte_identical_whatever_the_input_order(policy):
-    findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
-    entries = notice_entries(_NOTICE_PACKAGES, findings)
+    entries = _entries(policy)[1]
     assert render_notices(entries) == render_notices(list(reversed(entries)))
 
 
@@ -933,7 +632,6 @@ _GNU_TEXTS = [
             ["GPL-2.0-only", "GPL-3.0-only", "LGPL-2.0-only", "LGPL-3.0-only"],
         ),
         (["GNU Library or Lesser General Public License (LGPL)"], _GNU_TEXTS),
-        # A static LGPL link is ask, so it carries no obligation and no texts.
         (["MIT", "Apache-2.0"], []),
     ],
 )
@@ -950,7 +648,7 @@ def test_lgpl_dependencies_bring_their_gnu_texts_once(policy, licences, texts):
     }
     assert headings == {n: int(n in texts) for n in _GNU_TEXTS}
     for name in texts:
-        bundled = (_POLICY_PATH.parent / "licence-texts" / f"{name}.txt").read_text()
+        bundled = (POLICY_PATH.parent / "licence-texts" / f"{name}.txt").read_text()
         assert bundled.strip() in notices
 
 
@@ -963,7 +661,7 @@ def test_bundled_gnu_texts_are_the_published_ones():
         "LGPL-2.1-only": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
         "LGPL-3.0-only": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
     }
-    texts = _POLICY_PATH.parent / "licence-texts"
+    texts = POLICY_PATH.parent / "licence-texts"
     actual = {
         path.stem: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in texts.glob("*.txt")
@@ -971,123 +669,30 @@ def test_bundled_gnu_texts_are_the_published_ones():
     assert actual == expected
 
 
-@pytest.mark.parametrize(
-    ("repo_copy", "mode", "passes"),
-    [
-        (None, "blocking", True),
-        ("current", "blocking", True),
-        ("stale", "blocking", False),
-        ("stale", "warn", True),
-    ],
-)
-def test_repo_notices_are_held_to_the_lock(
-    policy, tmp_path, monkeypatch, repo_copy, mode, passes
-):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".hyperi-ci").mkdir()
-    # mit-with-notice ships no licence file, so the repo supplies one.
-    (tmp_path / "mit.txt").write_text("MIT text from the repo", encoding="utf-8")
-    overrides = [Override("mit-with-notice", "MIT", "upstream", None, "mit.txt")]
-    findings = findings_for(_NOTICE_PACKAGES, _NOTICE_RUNTIME, policy, [])
-    _, entries = fill_and_judge(
-        findings, notice_entries(_NOTICE_PACKAGES, findings), policy, overrides
-    )
-    check_notices(entries, "warn")
-    current = (tmp_path / ".hyperi-ci" / "THIRD-PARTY-NOTICES").read_text(
-        encoding="utf-8"
-    )
-    assert "MIT text from the repo" in current
-    if repo_copy is not None:
-        text = current if repo_copy == "current" else "old\n"
-        (tmp_path / "THIRD-PARTY-NOTICES").write_text(text, encoding="utf-8")
-    assert check_notices(entries, mode) is passes
-
-
 @pytest.mark.parametrize(("mode", "passes"), [("blocking", False), ("warn", True)])
-def test_missing_licence_text_fails_instead_of_shipping_a_placeholder(
+def test_finish_writes_the_report_and_notices_and_holds_each_ask(
     policy, tmp_path, monkeypatch, mode, passes
 ):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".hyperi-ci").mkdir()
-    # No file, no repository, and no SPDX standard text for a LicenseRef.
-    packages = [
-        {"Name": "vendor", "Version": "1", "License": "LicenseRef-Vendor"},
+    # mit-no-file ships no licence file, so the repo supplies one.
+    (tmp_path / "mit.txt").write_text("MIT text from the repo", encoding="utf-8")
+    overrides = [Override("mit-no-file", "MIT", "upstream", None, "mit.txt")]
+    findings, entries = _entries(policy)
+    assert finish(findings, entries, policy, {}, mode, overrides) is passes
+    notices = NOTICES_OUTPUT.read_text(encoding="utf-8")
+    assert "MIT text from the repo" in notices
+    deps = json.loads(REPORT_PATH.read_text(encoding="utf-8"))["deps"]
+    assert [d["name"] for d in deps if d["verdict"] == "ask"] == [
+        "pysigma-backend-clickhouse"
     ]
-    findings = findings_for(packages, {"vendor": "1"}, policy, [])
-    _, entries = fill_and_judge(findings, notice_entries(packages, findings), policy)
-    assert check_notices(entries, mode) is passes
 
 
-@pytest.mark.parametrize(
-    ("declared", "upstream_text", "spdx", "verdict"),
-    [
-        ("BSD License", _ZERO_BSD, "0BSD", Verdict.OBLIGATIONS),
-        ("BSD License", _BSD3, "BSD-3-Clause", Verdict.OBLIGATIONS),
-        ("BSD License", _BSD3 + "\nNo military use.\n", "BSD License", Verdict.ASK),
-        ("BSD License", None, "BSD License", Verdict.ASK),
-        # A declared licence is never second-guessed by the text.
-        ("GPL-3.0-only", _ZERO_BSD, "GPL-3.0-only", Verdict.DENY),
-    ],
-)
-def test_a_bare_bsd_is_judged_from_text_fetched_from_its_repository(
-    policy, declared, upstream_text, spdx, verdict
-):
-    packages = [{"Name": "sphinxcontrib-jquery", "Version": "4.1", "License": declared}]
-    findings = findings_for(packages, {"sphinxcontrib-jquery": "4.1"}, policy, [])
-    entries = notice_entries(packages, findings)
-    licence = f"Licence text from repo at tag v4.1: LICENCE.\n\n{upstream_text}"
-    upstream = Upstream(licence if upstream_text else None)
-    judged, filled = fill_and_judge(findings, entries, policy, (), lambda *_: upstream)
-    (finding,) = judged
-    assert (finding.spdx, finding.verdict) == (spdx, verdict)
-    assert filled[0].finding == finding
-    if spdx != declared:
-        assert finding.source == "license-file"
-        assert finding.evidence.endswith("Licence text from repo at tag v4.1: LICENCE.")
-
-
-_APPLEHELP_LINKS = [
-    (
-        "Changelog",
-        "https://github.com/sphinx-doc/sphinxcontrib-applehelp/blob/master/CHANGES.rst",
-    ),
-    ("Code", "https://github.com/sphinx-doc/sphinxcontrib-applehelp/"),
-    ("Download", "https://pypi.org/project/sphinxcontrib-applehelp/"),
-    ("Homepage", "https://www.sphinx-doc.org/"),
-    ("Issue tracker", "https://github.com/sphinx-doc/sphinx/issues/"),
-]
-
-
-@pytest.mark.parametrize(
-    ("links", "url", "expected"),
-    [
-        (
-            _APPLEHELP_LINKS,
-            "https://www.sphinx-doc.org/",
-            "https://github.com/sphinx-doc/sphinxcontrib-applehelp/",
-        ),
-        # An issue tracker on a forge is another repository's.
-        (
-            [("Issue tracker", "https://github.com/sphinx-doc/sphinx/issues/")],
-            "https://www.sphinx-doc.org/",
-            "https://www.sphinx-doc.org/",
-        ),
-        ([], "https://github.com/pallets/jinja/", "https://github.com/pallets/jinja/"),
-        (
-            [("Docs", "https://jinja.palletsprojects.com/")],
-            None,
-            "https://jinja.palletsprojects.com/",
-        ),
-        (
-            [("Source", "https://gitlab.com/g/p")],
-            "https://example.org/",
-            "https://gitlab.com/g/p",
-        ),
-        ([], None, None),
-    ],
-)
-def test_the_repository_is_the_source_link_before_the_homepage(links, url, expected):
-    assert repository(links, url) == expected
+def test_finish_passes_when_everything_is_ok(policy, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    package = {"Name": "x", "Version": "1", "License": "MIT", "LicenseText": "t"}
+    findings = findings_for([package], {"x": "1"}, policy, [])
+    entries = notice_entries([package], findings)
+    assert finish(findings, entries, policy, {}, "blocking") is True
 
 
 def _crate(root, name, licence, *, kinds=("lib",), files=None, license_file=None):
@@ -1198,7 +803,7 @@ def test_rust_crates_are_judged_as_static_links(policy, rust_metadata, monkeypat
     assert ring.evidence == "ring-1.0.0/LICENSE: ring licence text"
     assert findings["tokio"].line() == (
         "licence: crates tokio 1.0.0 MIT static -> allow-with-obligations "
-        "[notice, licence-text] (rule permissive, source metadata)"
+        "[notice] (rule ok, source metadata)"
     )
 
 
@@ -1276,7 +881,7 @@ def test_npm_notices_skip_a_readme_and_carry_a_notice(policy, npm_records):
     findings = npm_licenses.findings_for(npm_records, policy, [])
     text = render_notices(npm_licenses.notice_entries(npm_records, findings))
     assert "# isarray" not in text
-    assert "isarray 1.0.0 (MIT)" in text and "[no licence file in the package]" in text
+    assert "isarray 1.0.0 (MIT)" in text and "SPDX standard text for MIT" in text
     assert "Apache text\n\nNOTICE:\n\nAWS NOTICE" in text
 
 
@@ -1314,7 +919,7 @@ def test_vendored_entries_are_validated(raw, message):
         (
             {"path": "vendor", "mode": "vendored"},
             {
-                "vendor/lib/both.c": (Verdict.DENY, "file-header"),
+                "vendor/lib/both.c": (Verdict.ASK, "file-header"),
                 "vendor/lib/mit.c": (Verdict.OBLIGATIONS, "file-header"),
                 "vendor/lib/no_header.c": (Verdict.ASK, "missing-header"),
             },
@@ -1322,7 +927,7 @@ def test_vendored_entries_are_validated(raw, message):
         (
             {"path": "vendor", "licence": "MIT", "reason": "upstream LICENSE is MIT"},
             {
-                "vendor/lib/both.c": (Verdict.DENY, "file-header"),
+                "vendor/lib/both.c": (Verdict.ASK, "file-header"),
                 "vendor/lib/mit.c": (Verdict.OBLIGATIONS, "file-header"),
                 "vendor/lib/no_header.c": (Verdict.OBLIGATIONS, "override"),
             },
@@ -1335,3 +940,62 @@ def test_copied_in_files_are_judged_one_by_one(policy, entry, expected):
     assert {f.name: (f.verdict, f.source) for f in findings} == expected
     # A header the file carries always wins over the directory's answer.
     assert {f.mode for f in findings} == {Mode.VENDORED}
+
+
+@pytest.mark.parametrize(
+    ("marker", "code", "licences"),
+    [
+        ("classification: product\n", 0, ["BUSL-1.1"]),
+        ("classification: hyperi\n", 0, ["LicenseRef-HyperI-Proprietary"]),
+        ("classification: oss\n", 0, ["Apache-2.0", "MIT"]),
+        ("classification: fork\n", 0, ["inherit"]),
+        # Undeclared reads as internal, the most restrictive.
+        ("", 0, ["LicenseRef-HyperI-Proprietary"]),
+        ("classification: nonsense\n", 2, None),
+    ],
+)
+def test_licenses_outbound_command(tmp_path, marker, code, licences):
+    from typer.testing import CliRunner
+
+    from hyperi_ci.cli import app
+
+    (tmp_path / ".hyperi-ci.yaml").write_text(marker, encoding="utf-8")
+    result = CliRunner().invoke(
+        app, ["licenses", "outbound", "--json", "-C", str(tmp_path)]
+    )
+    assert result.exit_code == code, result.output
+    if licences is not None:
+        assert json.loads(result.stdout)["licences"] == licences
+
+
+def test_licenses_notices_needs_a_language_it_reads(tmp_path):
+    from typer.testing import CliRunner
+
+    from hyperi_ci.cli import app
+
+    result = CliRunner().invoke(app, ["licenses", "notices", "-C", str(tmp_path)])
+    assert result.exit_code == 2
+
+
+@pytest.mark.parametrize(
+    ("reader", "lock", "written"),
+    [
+        # No uv.lock leaves only copied-in files, and the notices still write.
+        (licenses, None, True),
+        # No Cargo.lock: cargo never ran, so there is nothing current to ship.
+        (rust_licenses, None, False),
+    ],
+)
+def test_fresh_notices_never_passes_off_an_old_file(
+    tmp_path, monkeypatch, reader, lock, written
+):
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    monkeypatch.chdir(tmp_path)
+    NOTICES_OUTPUT.parent.mkdir()
+    NOTICES_OUTPUT.write_text("left by an earlier run\n", encoding="utf-8")
+    (tmp_path / ".hyperi-ci.yaml").write_text("", encoding="utf-8")
+    got = fresh_notices(reader.run_gate, load_config(reload=True))
+    assert (got is not None) is written
+    if written:
+        assert "earlier run" not in NOTICES_OUTPUT.read_text(encoding="utf-8")

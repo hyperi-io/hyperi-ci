@@ -25,7 +25,6 @@ from packaging.utils import canonicalize_name
 from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
-from hyperi_ci.quality.bsd_text import BARE_BSD, bsd_licence
 from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
@@ -41,24 +40,8 @@ from hyperi_ci.quality.dep_licenses import (
     project_path,
     quote,
 )
-from hyperi_ci.quality.upstream_licences import pick_repository
 from hyperi_ci.quality.vendored_licenses import finish_with_copied_in
 from hyperi_ci.versions import tool_version
-
-# Run in the project interpreter with -I, so no project code is imported.
-_PROJECT_URLS_SCRIPT = (
-    "import importlib.metadata as m, json\n"
-    "urls = {}\n"
-    "for d in m.distributions():\n"
-    "    name = d.metadata['Name']\n"
-    "    if name:\n"
-    "        urls[name] = d.metadata.get_all('Project-URL') or []\n"
-    "print(json.dumps(urls))\n"
-)
-
-# Project-URL labels that name the code, and those that never do.
-_SOURCE_LABELS = ("source", "code", "repo", "git")
-_TRACKER_LABELS = ("issue", "bug", "tracker")
 
 # The lock's shipped set: every extra, no dependency group, not the project.
 _RUNTIME_EXPORT = [
@@ -157,7 +140,6 @@ def findings_for(
     """Judge each runtime package pip-licenses reported.
 
     A runtime package pip-licenses did not report is ask: it was never seen.
-    A bare ``BSD License`` is judged as the BSD licence its file's full text is.
 
     Args:
         packages: pip-licenses JSON records.
@@ -196,16 +178,11 @@ def findings_for(
         else:
             raw, source = str(package.get("License") or ""), "metadata"
             evidence = "License"
-        spdx, verdict, obligations, rule = judge(raw, Mode.IMPORT, policy)
+        spdx, verdict, obligations, rule = judge(
+            raw, Mode.IMPORT, policy, override=override is not None
+        )
         licence_text = package.get("LicenseText")
-        named = None
-        if source == "metadata" and raw.strip().upper() in BARE_BSD:
-            named = bsd_licence(licence_text)
-        if named is not None:
-            spdx, verdict, obligations, rule = judge(named, Mode.IMPORT, policy)
-            source = "license-file"
-            evidence = f"{project_path(package.get('LicenseFile'))}: {named} text"
-        elif rule == "undeclared" and licence_text not in (None, "UNKNOWN"):
+        if rule == "undeclared" and licence_text not in (None, _UNKNOWN):
             source = "license-file"
             evidence = (
                 f"{project_path(package.get('LicenseFile'))}: {quote(licence_text)}"
@@ -240,7 +217,6 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
         "--from=all",
         "--with-license-file",
         "--with-notice-file",
-        "--with-urls",
         # pip-licenses otherwise drops its own dependencies (wcwidth, prettytable).
         "--with-system",
         "--output-file",
@@ -248,17 +224,18 @@ def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
     ]
 
 
-def run_gate(config: CIConfig) -> bool:
+def run_gate(config: CIConfig, mode: str | None = None) -> bool:
     """Run the dependency-licence gate for a Python project.
 
     Args:
         config: Merged CI configuration.
+        mode: ``blocking`` or ``warn``, default the configured mode.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
 
     """
-    mode = resolve_tool_mode("dep_licenses", config, default="warn")
+    mode = mode or resolve_tool_mode("dep_licenses", config, default="warn")
     if mode == "disabled":
         return True
     try:
@@ -300,77 +277,20 @@ def run_gate(config: CIConfig) -> bool:
 
     findings = findings_for(packages, runtime, policy, overrides)
     tools = {"pip-licenses": tool_version("pip-licenses")}
-    entries = notice_entries(packages, findings, project_urls(python))
+    entries = notice_entries(packages, findings)
     return finish_with_copied_in(
         config, findings, entries, policy, tools, mode, overrides
     )
 
 
-def project_urls(python: str) -> dict[str, list[tuple[str, str]]]:
-    """Return each installed distribution's ``Project-URL`` links.
-
-    Args:
-        python: The project interpreter.
-
-    Returns:
-        Canonical name to ``(label, url)`` pairs, empty when the interpreter
-        could not be asked.
-
-    """
-    result = run_cmd(
-        [python, "-I", "-c", _PROJECT_URLS_SCRIPT], check=False, capture=True
-    )
-    if result.returncode != 0:
-        return {}
-    try:
-        raw = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {}
-    links: dict[str, list[tuple[str, str]]] = {}
-    for name, entries in raw.items():
-        pairs = []
-        for entry in entries:
-            label, _, url = str(entry).partition(",")
-            pairs.append((label.strip(), url.strip()))
-        links[canonicalize_name(name)] = pairs
-    return links
-
-
-def repository(links: Sequence[tuple[str, str]], url: str | None) -> str | None:
-    """Return the link most likely to be the package's repository.
-
-    A source-code link comes first, then the homepage pip-licenses reports,
-    then any other link but an issue tracker.
-    """
-
-    def labelled(label: str, words: tuple[str, ...]) -> bool:
-        return any(word in label.lower() for word in words)
-
-    source = [u for label, u in links if labelled(label, _SOURCE_LABELS)]
-    rest = [
-        u for label, u in links if not labelled(label, _SOURCE_LABELS + _TRACKER_LABELS)
-    ]
-    return pick_repository([*source, url, *rest])
-
-
 def notice_entries(
-    packages: Sequence[Mapping[str, Any]],
-    findings: Sequence[Finding],
-    links: Mapping[str, Sequence[tuple[str, str]]] | None = None,
+    packages: Sequence[Mapping[str, Any]], findings: Sequence[Finding]
 ) -> list[NoticeEntry]:
     """Pair each finding with the licence and NOTICE text its package shipped."""
     by_name = {canonicalize_name(str(p.get("Name", ""))): p for p in packages}
     entries = []
     for finding in findings:
-        name = canonicalize_name(finding.name)
-        package = by_name.get(name, {})
-        found = repository((links or {}).get(name, ()), package.get("URL"))
-        entries.append(
-            NoticeEntry(
-                finding,
-                package.get("LicenseText"),
-                package.get("NoticeText"),
-                found,
-            )
-        )
+        package = by_name.get(canonicalize_name(finding.name), {})
+        licence, notice = package.get("LicenseText"), package.get("NoticeText")
+        entries.append(NoticeEntry(finding, licence, notice))
     return entries

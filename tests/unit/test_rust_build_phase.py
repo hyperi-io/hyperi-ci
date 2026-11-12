@@ -264,6 +264,7 @@ class TestBuildStage:
             lambda targets, *_a: packaged.append(targets) or 0,
         )
         monkeypatch.setattr(build, "_verify_bolt_shipped", lambda *_a: 0)
+        monkeypatch.setattr(build, "_write_notices", lambda _config: 0)
         built: list[str] = []
         monkeypatch.setattr(
             build,

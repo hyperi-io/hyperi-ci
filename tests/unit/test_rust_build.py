@@ -173,6 +173,7 @@ class TestTier2Summary:
         monkeypatch.setattr(build, "_package_binaries", lambda *_args, **_kwargs: 0)
         # Packaging is stubbed, so there is no packaged file to inspect.
         monkeypatch.setattr(build, "_verify_bolt_shipped", lambda *_args: 0)
+        monkeypatch.setattr(build, "_write_notices", lambda _config: 0)
         monkeypatch.setattr(build, "_build_for_target", on_build)
         monkeypatch.setattr(build, "log_outcome", logged.append)
         return logged
@@ -278,6 +279,7 @@ class TestTier2Summary:
         self._patch_build(monkeypatch, on_build)
         monkeypatch.setattr(build, "_package_binaries", package)
         monkeypatch.setattr(build, "_verify_bolt_shipped", real_verify)
+        monkeypatch.setattr(build, "_write_notices", lambda _config: 0)
         monkeypatch.chdir(tmp_path)
         config = self._config(
             {

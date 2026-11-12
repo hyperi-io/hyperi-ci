@@ -1715,6 +1715,152 @@ def licenses_judge_cmd(
     )
 
 
+@licenses_app.command(name="outbound")
+def licenses_outbound_cmd(
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the answer as JSON"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Print the licence this repo's declared classification ships under."""
+    from hyperi_ci import licenses
+    from hyperi_ci.classification import resolve_checkout
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    try:
+        resolution, _ = resolve_checkout(root)
+    except (ValueError, OSError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    entry = licenses.outbound(resolution.effective)
+    answer = {
+        "classification": resolution.value,
+        "effective": resolution.effective,
+        "source": resolution.source,
+        "licences": list(entry.get("licences", ())),
+        "bundle": entry.get("bundle"),
+        "manifest": dict(entry.get("manifest") or {}),
+    }
+    if as_json:
+        typer.echo(json.dumps(answer))
+        return
+    bundle = f", bundle {answer['bundle']}" if answer["bundle"] else ""
+    typer.echo(
+        f"{resolution.effective} ({resolution.source}): "
+        f"{', '.join(answer['licences']) or 'none configured'}{bundle}"
+    )
+
+
+@licenses_app.command(name="migrate")
+def licenses_migrate_cmd(
+    apply_changes: Annotated[
+        bool,
+        typer.Option("--apply", help="Write the changes. Without it, list them"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Bring this repo to the licence its declared classification ships under.
+
+    Syncs the bundle's licence files, sets License: and SPDX-License-Identifier
+    header lines under a HYPERI PTY LIMITED copyright, and the root manifest
+    licence fields. Copied-in directories are left alone. Lines still naming
+    the old licence are listed for a human.
+    """
+    from hyperi_ci import licence_migrate, licenses
+    from hyperi_ci.classification import resolve_checkout
+
+    root = (Path(project_dir) if project_dir else Path.cwd()).resolve()
+    try:
+        resolution, _ = resolve_checkout(root)
+        settings = load_config(project_dir=root).setting("quality.dep_licenses")
+        vendored = [
+            str(item.get("path", ""))
+            for item in (
+                settings.get("vendored") or [] if isinstance(settings, dict) else []
+            )
+            if isinstance(item, dict)
+        ]
+        migration = licence_migrate.plan(
+            root,
+            licence_migrate.tracked_files(root),
+            licenses.outbound(resolution.effective),
+            licenses.own_licences(),
+            vendored,
+        )
+    except (ValueError, OSError, licence_migrate.MigrateError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"{resolution.effective} ({resolution.source}) ships under {migration.licence}"
+    )
+    for change in migration.changes:
+        typer.echo(f"  {change.path}: {change.before} -> {change.after}")
+    if not migration.changes:
+        typer.echo("  nothing to change")
+    for leftover in migration.leftovers:
+        typer.echo(f"  still names the old licence, not changed: {leftover}")
+    if apply_changes:
+        licence_migrate.apply(root, migration)
+        typer.echo(f"wrote {len(migration.writes)} files")
+    elif migration.writes:
+        typer.echo("dry run: --apply writes these")
+
+
+@licenses_app.command(name="notices")
+def licenses_notices_cmd(
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Copy THIRD-PARTY-NOTICES here"),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Write THIRD-PARTY-NOTICES for the dependencies this repo ships.
+
+    A held licence never fails it, the gate does that. It fails only when the
+    language's licence tool did not run.
+    """
+    import contextlib
+    import shutil
+
+    from hyperi_ci.detect import detect_language
+    from hyperi_ci.languages.python import licenses as python_licences
+    from hyperi_ci.languages.rust import licenses as rust_licences
+    from hyperi_ci.languages.typescript import licenses as npm_licences
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    readers = {
+        "python": python_licences,
+        "rust": rust_licences,
+        "typescript": npm_licences,
+    }
+    root = (Path(project_dir) if project_dir else Path.cwd()).resolve()
+    language = detect_language(root)
+    reader = readers.get(language or "")
+    if reader is None:
+        typer.echo(f"no licence reader for {language or 'this project'}", err=True)
+        raise typer.Exit(2)
+    with contextlib.chdir(root):
+        notices = fresh_notices(reader.run_gate, load_config(project_dir=root))
+        written = notices.resolve() if notices else None
+    if written is None:
+        typer.echo("the licence tool did not run, so no notices", err=True)
+        raise typer.Exit(1)
+    if output is not None:
+        shutil.copyfile(written, output)
+        written = output
+    typer.echo(str(written))
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[

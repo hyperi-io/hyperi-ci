@@ -7,18 +7,53 @@
 """Canonical licence registry and project-licence allow policy.
 
 hyperi-ci recognises the common SPDX licences (for detection and OCI image
-labels) but allows only BUSL-1.1, Apache-2.0 and MIT by default. Another
-recognised licence gets a non-blocking warning to opt in via ``license_allow``
-in ``.hyperi-ci.yaml``, and an unrecognised id is flagged as a likely typo.
+labels) but allows only the outbound licences ``config/licensing.yaml`` names
+by default. Another recognised licence gets a non-blocking warning to opt in
+via ``license_allow`` in ``.hyperi-ci.yaml``, and an unrecognised id is flagged
+as a likely typo.
 """
 
-from collections.abc import Iterable
+import functools
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
 
-# Declarable as ``license:`` without further config.
-DEFAULT_ALLOWED: tuple[str, ...] = ("BUSL-1.1", "Apache-2.0", "MIT")
+import yaml
+
+_TABLE = Path(__file__).resolve().parent / "config" / "licensing.yaml"
+
+# A fork's outbound entry: it keeps its upstream's licence.
+INHERIT = "inherit"
+
+
+@functools.cache
+def outbound_table() -> dict[str, Mapping[str, Any]]:
+    """Return classification to its outbound licences, bundle and manifest values."""
+    raw = yaml.safe_load(_TABLE.read_text(encoding="utf-8"))
+    return dict(raw.get("outbound") or {})
+
+
+def own_licences() -> frozenset[str]:
+    """Return HyperI's own licences, past and present, the only ones migrate replaces."""
+    raw = yaml.safe_load(_TABLE.read_text(encoding="utf-8"))
+    return frozenset(str(licence) for licence in raw.get("own") or ())
+
+
+def outbound(classification: str) -> Mapping[str, Any]:
+    """Return the outbound entry for a canonical classification, {} when none."""
+    return outbound_table().get(classification, {})
+
+
+# Declarable as ``license:`` without further config: every outbound licence.
+DEFAULT_ALLOWED: tuple[str, ...] = tuple(
+    licence
+    for entry in outbound_table().values()
+    for licence in entry.get("licences", ())
+    if licence != INHERIT
+)
 
 # Used when a project's licence cannot be resolved any other way.
-DEFAULT_LICENSE: str = "BUSL-1.1"
+DEFAULT_LICENSE: str = outbound("product")["licences"][0]
 
 # Substrings identifying a licence from LICENSE-file text or a source header when
 # ``license:`` is undeclared. Limited to distinctive wording, as the GPL/LGPL/BSD

@@ -537,6 +537,20 @@ def _package_binaries(
     return 0
 
 
+def _write_notices(config: CIConfig) -> int:
+    """Ship THIRD-PARTY-NOTICES in dist/: the binaries carry every crate they link."""
+    from hyperi_ci.languages.rust import licenses
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    notices = fresh_notices(licenses.run_gate, config)
+    if notices is None:
+        error("THIRD-PARTY-NOTICES not written: cargo could not list the crates")
+        return 1
+    shutil.copyfile(notices, Path("dist") / "THIRD-PARTY-NOTICES")
+    _generate_checksums(Path("dist"))
+    return 0
+
+
 def _verify_bolt_shipped(
     targets: list[str], binary_name: str, output_dir: Path = Path("dist")
 ) -> int:
@@ -873,6 +887,9 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
             if rc != 0:
                 return rc
             rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
+            if rc != 0:
+                return rc
+            rc = _write_notices(config)
             if rc != 0:
                 return rc
 
