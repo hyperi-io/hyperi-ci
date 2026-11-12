@@ -59,7 +59,7 @@ runs:
       id: uv_try1
       if: ${{ runner.environment != 'self-hosted' || steps.uv_probe.outputs.found != 'true' }}
       continue-on-error: true
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
         save-cache: ${{ inputs.save-uv-cache }}
@@ -67,13 +67,13 @@ runs:
       id: uv_try2
       if: ${{ steps.uv_try1.outcome == 'failure' }}
       continue-on-error: true
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
         save-cache: ${{ inputs.save-uv-cache }}
     - name: Install uv (retry 2)
       if: ${{ steps.uv_try2.outcome == 'failure' }}
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
         save-cache: ${{ inputs.save-uv-cache }}
