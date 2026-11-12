@@ -889,7 +889,7 @@ class TestRebaseAndPush:
             assert _rebase_and_push(cwd=None) == 0
 
         # Rebase ran before the push.
-        assert mock_run.call_args.args[0] == ["git", "pull", "--rebase"]
+        assert mock_run.call_args.args[0] == ["git", "pull", "--rebase=merges"]
         mock_push.assert_called_once()
 
     def test_has_upstream_true_on_zero_exit(self):
@@ -1132,3 +1132,39 @@ class TestBumpGateWiring:
         assert rc == 1
         mock_gate.assert_called_once()
         mock_pull.assert_not_called()
+
+
+def test_pull_rebase_keeps_a_merge_from_main(tmp_path: Path) -> None:
+    """A branch that merged main pushes as it is, not as copies of main's commits."""
+    from hyperi_ci.push import _pull_rebase
+
+    def git(*args: str, cwd: Path) -> str:
+        done = subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        return done.stdout.strip()
+
+    origin, work = tmp_path / "origin.git", tmp_path / "work"
+    git("init", "-q", "--bare", "-b", "main", str(origin), cwd=tmp_path)
+    git("clone", "-q", str(origin), str(work), cwd=tmp_path)
+    for name in ("a", "b"):
+        (work / name).write_text(name, encoding="utf-8")
+        git("add", name, cwd=work)
+        git("commit", "-q", "-m", f"fix: {name}", cwd=work)
+    git("push", "-q", "origin", "main", cwd=work)
+    git("switch", "-q", "-c", "feature", "HEAD~1", cwd=work)
+    (work / "c").write_text("c", encoding="utf-8")
+    git("add", "c", cwd=work)
+    git("commit", "-q", "-m", "fix: c", cwd=work)
+    git("push", "-q", "-u", "origin", "feature", cwd=work)
+    git("merge", "-q", "--no-edit", "main", cwd=work)
+    merged = git("rev-parse", "HEAD", cwd=work)
+
+    assert _pull_rebase(cwd=str(work)) == 0
+    assert git("rev-parse", "HEAD", cwd=work) == merged
+    assert git("rev-list", "--count", "origin/feature..HEAD", cwd=work) == "2"
