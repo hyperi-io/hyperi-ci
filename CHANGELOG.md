@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.59](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.58...v2.14.59) (2026-11-12)
+
+### Bug Fixes
+
+* **licences:** prefer an SPDX License field over classifiers ([3bf2add](https://github.com/hyperi-io/hyperi-ci/commit/3bf2add5e335aa50e586783907bf2ff5344947f8))
+* **licences:** read ISC text and print the policy verdict ([0cb1afc](https://github.com/hyperi-io/hyperi-ci/commit/0cb1afc5962694a772770e4dea12d1bed322d78b))
+* **release:** release candidates and promote ([d775c09](https://github.com/hyperi-io/hyperi-ci/commit/d775c09a3a90dee32ec5832b3cd806d822058f97))
+* **release:** report a hotfix that skipped its candidate ([694e34f](https://github.com/hyperi-io/hyperi-ci/commit/694e34f69bed448a2638a8e862414257861e8b17))
+
 ## [2.14.58](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.57...v2.14.58) (2026-11-10)
 
 ### Bug Fixes
