@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from hyperi_ci.common import error, run_cmd
+from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
 from hyperi_ci.quality.dep_licenses import (
@@ -44,6 +44,10 @@ _NOTICE_PREFIXES = ("NOTICE",)
 
 # license-checker marks a licence it guessed from file text with a trailing `*`.
 _GUESSED = "*"
+
+# license-checker 5.0.1 prints this, exits 0 and writes no file when the
+# production set is empty, as in a repo that only installs dev tooling.
+_NOTHING_SHIPPED = "No packages found in this path"
 
 
 def _split_key(key: str) -> tuple[str, str]:
@@ -193,10 +197,15 @@ def run_gate(config: CIConfig, mode: str | None = None) -> bool:
             result = run_cmd(_checker_cmd(output), check=False, capture=True)
         except OSError:
             return fail("  dep licences: npx is not installed, nothing checked", mode)
-        if result.returncode != 0 or not output.is_file():
+        said = f"{result.stdout}\n{result.stderr}"
+        if result.returncode == 0 and _NOTHING_SHIPPED in said:
+            info("  dep licences: no production npm dependencies")
+            records = {}
+        elif result.returncode != 0 or not output.is_file():
             emit_tool_output("license-checker", result.stderr)
             return fail("  dep licences: license-checker failed, nothing checked", mode)
-        records = json.loads(output.read_text(encoding="utf-8"))
+        else:
+            records = json.loads(output.read_text(encoding="utf-8"))
 
     # A project without `"private": true` lists itself, and it is not a dependency.
     own = json.loads(Path("package.json").read_text(encoding="utf-8"))
