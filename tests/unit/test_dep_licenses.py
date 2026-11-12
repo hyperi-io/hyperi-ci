@@ -8,6 +8,8 @@
 
 import hashlib
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -883,6 +885,73 @@ def test_npm_notices_skip_a_readme_and_carry_a_notice(policy, npm_records):
     assert "# isarray" not in text
     assert "isarray 1.0.0 (MIT)" in text and "SPDX standard text for MIT" in text
     assert "Apache text\n\nNOTICE:\n\nAWS NOTICE" in text
+
+
+_NO_PACKAGES = "Error: No packages found in this path..."
+# `npm ls --all --omit=dev --json` 11 on a hoisted tree with workspace `a`.
+_NPM_LS = json.dumps(
+    {
+        "name": "root",
+        "dependencies": {
+            "a": {
+                "version": "1.0.0",
+                "resolved": "file:../apps/a",
+                "dependencies": {"ms": {"version": "2.1.3"}},
+            }
+        },
+    }
+)
+_CHECKED = {"ms@2.1.3": {"licenses": "MIT"}, "isarray@2.0.5": {"licenses": "MIT"}}
+# A workspace package without `"private": true` is listed, and is not a dependency.
+_PUBLIC_WORKSPACE = {**_CHECKED, "a@1.0.0": {"licenses": "BUSL-1.1"}}
+
+
+@pytest.mark.parametrize(
+    ("workspaces", "checker", "npm_ls", "judged", "passes"),
+    [
+        # Dev tooling only: license-checker 5.0.1 exits 0 and writes nothing.
+        (False, (0, _NO_PACKAGES, None), None, [], True),
+        (False, (1, "boom", None), None, None, False),
+        (False, (0, "", _CHECKED), None, ["isarray", "ms"], True),
+        # A workspace root declares no dependencies, so --production finds
+        # nothing. npm ls names what ships: isarray is a dev dependency.
+        (True, (0, "", _CHECKED), _NPM_LS, ["ms"], True),
+        (True, (0, "", _PUBLIC_WORKSPACE), _NPM_LS, ["ms"], True),
+        (True, (0, "", _CHECKED), "", None, False),
+        # The checker missing a package npm ships is a gap, never a pass.
+        (True, (0, _NO_PACKAGES, None), _NPM_LS, None, False),
+    ],
+)
+def test_npm_gate_checks_what_ships(
+    tmp_path, monkeypatch, workspaces, checker, npm_ls, judged, passes
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "node_modules").mkdir()
+    own = {"name": "root", "private": True}
+    if workspaces:
+        own["workspaces"] = ["apps/*"]
+    (tmp_path / "package.json").write_text(json.dumps(own), encoding="utf-8")
+    (tmp_path / ".hyperi-ci.yaml").write_text(
+        "quality:\n  dep_licenses: blocking\n", encoding="utf-8"
+    )
+    code, said, records = checker
+    calls = []
+
+    def run(cmd, **_):
+        calls.append(cmd)
+        if cmd[0] == "npm":
+            return subprocess.CompletedProcess(cmd, 1, npm_ls, "")
+        if records is not None:
+            out = Path(cmd[cmd.index("--out") + 1])
+            out.write_text(json.dumps(records), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, code, said, "")
+
+    monkeypatch.setattr(npm_licenses, "run_cmd", run)
+    assert npm_licenses.run_gate(load_config(reload=True)) is passes
+    assert ("--production" in calls[0]) is not workspaces
+    if judged is not None:
+        deps = json.loads(REPORT_PATH.read_text(encoding="utf-8"))["deps"]
+        assert [d["name"] for d in deps] == judged
 
 
 # The shape `reuse lint --json` 6.2.0 and 6.3.0 both emit, trimmed to the fields read.

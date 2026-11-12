@@ -30,7 +30,7 @@ Only what ships is judged, so a tool CI runs (reuse is GPL-3.0-or-later) is neve
 |---|---|---|
 | Python | pip-licenses, pinned in `versions.yaml` | `uv export --no-dev --all-extras`, without the project. A pin whose marker excludes this platform is named and skipped |
 | Rust | `cargo tree -e normal,no-proc-macro --all-features --target <t>` for each `build.rust.targets` entry, `cargo metadata` for licences and files | what a build for those targets links |
-| TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production` |
+| TypeScript | license-checker-rseidelsohn, pinned in `versions.yaml` | the installed `node_modules`, `--production`. A workspace root (npm or yarn `workspaces`) keeps what `npm ls --all --omit=dev` lists, because `--production` follows only the root's own `dependencies` |
 
 A Python licence is `License-Expression`, then an SPDX `License` field, then the classifiers. A licence license-checker guessed from file text (a trailing `*`) is ask. cargo deny's `list` is not used: it flattens `MIT OR Apache-2.0` to a bare list and counts build dependencies.
 

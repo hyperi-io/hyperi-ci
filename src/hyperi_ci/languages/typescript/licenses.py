@@ -8,8 +8,9 @@
 
 license-checker-rseidelsohn reads the installed ``node_modules``, so npm, pnpm
 and yarn projects are judged the same way, and ``--production`` leaves dev
-dependencies out. Each package is loaded unmodified at runtime, so it is judged
-as an ``import``.
+dependencies out. A workspace root keeps the packages ``npm ls --omit=dev``
+lists instead. Each package is loaded unmodified at runtime, so it is judged as
+an ``import``.
 """
 
 import json
@@ -153,7 +154,7 @@ def notice_entries(
     return entries
 
 
-def _checker_cmd(output: Path) -> list[str]:
+def _checker_cmd(output: Path, *, production: bool) -> list[str]:
     package = "license-checker-rseidelsohn"
     return [
         "npx",
@@ -161,12 +162,40 @@ def _checker_cmd(output: Path) -> list[str]:
         f"{package}@{tool_version(package)}",
         "--start",
         ".",
-        "--production",
+        *(["--production"] if production else []),
         "--json",
         "--excludePrivatePackages",
         "--out",
         str(output),
     ]
+
+
+def _keys(tree: Mapping[str, Any]) -> set[str]:
+    keys = set()
+    for name, node in tree.get("dependencies", {}).items():
+        # A workspace package resolves to `file:`, and it is the project's own.
+        local = str(node.get("resolved", "")).startswith("file:")
+        if node.get("version") and not node.get("missing") and not local:
+            keys.add(f"{name}@{node['version']}")
+        keys |= _keys(node)
+    return keys
+
+
+def production_keys() -> set[str] | None:
+    """Return ``name@version`` for every production package npm lists, else None.
+
+    license-checker's ``--production`` follows only the root's own
+    ``dependencies``, so it finds nothing under a workspace root. ``npm ls``
+    follows the workspace packages, in a yarn or an npm tree.
+    """
+    # npm ls exits 1 on a peer or extraneous problem and still prints the tree.
+    result = run_cmd(
+        ["npm", "ls", "--all", "--omit=dev", "--json"], check=False, capture=True
+    )
+    try:
+        return _keys(json.loads(result.stdout))
+    except (json.JSONDecodeError, AttributeError):
+        return None
 
 
 def run_gate(config: CIConfig, mode: str | None = None) -> bool:
@@ -191,10 +220,14 @@ def run_gate(config: CIConfig, mode: str | None = None) -> bool:
         error(f"  dep licences: {exc}")
         return False
 
+    own = json.loads(Path("package.json").read_text(encoding="utf-8"))
+    workspaces = "workspaces" in own
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-licences-") as tmp:
         output = Path(tmp) / "licences.json"
+        cmd = _checker_cmd(output, production=not workspaces)
         try:
-            result = run_cmd(_checker_cmd(output), check=False, capture=True)
+            result = run_cmd(cmd, check=False, capture=True)
+            shipped = production_keys() if workspaces else None
         except OSError:
             return fail("  dep licences: npx is not installed, nothing checked", mode)
         said = f"{result.stdout}\n{result.stderr}"
@@ -207,8 +240,18 @@ def run_gate(config: CIConfig, mode: str | None = None) -> bool:
         else:
             records = json.loads(output.read_text(encoding="utf-8"))
 
+    if workspaces:
+        if shipped is None:
+            return fail("  dep licences: npm ls failed, nothing checked", mode)
+        missed = sorted(shipped - records.keys())
+        if missed:
+            return fail(
+                f"  dep licences: license-checker missed {len(missed)} packages "
+                f"npm ls lists, e.g. {', '.join(missed[:5])}",
+                mode,
+            )
+        records = {key: record for key, record in records.items() if key in shipped}
     # A project without `"private": true` lists itself, and it is not a dependency.
-    own = json.loads(Path("package.json").read_text(encoding="utf-8"))
     records.pop(f"{own.get('name')}@{own.get('version')}", None)
     findings = findings_for(records, policy, overrides)
     tools = {"license-checker-rseidelsohn": tool_version("license-checker-rseidelsohn")}
