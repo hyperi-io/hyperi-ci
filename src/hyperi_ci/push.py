@@ -767,8 +767,12 @@ def _has_upstream(*, cwd: str | None) -> bool:
 
 
 def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
-    """Run ``git pull --rebase`` (optionally against ``origin <branch>``)."""
-    rebase_cmd = ["git", "pull", "--rebase"]
+    """Run ``git pull --rebase=merges`` (optionally against ``origin <branch>``).
+
+    A plain rebase flattens a local merge from main, replaying every commit it
+    brought in onto the branch's upstream as a new copy.
+    """
+    rebase_cmd = ["git", "pull", "--rebase=merges"]
     if branch:
         rebase_cmd.extend(["origin", branch])
 
