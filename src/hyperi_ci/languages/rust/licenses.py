@@ -179,7 +179,9 @@ def findings_for(
             if raw:
                 # crates.io reads the legacy `MIT/Apache-2.0` form as an OR.
                 raw = _SLASH.sub(" OR ", str(raw))
-        spdx, verdict, obligations, rule = judge(raw, Mode.STATIC, policy)
+        spdx, verdict, obligations, rule = judge(
+            raw, Mode.STATIC, policy, override=override is not None
+        )
         if rule == "undeclared":
             files = licence_files(package)
             if files:
@@ -215,21 +217,22 @@ def notice_entries(
             continue
         notice = _read(_crate_files(package, _NOTICE_PREFIXES))
         licence = _read(licence_files(package))
-        entries.append(NoticeEntry(finding, licence, notice, package.get("repository")))
+        entries.append(NoticeEntry(finding, licence, notice))
     return entries
 
 
-def run_gate(config: CIConfig) -> bool:
+def run_gate(config: CIConfig, mode: str | None = None) -> bool:
     """Run the dependency-licence gate for a Rust project.
 
     Args:
         config: Merged CI configuration.
+        mode: ``blocking`` or ``warn``, default the configured mode.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
 
     """
-    mode = resolve_tool_mode("dep_licenses", config, default="warn")
+    mode = mode or resolve_tool_mode("dep_licenses", config, default="warn")
     if mode == "disabled":
         return True
     if not Path("Cargo.lock").is_file():

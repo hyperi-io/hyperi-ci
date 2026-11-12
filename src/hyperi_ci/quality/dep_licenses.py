@@ -1,15 +1,14 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/quality/dep_licenses.py
-# Purpose:   Judge each shipped dependency's licence against the packaged policy
+# Purpose:   Judge each shipped dependency's licence against config/licensing.yaml
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Judge each shipped dependency's licence against the packaged policy.
+"""Judge each shipped dependency's licence against ``config/licensing.yaml``.
 
-The policy (``config/license-policy.yaml``) maps an SPDX id and a consumption
-mode to a verdict and its obligations. Detection belongs to each language;
-this module turns what a tool reported into a :class:`Finding` an agent can
-cite, so a licence verdict never comes from anyone's memory.
+The question is whether anything we ship poisons the licence we ship under.
+Each language reads what its tool reported, and this module turns it into a
+:class:`Finding` an agent can cite, so a verdict never comes from memory.
 """
 
 import hashlib
@@ -27,18 +26,17 @@ from packaging.licenses import InvalidLicenseExpression, canonicalize_license_ex
 from hyperi_ci import __version__
 from hyperi_ci.common import error, info, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.quality import upstream_licences
-from hyperi_ci.quality.bsd_text import BARE_BSD, bsd_licence
-from hyperi_ci.quality.upstream_licences import Upstream
 
-_POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "license-policy.yaml"
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+POLICY_PATH = _CONFIG_DIR / "licensing.yaml"
+_TEXTS = _CONFIG_DIR / "licence-texts"
 
 REPORT_PATH = Path(".hyperi-ci") / "licenses.json"
-
-# A repo opts in to attribution by committing this file. The generated copy is
-# written beside the report every run, so it can be copied over.
-NOTICES_PATH = Path("THIRD-PARTY-NOTICES")
 NOTICES_OUTPUT = REPORT_PATH.parent / "THIRD-PARTY-NOTICES"
+
+SCHEMA_VERSION = 1
+
+_LISTS = ("ok", "ok_when_dynamic", "poisons", "human", "first_party")
 
 # Licence file lines quoted when metadata declares nothing.
 _QUOTE_LINES = 3
@@ -48,11 +46,24 @@ _SEPARATORS = re.compile(r"[-_.]+")
 # Metadata values that mean "no licence declared".
 _UNDECLARED = frozenset({"", "UNKNOWN", "NONE", "NOASSERTION"})
 
-SCHEMA_VERSION = 1
+# Where an MPL file's source is, by ecosystem.
+_SOURCE_URLS = {
+    "pypi": "https://pypi.org/project/{name}/{version}/",
+    "crates": "https://crates.io/crates/{name}/{version}",
+    "npm": "https://www.npmjs.com/package/{name}/v/{version}",
+}
+
+# GNU texts an `lgpl-texts` dependency ships with: its LGPL, and the GPL beside it.
+_GNU_TEXTS = (
+    ("LGPL-3.0", ("LGPL-3.0-only", "GPL-3.0-only")),
+    ("LGPL-2.1", ("LGPL-2.1-only", "GPL-2.0-only")),
+    ("LGPL-2.0", ("LGPL-2.0-only", "GPL-2.0-only")),
+)
+_ALL_GNU_TEXTS = tuple(sorted({n for _, names in _GNU_TEXTS for n in names}))
 
 
 class Mode(StrEnum):
-    """How a dependency reaches what ships."""
+    """How a dependency reaches what ships. Only ``import`` is a dynamic load."""
 
     IMPORT = "import"
     STATIC = "static"
@@ -61,52 +72,51 @@ class Mode(StrEnum):
 
 
 class Verdict(StrEnum):
-    """The policy's answer, in order from best to worst."""
+    """The table's answer: ok, poisons, or a human must answer."""
 
-    ALLOW = "allow"
     OBLIGATIONS = "allow-with-obligations"
     ASK = "ask"
     DENY = "deny"
 
 
-_RANK = {verdict: rank for rank, verdict in enumerate(Verdict)}
-
-
 class PolicyError(ValueError):
-    """The policy table or a repo's override of it is malformed."""
+    """The licence table or a repo's overrides are malformed."""
 
 
 @dataclass(frozen=True, slots=True)
 class Rule:
-    """One cell of the policy: a verdict and the obligations it carries."""
+    """A verdict, the obligations it carries, and which list decided it."""
 
     verdict: Verdict
     obligations: tuple[str, ...] = ()
-    group: str = ""
+    name: str = ""
+
+    @property
+    def rank(self) -> int:
+        """Order from best to worst: ok, human, unknown, poisons."""
+        if self.verdict is Verdict.ASK:
+            return 1 if self.name == "human" else 2
+        return 0 if self.verdict is Verdict.OBLIGATIONS else 3
 
 
 @dataclass(frozen=True, slots=True)
 class Policy:
-    """The loaded policy table.
+    """The loaded licence table.
 
     Attributes:
-        groups: Group name to its rule per mode.
-        group_of: Canonical SPDX id or alias to its group name.
-        canonical: Alias to the SPDX id it stands for.
-        obligations: Obligation key to its description.
-        exceptions: ``WITH`` exceptions judged as their base licence.
-        digest: sha256 of the effective policy, so a citation names the table it used.
-        override_only: Groups whose verdict holds only when an override named them.
+        lists: SPDX id to the list naming it.
+        aliases: Metadata name to the SPDX id it means.
+        exceptions: ``WITH`` exceptions that clear their base licence.
+        obligations: SPDX id prefix to what ships beyond the notice.
+        digest: sha256 of the table, so a citation names the table it used.
 
     """
 
-    groups: Mapping[str, Mapping[Mode, Rule]]
-    group_of: Mapping[str, str]
-    canonical: Mapping[str, str]
-    obligations: Mapping[str, str]
+    lists: Mapping[str, str]
+    aliases: Mapping[str, str]
     exceptions: frozenset[str]
+    obligations: Mapping[str, tuple[str, ...]]
     digest: str
-    override_only: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,128 +156,32 @@ class Finding:
         )
 
 
-def _parse_rule(raw: Any, group: str, obligations: Mapping[str, str]) -> Rule:
-    if not isinstance(raw, Mapping) or "verdict" not in raw:
-        raise PolicyError(f"group {group!r}: each mode needs a `verdict`")
-    try:
-        verdict = Verdict(raw["verdict"])
-    except ValueError as exc:
-        raise PolicyError(
-            f"group {group!r}: unknown verdict {raw['verdict']!r}"
-        ) from exc
-    keys = tuple(raw.get("obligations") or ())
-    unknown = [key for key in keys if key not in obligations]
-    if unknown:
-        raise PolicyError(f"group {group!r}: unknown obligations {unknown}")
-    if verdict is Verdict.OBLIGATIONS and not keys:
-        raise PolicyError(f"group {group!r}: {verdict} names no obligations")
-    return Rule(verdict=verdict, obligations=keys, group=group)
-
-
-def _parse_modes(
-    raw: Any, group: str, obligations: Mapping[str, str]
-) -> dict[Mode, Rule]:
-    if not isinstance(raw, Mapping):
-        raise PolicyError(f"group {group!r}: `modes` must be a mapping")
-    missing = [mode.value for mode in Mode if mode.value not in raw]
-    if missing:
-        raise PolicyError(f"group {group!r}: missing modes {missing}")
-    return {mode: _parse_rule(raw[mode.value], group, obligations) for mode in Mode}
-
-
-def load_policy(
-    path: Path | None = None, repo_policy: Mapping[str, Any] | None = None
-) -> Policy:
-    """Load the policy table, with a repo's per-group mode overrides applied.
-
-    Args:
-        path: The policy YAML, default the packaged one.
-        repo_policy: ``quality.dep_licenses.policy`` from .hyperi-ci.yaml: group
-            name to mode to ``{verdict, obligations, reason}``. Each entry needs
-            a ``reason``.
-
-    Returns:
-        The effective policy.
+def load_policy(path: Path | None = None) -> Policy:
+    """Load the licence table.
 
     Raises:
-        PolicyError: The table or the override is malformed.
+        PolicyError: An id is on two lists.
 
     """
-    raw = yaml.safe_load((path or _POLICY_PATH).read_text(encoding="utf-8"))
-    obligations: dict[str, str] = dict(raw.get("obligations") or {})
-    groups: dict[str, dict[Mode, Rule]] = {}
-    group_of: dict[str, str] = {}
-    canonical: dict[str, str] = {}
-    override_only: set[str] = set()
-    for name, body in (raw.get("groups") or {}).items():
-        ids = list(body.get("ids") or [])
-        if not ids:
-            raise PolicyError(f"group {name!r}: no `ids`")
-        groups[name] = _parse_modes(body.get("modes"), name, obligations)
-        if body.get("override_only") is True:
-            override_only.add(name)
-        aliases = body.get("aliases") or {}
-        if not isinstance(aliases, Mapping):
-            raise PolicyError(f"group {name!r}: `aliases` maps a name to its SPDX id")
-        for key in [*ids, *aliases]:
-            if key in group_of:
-                raise PolicyError(f"{key!r} is in both {group_of[key]!r} and {name!r}")
-            group_of[key] = name
-        canonical.update({alias: str(spdx) for alias, spdx in aliases.items()})
-
-    for name, modes in (repo_policy or {}).items():
-        if name not in groups:
-            raise PolicyError(f"dep_licenses.policy: unknown group {name!r}")
-        for mode_name, cell in (modes or {}).items():
-            if (
-                not isinstance(cell, Mapping)
-                or not str(cell.get("reason") or "").strip()
-            ):
-                raise PolicyError(
-                    f"dep_licenses.policy.{name}.{mode_name}: a `reason` is required"
-                )
-            try:
-                mode = Mode(mode_name)
-            except ValueError as exc:
-                raise PolicyError(
-                    f"dep_licenses.policy: unknown mode {mode_name!r}"
-                ) from exc
-            groups[name][mode] = _parse_rule(cell, name, obligations)
-
-    effective = {
-        name: {
-            mode.value: [rule.verdict.value, *rule.obligations]
-            for mode, rule in modes.items()
-        }
-        for name, modes in groups.items()
-    }
-    exceptions = frozenset(str(e) for e in raw.get("exceptions") or ())
-    digest = hashlib.sha256(
-        json.dumps(
-            [effective, group_of, sorted(exceptions), sorted(override_only)],
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+    text = (path or POLICY_PATH).read_text(encoding="utf-8")
+    raw = yaml.safe_load(text)
+    lists: dict[str, str] = {}
+    for name in _LISTS:
+        for spdx in raw.get(name) or ():
+            if spdx in lists:
+                raise PolicyError(f"{spdx!r} is in both {lists[spdx]!r} and {name!r}")
+            lists[spdx] = name
     return Policy(
-        groups=groups,
-        group_of=group_of,
-        canonical=canonical,
-        obligations=obligations,
-        exceptions=exceptions,
-        digest=digest,
-        override_only=frozenset(override_only),
+        lists=lists,
+        aliases={str(k): str(v) for k, v in (raw.get("aliases") or {}).items()},
+        exceptions=frozenset(str(e) for e in raw.get("exceptions") or ()),
+        obligations={k: tuple(v) for k, v in (raw.get("obligations") or {}).items()},
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
     )
 
 
 def parse_overrides(raw: Iterable[Any] | None) -> list[Override]:
     """Parse ``quality.dep_licenses.overrides`` from .hyperi-ci.yaml.
-
-    Args:
-        raw: A list of ``{name, licence, reason, version?, licence_file?}``
-            mappings.
-
-    Returns:
-        The overrides.
 
     Raises:
         PolicyError: An entry lacks a name, licence or reason.
@@ -318,62 +232,55 @@ def find_override(
     return next((o for o in named if o.version is None), None)
 
 
-def _alias_expression(text: str, policy: Policy) -> str | None:
-    """Return a flat OR or AND expression with each alias swapped for its SPDX id.
-
-    None when the text mixes operators, has brackets, or any term is neither
-    an alias nor a valid SPDX id.
-    """
-    if "(" in text or ")" in text:
-        return None
-    operators = [op for op in (" OR ", " AND ") if op in text]
-    if len(operators) != 1:
-        return None
-    resolved = []
-    for term in text.split(operators[0]):
-        term = term.strip()
-        spdx = policy.canonical.get(term)
-        if spdx is None:
-            try:
-                spdx = canonicalize_license_expression(term)
-            except InvalidLicenseExpression:
-                return None
-        resolved.append(spdx)
-    return operators[0].join(resolved)
+def _resolve(term: str, policy: Policy) -> str:
+    if term in policy.aliases:
+        return policy.aliases[term]
+    try:
+        return canonicalize_license_expression(term)
+    except InvalidLicenseExpression:
+        return term
 
 
-def _term_rule(term: str, policy: Policy, mode: Mode) -> tuple[str, Rule | None]:
-    """Return the SPDX id and policy rule for one licence id or alias.
+def _ok(spdx: str, policy: Policy, name: str) -> Rule:
+    extra = [
+        obligation
+        for prefix, obligations in policy.obligations.items()
+        if spdx.startswith(prefix)
+        for obligation in obligations
+    ]
+    return Rule(Verdict.OBLIGATIONS, tuple(dict.fromkeys(["notice", *extra])), name)
 
-    ``A WITH exception`` is judged as ``A`` when the policy lists the exception,
-    and is unrecognised otherwise.
-    """
+
+def _leaf(term: str, policy: Policy, mode: Mode, override: bool) -> tuple[str, Rule]:
+    """Judge one licence id or alias, with an optional ``WITH`` exception."""
     base, _, exception = term.partition(" WITH ")
+    spdx = _resolve(base.strip(), policy)
+    listed = policy.lists.get(spdx)
     if exception:
-        if exception.strip() not in policy.exceptions:
-            return term, None
-        _, rule = _term_rule(base.strip(), policy, mode)
-        return term, rule
-    spdx = policy.canonical.get(term)
-    if spdx is None:
-        try:
-            spdx = canonicalize_license_expression(term)
-        except InvalidLicenseExpression:
-            spdx = term
-    group = policy.group_of.get(term) or policy.group_of.get(spdx)
-    if group is None:
-        return spdx, None
-    return spdx, policy.groups[group][mode]
+        text = f"{spdx} WITH {exception.strip()}"
+        if exception.strip() in policy.exceptions and listed:
+            return text, _ok(spdx, policy, "exception")
+        return text, Rule(Verdict.ASK, (), "unrecognised")
+    if listed == "first_party":
+        if override:
+            return spdx, _ok(spdx, policy, "first-party")
+        return spdx, Rule(Verdict.ASK, (), "override-only")
+    if listed == "ok" or (listed == "ok_when_dynamic" and mode is Mode.IMPORT):
+        return spdx, _ok(spdx, policy, listed)
+    verdicts = {
+        "ok_when_dynamic": Rule(Verdict.ASK, (), "static-link"),
+        "poisons": Rule(Verdict.DENY, (), "poisons"),
+        "human": Rule(Verdict.ASK, (), "human"),
+    }
+    return spdx, verdicts.get(listed or "", Rule(Verdict.ASK, (), "unrecognised"))
 
 
 def _split_top(expression: str, operator: str) -> list[str]:
     """Split ``expression`` on ``operator`` outside any brackets."""
-    parts, depth, start = [], 0, 0
+    parts, depth, start, i = [], 0, 0, 0
     token = f" {operator} "
-    i = 0
     while i < len(expression):
-        char = expression[i]
-        depth += (char == "(") - (char == ")")
+        depth += (expression[i] == "(") - (expression[i] == ")")
         if depth == 0 and expression.startswith(token, i):
             parts.append(expression[start:i])
             i += len(token)
@@ -396,50 +303,44 @@ def _strip_brackets(expression: str) -> str:
     return expression
 
 
-def _evaluate(expression: str, policy: Policy, mode: Mode) -> Rule | None:
-    """Judge a bracketed SPDX expression, or None when a needed term is unknown.
+def _bracket(text: str) -> str:
+    return f"({text})" if " OR " in text or " AND " in text else text
 
-    AND binds tighter than OR. An OR takes its best branch and an AND its worst,
-    carrying every part's obligations.
-    """
+
+def _evaluate(
+    expression: str, policy: Policy, mode: Mode, override: bool
+) -> tuple[str, Rule]:
+    """Judge an expression. AND binds tighter, OR takes its best term, AND its worst."""
     expression = _strip_brackets(expression.strip())
     for operator in ("OR", "AND"):
         parts = _split_top(expression, operator)
         if len(parts) == 1:
             continue
-        rules = [_evaluate(part, policy, mode) for part in parts]
-        known = [rule for rule in rules if rule is not None]
+        judged = [_evaluate(part, policy, mode, override) for part in parts]
+        text = f" {operator} ".join(_bracket(spdx) for spdx, _ in judged)
+        rules = [rule for _, rule in judged]
         if operator == "OR":
-            if not known:
-                return None
-            best = min(known, key=lambda r: (_RANK[r.verdict], len(r.obligations)))
-            # An unknown branch may be the one that permits it.
-            if len(known) < len(rules) and _RANK[best.verdict] >= _RANK[Verdict.ASK]:
-                return None
-            return best
-        if len(known) < len(rules):
-            return None
-        worst = max(known, key=lambda r: _RANK[r.verdict])
-        obligations = tuple(dict.fromkeys(o for r in known for o in r.obligations))
-        groups = "+".join(dict.fromkeys(r.group for r in known))
-        return Rule(worst.verdict, obligations, groups)
-    return _term_rule(expression, policy, mode)[1]
+            return text, min(rules, key=lambda r: (r.rank, len(r.obligations)))
+        worst = max(rules, key=lambda r: r.rank)
+        if worst.verdict is not Verdict.OBLIGATIONS:
+            return text, worst
+        obligations = tuple(dict.fromkeys(o for r in rules for o in r.obligations))
+        return text, replace(worst, obligations=obligations)
+    return _leaf(expression, policy, mode, override)
 
 
 def judge(
-    raw_licence: str | None, mode: Mode, policy: Policy
+    raw_licence: str | None, mode: Mode, policy: Policy, *, override: bool = False
 ) -> tuple[str | None, Verdict, tuple[str, ...], str]:
-    """Return the SPDX id, verdict, obligations and deciding rule for a licence.
-
-    ``A OR B`` takes the best of its terms and ``A AND B`` the worst. A
-    parenthesised or mixed expression, an undeclared licence, an id no group
-    lists and an exception the policy does not list are all ask.
+    """Return the SPDX expression, verdict, obligations and deciding list.
 
     Args:
         raw_licence: The licence as metadata gave it: an SPDX expression, a
             trove classifier name, or several joined with ``"; "``.
         mode: How the dependency reaches what ships.
-        policy: The effective policy.
+        policy: The licence table.
+        override: The licence came from a repo override, the only way a
+            first-party id is ok.
 
     Returns:
         ``(spdx, verdict, obligations, rule)``.
@@ -448,78 +349,25 @@ def judge(
     text = (raw_licence or "").strip()
     if text.upper() in _UNDECLARED:
         return None, Verdict.ASK, (), "undeclared"
-
     # Several classifiers on one package mean the user may pick any of them.
     terms = [term.strip() for term in text.split(";") if term.strip()]
-    operator = "OR"
-    if len(terms) == 1 and terms[0] not in policy.group_of:
-        try:
-            expression = canonicalize_license_expression(terms[0])
-        except InvalidLicenseExpression:
-            # A flat expression naming a term by alias: `BSD 3-Clause OR Apache-2.0`.
-            expression = _alias_expression(terms[0], policy)
-            if expression is None:
-                return text, Verdict.ASK, (), "unrecognised"
-        # npm writes a lone expression in brackets: `(MIT OR GPL-3.0-or-later)`.
-        inner = expression[1:-1]
-        if expression.startswith("(") and expression.endswith(")"):
-            if "(" not in inner and ")" not in inner:
-                expression = inner
-        if "(" in expression or (" AND " in expression and " OR " in expression):
-            rule = _evaluate(expression, policy, mode)
-            if rule is None:
-                return expression, Verdict.ASK, (), "unrecognised"
-            return expression, rule.verdict, rule.obligations, rule.group
-        operator = "AND" if " AND " in expression else "OR"
-        terms = expression.split(f" {operator} ")
-
-    judged = [_term_rule(term, policy, mode) for term in terms]
-    spdx = f" {operator} ".join(spdx for spdx, _ in judged)
-    rules = [rule for _, rule in judged if rule is not None]
-    unknown = len(rules) < len(judged)
-    if unknown and (operator == "AND" or not rules):
-        return spdx, Verdict.ASK, (), "unrecognised"
-
-    if operator == "OR":
-        chosen = min(
-            rules, key=lambda rule: (_RANK[rule.verdict], len(rule.obligations))
-        )
-        # The unknown term may be the one that permits it.
-        if unknown and _RANK[chosen.verdict] >= _RANK[Verdict.ASK]:
-            return spdx, Verdict.ASK, (), "unrecognised"
-        return spdx, chosen.verdict, chosen.obligations, chosen.group
-    worst = max(rules, key=lambda rule: _RANK[rule.verdict])
-    obligations = tuple(dict.fromkeys(o for rule in rules for o in rule.obligations))
-    groups = "+".join(dict.fromkeys(rule.group for rule in rules))
-    return spdx, worst.verdict, obligations, groups
-
-
-def restrict_override_only(finding: Finding, policy: Policy) -> Finding:
-    """Return ``finding`` as ask when an override-only group decided it without one."""
-    groups = set(finding.rule.split("+"))
-    if finding.source == "override" or not groups & policy.override_only:
-        return finding
-    return replace(finding, verdict=Verdict.ASK, obligations=(), rule="override-only")
+    expression = " OR ".join(_bracket(term) for term in terms)
+    try:
+        expression = canonicalize_license_expression(expression)
+    except InvalidLicenseExpression:
+        pass  # alias names, resolved term by term
+    spdx, rule = _evaluate(expression, policy, mode, override)
+    return spdx, rule.verdict, rule.obligations, rule.name
 
 
 def judge_override(licence: str, mode: Mode, policy: Policy) -> dict[str, Any]:
-    """Return the policy's answer for an override that names ``licence``.
+    """Return the table's answer for an override that names ``licence``.
 
-    ``policy`` in the answer is the digest a licenses.json report carries, so a
-    caller can tie the answer to the report it overrides. ``override_only``
-    marks a group whose verdict holds only because an override named it.
-
-    Args:
-        licence: The override's ``licence``: an SPDX id, expression or alias.
-        mode: How the dependency reaches what ships.
-        policy: The effective policy.
-
-    Returns:
-        ``licence``, ``spdx``, ``mode``, ``verdict``, ``obligations``,
-        ``rule``, ``override_only`` and ``policy``.
-
+    ``policy`` is the digest a licenses.json report carries, so a caller can
+    tie the answer to the report it overrides. ``override_only`` marks a
+    first-party id, ok only because an override named it.
     """
-    spdx, verdict, obligations, rule = judge(licence, mode, policy)
+    spdx, verdict, obligations, rule = judge(licence, mode, policy, override=True)
     return {
         "licence": licence,
         "spdx": spdx,
@@ -527,14 +375,14 @@ def judge_override(licence: str, mode: Mode, policy: Policy) -> dict[str, Any]:
         "verdict": verdict.value,
         "obligations": list(obligations),
         "rule": rule,
-        "override_only": bool(set(rule.split("+")) & policy.override_only),
+        "override_only": rule == "first-party",
         "policy": policy.digest,
     }
 
 
 def blocking(findings: Iterable[Finding]) -> list[Finding]:
     """Return the findings a blocking gate fails on: every deny and ask."""
-    return [f for f in findings if f.verdict in (Verdict.DENY, Verdict.ASK)]
+    return [f for f in findings if f.verdict is not Verdict.OBLIGATIONS]
 
 
 def report(
@@ -548,7 +396,7 @@ def report(
         deps.append(record)
     return {
         "schema": SCHEMA_VERSION,
-        # The writing version: a hyperi-ci upgrade can change the packaged policy.
+        # The writing version: a hyperi-ci upgrade can change the packaged table.
         "hyperi_ci": __version__,
         "policy": policy.digest,
         "tool_versions": dict(tool_versions),
@@ -556,16 +404,33 @@ def report(
     }
 
 
-_RULE = "-" * 78
+@dataclass(frozen=True, slots=True)
+class NoticeEntry:
+    """One dependency's attribution: its finding and the texts it shipped."""
 
-# GNU texts an `lgpl-texts` dependency ships with: its LGPL, and the GPL beside it.
-_GNU_TEXTS_DIR = _POLICY_PATH.parent / "licence-texts"
-_GNU_TEXTS = (
-    ("LGPL-3.0", ("LGPL-3.0-only", "GPL-3.0-only")),
-    ("LGPL-2.1", ("LGPL-2.1-only", "GPL-2.0-only")),
-    ("LGPL-2.0", ("LGPL-2.0-only", "GPL-2.0-only")),
-)
-_ALL_GNU_TEXTS = tuple(sorted({n for _, names in _GNU_TEXTS for n in names}))
+    finding: Finding
+    licence_text: str | None
+    notice_text: str | None
+
+
+def _shipped(text: str | None) -> bool:
+    return bool(text) and str(text).strip().upper() not in _UNDECLARED
+
+
+def standard_text(expression: str | None) -> str | None:
+    """Return the bundled SPDX text of every licence ``expression`` names, else None."""
+    words = re.split(r"[\s()]+", expression or "")
+    ids = [
+        word
+        for i, word in enumerate(words)
+        if word and word not in ("AND", "OR", "WITH") and words[i - 1] != "WITH"
+    ]
+    paths = [_TEXTS / "spdx" / f"{spdx}.txt" for spdx in dict.fromkeys(ids)]
+    if not paths or not all(path.is_file() for path in paths):
+        return None
+    texts = [path.read_text(encoding="utf-8").strip() for path in paths]
+    header = f"SPDX standard text for {expression}: the package ships no licence file."
+    return "\n\n".join([header, *texts])
 
 
 def _gnu_texts(findings: Iterable[Finding]) -> list[str]:
@@ -581,71 +446,36 @@ def _gnu_texts(findings: Iterable[Finding]) -> list[str]:
     return sorted(needed)
 
 
-@dataclass(frozen=True, slots=True)
-class NoticeEntry:
-    """One dependency's attribution: its finding and the texts it shipped.
-
-    ``repository`` is where its licence text is read from when the package
-    ships none.
-    """
-
-    finding: Finding
-    licence_text: str | None
-    notice_text: str | None
-    repository: str | None = None
-
-
 def render_notices(entries: Iterable[NoticeEntry]) -> str:
     """Return THIRD-PARTY-NOTICES text, byte-identical for the same lock.
 
-    Every shipped dependency is listed, an unanswered ask included, because
-    its licence text ships whatever its verdict. Its licence file follows its
-    name, then its NOTICE file where the policy says to carry it. The LGPL and
-    GPL texts an ``lgpl-texts`` dependency needs follow once, at the end.
-
-    Args:
-        entries: Each dependency's finding and the texts its package carries.
-
-    Returns:
-        The file's full text.
-
+    Every shipped dependency is listed with its licence text, else the SPDX
+    standard text, and any NOTICE file it ships. An MPL dependency says where
+    its source is. The GNU texts the LGPL dependencies need follow once.
     """
+    rule = "-" * 78
     listed = sorted(
         entries,
         key=lambda e: (e.finding.ecosystem, e.finding.name.lower(), e.finding.version),
     )
-    parts = [
-        "THIRD-PARTY-NOTICES",
-        "",
-        "Generated by hyperi-ci from the lock. Do not edit by hand.",
-        "",
-    ]
+    parts = ["THIRD-PARTY-NOTICES", "", "Generated by hyperi-ci from the lock.", ""]
     for entry in listed:
         finding = entry.finding
-        parts += [
-            _RULE,
-            f"{finding.name} {finding.version} ({finding.spdx or 'unknown'})",
-            _RULE,
-            "",
-            _text_or_missing(entry.licence_text, "licence"),
-        ]
-        if "carry-notice" in finding.obligations and _shipped(entry.notice_text):
+        text = entry.licence_text if _shipped(entry.licence_text) else None
+        text = text or standard_text(finding.spdx) or "[no licence file in the package]"
+        heading = f"{finding.name} {finding.version} ({finding.spdx or 'unknown'})"
+        parts += [rule, heading, rule, "", text.strip()]
+        url = _SOURCE_URLS.get(finding.ecosystem)
+        if "mpl-source" in finding.obligations and url:
+            source = url.format(name=finding.name, version=finding.version)
+            parts += ["", f"Source: {source}"]
+        if _shipped(entry.notice_text):
             parts += ["", "NOTICE:", "", str(entry.notice_text).strip()]
     for name in _gnu_texts(entry.finding for entry in listed):
-        text = (_GNU_TEXTS_DIR / f"{name}.txt").read_text(encoding="utf-8")
-        parts += [_RULE, f"{name}, for the LGPL dependencies above", _RULE, ""]
-        parts.append(text.strip())
+        text = (_TEXTS / f"{name}.txt").read_text(encoding="utf-8")
+        heading = f"{name}, for the LGPL dependencies above"
+        parts += [rule, heading, rule, "", text.strip()]
     return "\n".join(parts).rstrip() + "\n"
-
-
-def _shipped(text: str | None) -> bool:
-    return bool(text) and str(text).strip().upper() not in _UNDECLARED
-
-
-def _text_or_missing(text: str | None, what: str) -> str:
-    if _shipped(text):
-        return str(text).strip()
-    return f"[no {what} file in the package]"
 
 
 def quote(text: str | None) -> str:
@@ -664,23 +494,43 @@ def project_path(raw: object) -> str:
 
 
 def load_settings(config: CIConfig) -> tuple[Policy, list[Override]]:
-    """Return the effective policy and the repo's overrides.
+    """Return the licence table and the repo's overrides.
 
     Raises:
-        PolicyError: The repo's ``quality.dep_licenses`` is malformed.
+        PolicyError: The repo's ``quality.dep_licenses.overrides`` is malformed.
 
     """
-    # A bare mode string carries no overrides or policy.
     settings = config.setting("quality.dep_licenses")
     settings = settings if isinstance(settings, Mapping) else {}
-    policy = load_policy(repo_policy=settings.get("policy"))
-    return policy, parse_overrides(settings.get("overrides"))
+    if settings.get("policy"):
+        warn(
+            "  dep licences: quality.dep_licenses.policy is no longer read. "
+            "Answer one dependency under quality.dep_licenses.overrides instead."
+        )
+    return load_policy(), parse_overrides(settings.get("overrides"))
 
 
 def fail(note: str, mode: str) -> bool:
     """Report ``note`` at the gate's mode, and return whether the pipeline goes on."""
     (warn if mode == "warn" else error)(note)
     return mode == "warn"
+
+
+def _with_licence_files(
+    entries: Sequence[NoticeEntry], overrides: Sequence[Override]
+) -> list[NoticeEntry]:
+    """Fill in licence text from an override's ``licence_file``."""
+    filled = []
+    for entry in entries:
+        finding = entry.finding
+        found = find_override(
+            overrides, finding.ecosystem, finding.name, finding.version
+        )
+        path = Path(found.licence_file) if found and found.licence_file else None
+        if not _shipped(entry.licence_text) and path and path.is_file():
+            entry = replace(entry, licence_text=path.read_text(encoding="utf-8"))
+        filled.append(entry)
+    return filled
 
 
 def finish(
@@ -693,24 +543,10 @@ def finish(
 ) -> bool:
     """Write the report and the notices, then fail on every deny and ask.
 
-    Args:
-        findings: One finding per shipped dependency.
-        entries: The same dependencies with the texts they shipped.
-        policy: The effective policy.
-        tools: Tool name to the version that read the licences.
-        mode: ``blocking`` or ``warn``.
-        overrides: The repo's answers, whose ``licence_file`` fills in licence
-            text a package did not ship.
-
     Returns:
         True if the pipeline should continue, False on a blocking failure.
 
     """
-    findings, entries = fill_and_judge(findings, entries, policy, overrides)
-    findings = [restrict_override_only(f, policy) for f in findings]
-    entries = [
-        replace(e, finding=restrict_override_only(e.finding, policy)) for e in entries
-    ]
     REPORT_PATH.parent.mkdir(exist_ok=True)
     (REPORT_PATH.parent / ".gitignore").write_text(
         "*\n", encoding="utf-8", newline="\n"
@@ -720,161 +556,35 @@ def finish(
         encoding="utf-8",
         newline="\n",
     )
+    notices = render_notices(_with_licence_files(entries, overrides))
+    NOTICES_OUTPUT.write_text(notices, encoding="utf-8", newline="\n")
     info(
         f"  dep licences: {len(findings)} shipped dependencies judged, see {REPORT_PATH}"
     )
-    notices_current = check_notices(entries, mode)
     held = blocking(findings)
     for finding in held:
         (warn if mode == "warn" else error)(f"  {finding.line()}")
         info(f"    evidence: {finding.evidence}")
-    if held:
-        return fail(
-            f"  dep licences: {len(held)} dependencies denied or need a human answer. "
-            "Answer a package in quality.dep_licenses.overrides (name, licence, "
-            "reason), a copied-in file with its vendored entry's licence and reason.",
-            mode,
-        )
-    return notices_current
-
-
-def _with_licence_files(
-    entries: Sequence[NoticeEntry], overrides: Sequence[Override]
-) -> list[NoticeEntry]:
-    """Fill in licence text from an override's ``licence_file``."""
-    filled = []
-    for entry in entries:
-        finding = entry.finding
-        override = find_override(
-            overrides, finding.ecosystem, finding.name, finding.version
-        )
-        if not _shipped(entry.licence_text) and override and override.licence_file:
-            path = Path(override.licence_file)
-            if path.is_file():
-                text = path.read_text(encoding="utf-8", errors="replace")
-                entry = replace(entry, licence_text=text)
-        filled.append(entry)
-    return filled
-
-
-def _with_upstream_texts(
-    entries: Sequence[NoticeEntry],
-    fetch: Callable[[str, str, str | None], Upstream] = upstream_licences.fetch,
-) -> list[NoticeEntry]:
-    """Fill in missing licence text from the repository, else the SPDX standard text.
-
-    A repository git could not reach leaves the text missing, so a network
-    failure never changes the notices.
-    """
-    filled = []
-    for entry in entries:
-        if _shipped(entry.licence_text):
-            filled.append(entry)
-            continue
-        finding = entry.finding
-        found = fetch(finding.name, finding.version, entry.repository)
-        licence = found.licence
-        if licence is None and found.reachable:
-            licence = upstream_licences.standard_text(finding.spdx)
-        if licence is None:
-            if not found.reachable:
-                warn(f"  dep licences: could not reach {entry.repository}")
-            filled.append(entry)
-            continue
-        info(
-            f"  dep licences: {finding.name} {finding.version}: {licence.splitlines()[0]}"
-        )
-        notice = entry.notice_text if _shipped(entry.notice_text) else found.notice
-        filled.append(replace(entry, licence_text=licence, notice_text=notice))
-    return filled
-
-
-def _judged_from_text(entry: NoticeEntry, policy: Policy) -> NoticeEntry:
-    """Judge a bare BSD classifier from the licence text filled in for it."""
-    finding = entry.finding
-    bare = (finding.spdx or "").strip().upper() in BARE_BSD
-    if finding.source != "metadata" or finding.rule != "unrecognised" or not bare:
-        return entry
-    named = bsd_licence(upstream_licences.licence_body(entry.licence_text))
-    if named is None:
-        return entry
-    spdx, verdict, obligations, rule = judge(named, finding.mode, policy)
-    first_line = str(entry.licence_text).strip().splitlines()[0]
-    judged = replace(
-        finding,
-        spdx=spdx,
-        source="license-file",
-        evidence=f"{named} text, {first_line}",
-        verdict=verdict,
-        obligations=obligations,
-        rule=rule,
-    )
-    return replace(entry, finding=judged)
-
-
-def fill_and_judge(
-    findings: Sequence[Finding],
-    entries: Sequence[NoticeEntry],
-    policy: Policy,
-    overrides: Sequence[Override] = (),
-    fetch: Callable[[str, str, str | None], Upstream] = upstream_licences.fetch,
-) -> tuple[list[Finding], list[NoticeEntry]]:
-    """Fill in missing licence text, then judge a bare BSD classifier from it.
-
-    The text comes from an override's ``licence_file``, else the repository at
-    the version's tag, else the SPDX standard text.
-
-    Returns:
-        The findings with any bare BSD the text names judged, and the entries
-        with their texts.
-
-    """
-    filled = [
-        _judged_from_text(entry, policy)
-        for entry in _with_upstream_texts(
-            _with_licence_files(entries, overrides), fetch
-        )
-    ]
-    judged = {
-        (e.finding.ecosystem, e.finding.name, e.finding.version): e.finding
-        for e in filled
-    }
-    return [judged.get((f.ecosystem, f.name, f.version), f) for f in findings], filled
-
-
-def check_notices(entries: Sequence[NoticeEntry], mode: str) -> bool:
-    """Write the generated notices and hold the repo's copy to them, if it has one.
-
-    A dependency with no licence text, after :func:`fill_and_judge`, fails the
-    check rather than shipping a placeholder.
-
-    Returns:
-        True unless text is missing or the repo's copy is stale, and the mode
-        blocks.
-
-    """
-    generated = render_notices(entries)
-    NOTICES_OUTPUT.write_text(generated, encoding="utf-8", newline="\n")
-    missing = [
-        f"{e.finding.name} {e.finding.version}"
-        for e in entries
-        if e.finding.verdict is not Verdict.ALLOW and not _shipped(e.licence_text)
-    ]
-    passed = True
-    if missing:
-        passed = fail(
-            f"  dep licences: no licence text for {', '.join(sorted(missing))}. "
-            "Commit the text and point its override's licence_file at it.",
-            mode,
-        )
-    if not NOTICES_PATH.is_file():
-        return passed
-    if NOTICES_PATH.read_text(encoding="utf-8") == generated:
-        info(f"  dep licences: {NOTICES_PATH} matches the lock")
-        return passed
-    stale = fail(
-        f"  dep licences: {NOTICES_PATH} is stale against the lock. "
-        f"Replace it with {NOTICES_OUTPUT}, which this run generated.",
+    if not held:
+        return True
+    return fail(
+        f"  dep licences: {len(held)} dependencies poison the licence or need a "
+        "human answer. Answer a package in quality.dep_licenses.overrides (name, "
+        "licence, reason), a copied-in file with its vendored entry's licence and "
+        "reason.",
         mode,
     )
-    return passed and stale
+
+
+def fresh_notices(run_gate: Callable[..., bool], config: CIConfig) -> Path | None:
+    """Run a language's licence reader and return the notices it just wrote.
+
+    The reader runs in ``warn`` mode, so a held licence never stops it. None
+    when its tool did not run, so a notices file an earlier run left is never
+    passed off as current.
+    """
+    before = NOTICES_OUTPUT.stat().st_mtime_ns if NOTICES_OUTPUT.is_file() else 0
+    run_gate(config, mode="warn")
+    if NOTICES_OUTPUT.is_file() and NOTICES_OUTPUT.stat().st_mtime_ns > before:
+        return NOTICES_OUTPUT
+    return None

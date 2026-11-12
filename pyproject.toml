@@ -50,6 +50,7 @@ dependencies = [
     # keeps us pinned to a known surface.
     "typer>=0.27",
     "jsonschema>=4.26.0",
+    "tomlkit>=0.15.2",
 ]
 
 [project.scripts]

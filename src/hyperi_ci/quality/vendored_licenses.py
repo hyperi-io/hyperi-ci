@@ -120,7 +120,9 @@ def findings_for(
             raw, source, evidence = entry.licence, "override", str(entry.reason)
         else:
             raw, source, evidence = None, "missing-header", "no SPDX header"
-        spdx, verdict, obligations, rule = judge(raw, entry.mode, policy)
+        spdx, verdict, obligations, rule = judge(
+            raw, entry.mode, policy, override=source == "override"
+        )
         findings.append(
             Finding(
                 ECOSYSTEM,

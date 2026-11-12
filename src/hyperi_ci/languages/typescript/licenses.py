@@ -102,7 +102,9 @@ def findings_for(
             raw, source, evidence = override.licence, "override", override.reason
         else:
             raw, source, evidence = _licence_expression(record), "metadata", "license"
-        spdx, verdict, obligations, rule = judge(raw, Mode.IMPORT, policy)
+        spdx, verdict, obligations, rule = judge(
+            raw, Mode.IMPORT, policy, override=override is not None
+        )
         licence_file = _licence_file(record)
         if rule == "undeclared" and licence_file is not None:
             source = "license-file"
@@ -143,7 +145,7 @@ def notice_entries(
         )
         notice = "\n\n".join(filter(None, (_read(p) for p in notices))) or None
         licence = _read(_licence_file(record))
-        entries.append(NoticeEntry(finding, licence, notice, record.get("repository")))
+        entries.append(NoticeEntry(finding, licence, notice))
     return entries
 
 
@@ -163,17 +165,18 @@ def _checker_cmd(output: Path) -> list[str]:
     ]
 
 
-def run_gate(config: CIConfig) -> bool:
+def run_gate(config: CIConfig, mode: str | None = None) -> bool:
     """Run the dependency-licence gate for an npm, pnpm or yarn project.
 
     Args:
         config: Merged CI configuration.
+        mode: ``blocking`` or ``warn``, default the configured mode.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
 
     """
-    mode = resolve_tool_mode("dep_licenses", config, default="warn")
+    mode = mode or resolve_tool_mode("dep_licenses", config, default="warn")
     if mode == "disabled":
         return True
     if not Path("node_modules").is_dir():
