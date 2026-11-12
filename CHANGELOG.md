@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.60](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.59...v2.14.60) (2026-11-12)
+
+### Bug Fixes
+
+* **ci:** build arm64 on the Ubuntu 26.04 runner ([23b30cd](https://github.com/hyperi-io/hyperi-ci/commit/23b30cd061ba94c39810b287daab330f598e3151))
+* **licences:** check npm workspace packages ([c5c87a5](https://github.com/hyperi-io/hyperi-ci/commit/c5c87a5ec266b71e8c71656160f65e3bc56c7018)), closes [#854](https://github.com/hyperi-io/hyperi-ci/issues/854) [#850](https://github.com/hyperi-io/hyperi-ci/issues/850)
+* **licences:** cut the gate back to one table ([e9b6a0c](https://github.com/hyperi-io/hyperi-ci/commit/e9b6a0c07d6bf7177336c7f227bef63e3d2bc256))
+* **native-deps:** install the PostgreSQL and MariaDB ODBC drivers ([b19ab68](https://github.com/hyperi-io/hyperi-ci/commit/b19ab68f6796643500a1b59c0d83b0b2de6f8078)), closes [#274](https://github.com/hyperi-io/hyperi-ci/issues/274) [#803](https://github.com/hyperi-io/hyperi-ci/issues/803)
+* **push:** keep a merge from main when pulling ([e4394af](https://github.com/hyperi-io/hyperi-ci/commit/e4394af5f4fe339839feb2adfaf155d9b852ff55))
+
 ## [2.14.59](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.58...v2.14.59) (2026-11-12)
 
 ### Bug Fixes
