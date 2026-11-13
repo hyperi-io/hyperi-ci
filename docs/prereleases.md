@@ -69,7 +69,7 @@ have run. It protects the version users install, and a prerelease spends none.
 
 ## Release candidates from main
 
-With `release.candidates: true`, every release from main ships as `X.Y.Z-rc.N`: a GitHub prerelease, no GHCR `:latest`, R2 `rc/`, and a plain Rust build. semantic-release still predicts `X.Y.Z`, as it never counts a prerelease tag as the last release. Plan appends `-rc.N`, one past the highest `vX.Y.Z-rc.N` tag, and Tag & Release cuts it with `tag-head`.
+With `release.candidates: true`, every release from main ships as `X.Y.Z-rc.N`: a GitHub prerelease, no GHCR `:latest`, R2 `rc/`, and a plain Rust build. semantic-release still predicts `X.Y.Z`, as it never counts a prerelease tag as the last release. Plan appends `-rc.N`, one past the highest `vX.Y.Z-rc.N` tag, and Tag & Release cuts it with `tag-head`. A candidate commits no `VERSION` or `CHANGELOG.md` back to main.
 
 `hyperi-ci promote v2.2.3-rc.2` tags that candidate's commit `v2.2.3` and dispatches the tag's release, which rebuilds it as a GA with PGO and BOLT. The next release predicts `2.2.4`.
 

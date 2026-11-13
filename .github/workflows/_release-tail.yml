@@ -1070,12 +1070,13 @@ jobs:
         # version onto main would move main back.
         #
         # Lands on the branch that released, so a beta release never writes main
-        # (issue #417).
+        # (issue #417). A release candidate is cut on main, so it is skipped for
+        # the same reason.
         #
         # Non-fatal: once the registry has the release, a failure here must not
         # turn a shipped release red.
         id: releasecommit
-        if: steps.publish.outcome == 'success' && inputs.tag == ''
+        if: steps.publish.outcome == 'success' && inputs.tag == '' && inputs.candidate != 'true'
         continue-on-error: true
         env:
           # Also a push to the default branch, so it needs the bypass actor

@@ -498,6 +498,10 @@ class TestFromHeadThreading:
         assert "inputs.tag == ''" in str(commit["if"]), (
             "release-commit must skip a retroactive tag dispatch"
         )
+        # release-commit refuses an rc on main, and the refusal files an issue.
+        assert "inputs.candidate != 'true'" in str(commit["if"]), (
+            "release-commit must skip a release candidate"
+        )
         assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"
         )

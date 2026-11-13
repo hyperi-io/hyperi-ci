@@ -470,9 +470,9 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     endpoint = org.r2_endpoint
     project_name = Path.cwd().name
     version = resolve_release_version() or "unknown"
-    public_url = f"{org.r2_public_url}/{project_name}/v{version}/"
-
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
+    key_prefix = versioned_prefix.removeprefix(f"s3://{org.r2_bucket}/")
+    public_url = f"{org.r2_public_url}/{key_prefix}"
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
     with _classic_s3_config() as aws_config:
