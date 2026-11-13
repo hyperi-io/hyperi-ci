@@ -888,7 +888,7 @@ def test_npm_notices_skip_a_readme_and_carry_a_notice(policy, npm_records):
 
 
 _NO_PACKAGES = "Error: No packages found in this path..."
-# `npm ls --all --omit=dev --json` 11 on a hoisted tree with workspace `a`.
+# `npm ls --all --omit=dev --json` 11 on an npm hoisted tree with workspace `a`.
 _NPM_LS = json.dumps(
     {
         "name": "root",
@@ -897,6 +897,23 @@ _NPM_LS = json.dumps(
                 "version": "1.0.0",
                 "resolved": "file:../apps/a",
                 "dependencies": {"ms": {"version": "2.1.3"}},
+            }
+        },
+    }
+)
+# A yarn tree: workspace nodes carry no `file:`, and `--long` names the real
+# package behind an alias, as dfe-ui's `npm:@opentelemetry/sdk-trace@2.12.0`.
+_YARN_LS = json.dumps(
+    {
+        "name": "root",
+        "dependencies": {
+            "a": {
+                "version": "1.0.0",
+                "name": "a",
+                "dependencies": {
+                    "@repo/b": {"version": "0.1.0", "name": "@repo/b"},
+                    "ms-alias": {"version": "2.1.3", "name": "ms"},
+                },
             }
         },
     }
@@ -917,6 +934,7 @@ _PUBLIC_WORKSPACE = {**_CHECKED, "a@1.0.0": {"licenses": "BUSL-1.1"}}
         # nothing. npm ls names what ships: isarray is a dev dependency.
         (True, (0, "", _CHECKED), _NPM_LS, ["ms"], True),
         (True, (0, "", _PUBLIC_WORKSPACE), _NPM_LS, ["ms"], True),
+        (True, (0, "", _CHECKED), _YARN_LS, ["ms"], True),
         (True, (0, "", _CHECKED), "", None, False),
         # The checker missing a package npm ships is a gap, never a pass.
         (True, (0, _NO_PACKAGES, None), _NPM_LS, None, False),
@@ -930,6 +948,12 @@ def test_npm_gate_checks_what_ships(
     own = {"name": "root", "private": True}
     if workspaces:
         own["workspaces"] = ["apps/*"]
+        for member in ("a", "@repo/b"):
+            folder = tmp_path / "apps" / member.rsplit("/", 1)[-1]
+            folder.mkdir(parents=True)
+            (folder / "package.json").write_text(
+                json.dumps({"name": member}), encoding="utf-8"
+            )
     (tmp_path / "package.json").write_text(json.dumps(own), encoding="utf-8")
     (tmp_path / ".hyperi-ci.yaml").write_text(
         "quality:\n  dep_licenses: blocking\n", encoding="utf-8"

@@ -170,30 +170,49 @@ def _checker_cmd(output: Path, *, production: bool) -> list[str]:
     ]
 
 
-def _keys(tree: Mapping[str, Any]) -> set[str]:
+def workspace_names(own: Mapping[str, Any]) -> set[str]:
+    """Return the names of the root's workspace packages, the project's own code."""
+    patterns = own.get("workspaces", [])
+    # yarn also takes `{"packages": [...]}`.
+    if isinstance(patterns, Mapping):
+        patterns = patterns.get("packages", [])
+    names = set()
+    for pattern in patterns:
+        for manifest in Path().glob(f"{pattern}/package.json"):
+            name = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+            if name:
+                names.add(name)
+    return names
+
+
+def _keys(tree: Mapping[str, Any], own: set[str]) -> set[str]:
     keys = set()
-    for name, node in tree.get("dependencies", {}).items():
-        # A workspace package resolves to `file:`, and it is the project's own.
-        local = str(node.get("resolved", "")).startswith("file:")
+    for alias, node in tree.get("dependencies", {}).items():
+        # `--long` gives the real name, which license-checker keys an alias by.
+        name = node.get("name") or alias
+        local = str(node.get("resolved", "")).startswith("file:") or name in own
         if node.get("version") and not node.get("missing") and not local:
             keys.add(f"{name}@{node['version']}")
-        keys |= _keys(node)
+        keys |= _keys(node, own)
     return keys
 
 
-def production_keys() -> set[str] | None:
+def production_keys(own: set[str]) -> set[str] | None:
     """Return ``name@version`` for every production package npm lists, else None.
 
     license-checker's ``--production`` follows only the root's own
     ``dependencies``, so it finds nothing under a workspace root. ``npm ls``
-    follows the workspace packages, in a yarn or an npm tree.
+    follows the workspace packages, in a yarn or an npm tree. The packages
+    named in ``own`` are left out.
     """
     # npm ls exits 1 on a peer or extraneous problem and still prints the tree.
     result = run_cmd(
-        ["npm", "ls", "--all", "--omit=dev", "--json"], check=False, capture=True
+        ["npm", "ls", "--all", "--omit=dev", "--json", "--long"],
+        check=False,
+        capture=True,
     )
     try:
-        return _keys(json.loads(result.stdout))
+        return _keys(json.loads(result.stdout), own)
     except (json.JSONDecodeError, AttributeError):
         return None
 
@@ -227,7 +246,7 @@ def run_gate(config: CIConfig, mode: str | None = None) -> bool:
         cmd = _checker_cmd(output, production=not workspaces)
         try:
             result = run_cmd(cmd, check=False, capture=True)
-            shipped = production_keys() if workspaces else None
+            shipped = production_keys(workspace_names(own)) if workspaces else None
         except OSError:
             return fail("  dep licences: npx is not installed, nothing checked", mode)
         said = f"{result.stdout}\n{result.stderr}"
