@@ -10,7 +10,8 @@
 #   pattern      Python regex, compiled case-insensitive
 #   replacement  what to write instead
 #
-# hyperi-ai reads this list through `hyperi-ci check-commit --register-words --json`.
+# hyperi-ai imports this list through hyperi_ci.quality.register_words.words() and
+# pins hyperi-ci exactly, so a change reaches it only after a release and a pin bump.
 
 words:
   - term: 'substrate'
