@@ -132,6 +132,8 @@ def policy():
         ("Some Licence OR Apache-2.0", IMPORT, "Some Licence OR Apache-2.0", OK, N),
         ("ISC License (ISCL)", IMPORT, "ISC", OK, N),
         ("CDLA-Permissive-2.0", STATIC, "CDLA-Permissive-2.0", OK, N),
+        # lru-cache 11 declares it.
+        ("BlueOak-1.0.0", IMPORT, "BlueOak-1.0.0", OK, N),
         # OR takes the best term, AND the worst.
         (
             "Apache-2.0 OR GPL-2.0-or-later",
