@@ -1092,3 +1092,28 @@ def test_fresh_notices_never_passes_off_an_old_file(
     assert (got is not None) is written
     if written:
         assert "earlier run" not in NOTICES_OUTPUT.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "container", "shipped"),
+    [
+        # An image installs every dependency, so it carries their notices.
+        (True, "", True),
+        (False, "release:\n  container:\n    enabled: true\n", True),
+        # A wheel redistributes no dependency.
+        (False, "", False),
+        (True, "release:\n  container:\n    enabled: false\n", False),
+    ],
+)
+def test_python_build_ships_notices_for_an_image(
+    tmp_path, monkeypatch, dockerfile, container, shipped
+):
+    from hyperi_ci.languages.python import build
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "dist").mkdir()
+    (tmp_path / ".hyperi-ci.yaml").write_text(container, encoding="utf-8")
+    if dockerfile:
+        (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    assert build._write_notices(load_config(reload=True)) == 0
+    assert (tmp_path / "dist" / "THIRD-PARTY-NOTICES").is_file() is shipped

@@ -44,6 +44,8 @@ licence: pypi pysigma-backend-clickhouse 1.1.1 unknown import -> ask (rule undec
 
 Every run also writes `.hyperi-ci/THIRD-PARTY-NOTICES`: every shipped dependency with its licence file, else the bundled SPDX standard text, and any NOTICE file it ships. LGPL dependencies add the LGPL and GPL texts once. It is a release artefact, never a PR gate.
 
+The Build copies it to `dist/THIRD-PARTY-NOTICES` for a Rust project, whose binaries link every crate, and for a Python project that builds an image. A Dockerfile ships it with `COPY dist/THIRD-PARTY-NOTICES`. A wheel or npm package redistributes no dependency, so it gets none.
+
 ## Answering an ask
 
 `deny` and `ask` fail the gate, and `quality.dep_licenses` ships `warn`. A human answers one dependency in `.hyperi-ci.yaml`, with a reason, pinned to the version it was checked against so a new version is asked again. `licence_file` supplies text for a package that ships none:
