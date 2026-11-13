@@ -123,6 +123,11 @@ def resolve_charts(entries: list[str], root: Path) -> list[Chart]:
             Chart.yaml, or nothing at all matches.
 
     """
+    if not entries:
+        raise ChartError(
+            "release.helm.enabled is true, but release.helm.charts lists no chart "
+            "and release.helm.contract is not set"
+        )
     root = root.resolve()
     charts: list[Chart] = []
     for entry in entries:
@@ -160,6 +165,29 @@ def resolve_charts(entries: list[str], root: Path) -> list[Chart]:
     if not charts:
         raise ChartError(f"no application chart matches {entries}")
     return charts
+
+
+def check_config(config: CIConfig, root: Path) -> int:
+    """Fail when ``release.helm`` leaves publish-charts nothing it can publish.
+
+    Quality runs this, so a bad chart list fails before the builds rather than
+    in Tag & Release. A contract-only config passes: its chart is built later.
+
+    Returns:
+        1 when the configured charts do not resolve, else 0.
+    """
+    if not config.setting("release.helm.enabled"):
+        return 0
+    entries = list(config.setting("release.helm.charts") or [])
+    if not entries and config.setting("release.helm.contract"):
+        return 0
+    try:
+        found = resolve_charts(entries, root)
+    except ChartError as exc:
+        error(f"Helm release config: {exc}. publish-charts would fail the release.")
+        return 1
+    info(f"Helm release config: {len(found)} chart(s) to publish")
+    return 0
 
 
 def _stage(chart: Chart, root: Path, scratch: Path) -> Path:

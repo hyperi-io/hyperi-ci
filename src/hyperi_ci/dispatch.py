@@ -56,6 +56,7 @@ from hyperi_ci.quality import (
     repo_advisor,
     semgrep,
 )
+from hyperi_ci.release import charts
 
 
 class StageRunFn(Protocol):
@@ -309,6 +310,11 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     rc = _run_lint_iac(config)
     if rc != 0:
         return rc
+
+    with group("Helm release config"):
+        rc = charts.check_config(config, Path.cwd())
+        if rc != 0:
+            return rc
 
     # Every doc check defaults to `warn` until a repo promotes it.
     docs_rc = lint_docs.run(Path.cwd(), config)
