@@ -19,6 +19,7 @@ from hyperi_ci.common import env_true, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.fork_version import check_fork
 from hyperi_ci.gh import gh_run
+from hyperi_ci.quality import register_words
 from hyperi_ci.release_rules import default_type_bump
 from hyperi_ci.vocabulary import trailer_values
 
@@ -312,6 +313,9 @@ def run(
 
     ``local=True`` runs outside CI over ``origin/main..HEAD``, fatal, as the
     ``hyperi-ci check`` pre-push backstop. Without it, outside CI is a no-op.
+
+    A REGISTER word in a commit subject or the PR title is a warning on every
+    event, never a failure.
     """
     if not local and not is_ci():
         info("Skipping commit message validation (not in CI)")
@@ -355,6 +359,8 @@ def _validate_range() -> tuple[int, list[str]]:
     failures: list[tuple[str, str, ValidationResult]] = []
 
     for commit_hash, full_msg in commits:
+        if not _should_skip(full_msg):
+            _warn_register(commit_hash[:8], full_msg.split("\n")[0])
         result = validate_message(full_msg)
         if not result.valid:
             failures.append((commit_hash, full_msg, result))
@@ -384,6 +390,12 @@ def _validate_range() -> tuple[int, list[str]]:
 
     success(f"All {len(commits)} commit(s) passed message validation")
     return 0, messages
+
+
+def _warn_register(label: str, line: str) -> None:
+    """Warn on each REGISTER word ``line`` carries. Never fails the run."""
+    for finding in register_words.describe(line):
+        warn(f"[{label}] {finding} -- in {line!r}")
 
 
 def _api_object(path: str) -> dict | None:
@@ -557,6 +569,7 @@ def _validate_squash_subject(branch_messages: list[str]) -> int:
     if pr is None:
         return 0
 
+    _warn_register("PR title", pr["title"])
     count = _commit_count(pr, branch_messages)
     why = f"{count} commit(s)"
     # Assumes COMMIT_OR_PR_TITLE, GitHub's default, which every hyperi-io repo uses.
