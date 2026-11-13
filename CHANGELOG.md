@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.61](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.60...v2.14.61) (2026-11-13)
+
+### Bug Fixes
+
+* **licences:** match npm workspace keys the checker uses ([34e2280](https://github.com/hyperi-io/hyperi-ci/commit/34e2280316b1677871e0e88cee30f7533ca05036))
+* **licences:** ship notices in dist for a Python image ([3620985](https://github.com/hyperi-io/hyperi-ci/commit/3620985ce4a4633bd69da5e25f2090bdff160839))
+
 ## [2.14.60](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.59...v2.14.60) (2026-11-12)
 
 ### Bug Fixes
