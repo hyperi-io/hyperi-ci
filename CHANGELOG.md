@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.62](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.61...v2.14.62) (2026-11-13)
+
+### Bug Fixes
+
+* **charts:** fail in Quality when Helm has nothing to publish ([623e649](https://github.com/hyperi-io/hyperi-ci/commit/623e649f3a2705f901dfe53ab9e971ac1fef1f1d))
+* **commits:** warn on register words in subjects and titles ([6cb0fd2](https://github.com/hyperi-io/hyperi-ci/commit/6cb0fd2860136f139384a40d6558363398eb20f5))
+
 ## [2.14.61](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.60...v2.14.61) (2026-11-13)
 
 ### Bug Fixes
