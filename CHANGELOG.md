@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.63](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.62...v2.14.63) (2026-11-13)
+
+### Bug Fixes
+
+* **licences:** add BlueOak-1.0.0 to the ok list ([9876d54](https://github.com/hyperi-io/hyperi-ci/commit/9876d546c8fefa09eb1c9e39b287fab7c0b6056a))
+* **release:** skip candidate commit-back, sync promotes, fix R2 URL ([0510814](https://github.com/hyperi-io/hyperi-ci/commit/05108147359326abf0e58f95b6a8c3a38f3d4699))
+
 ## [2.14.62](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.61...v2.14.62) (2026-11-13)
 
 ### Bug Fixes
