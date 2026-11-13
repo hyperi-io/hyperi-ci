@@ -123,6 +123,11 @@ CHANGELOG_FILE = "CHANGELOG.md"
 SUPPLEMENT_FILE = ".github/release-notes/NEXT.md"
 RESERVED_PATHS = (VERSION_FILE, CHANGELOG_FILE, SUPPLEMENT_FILE)
 
+# A rendered release heading: `## [1.2.3](compare-url) (date)` for a patch,
+# `# [1.3.0](...)` for a minor or major. A `### Bug Fixes` sub-heading inside
+# an entry does not match, so the next match is the next release.
+CHANGELOG_ENTRY_HEADING = re.compile(r"^#{1,3}\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?")
+
 
 def repo_paths(raw: object, root: Path, key: str) -> list[str]:
     """Resolve a config list of paths to repo-relative POSIX paths inside ``root``.

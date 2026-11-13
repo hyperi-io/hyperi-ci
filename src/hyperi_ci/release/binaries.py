@@ -13,7 +13,6 @@ that packages binaries into ``dist/``.
 import filecmp
 import json
 import os
-import re
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -36,17 +35,10 @@ from hyperi_ci.config import CIConfig, load_org_config
 from hyperi_ci.native_deps import ensure_aws_cli
 from hyperi_ci.release.charts import release_notes as chart_release_notes
 from hyperi_ci.release_branches import effective_release_channel
-from hyperi_ci.stamp import repo_paths
+from hyperi_ci.stamp import CHANGELOG_ENTRY_HEADING, CHANGELOG_FILE, repo_paths
 from hyperi_ci.tools import missing_tool_notice
 
 VALID_CHANNELS = ("alpha", "beta", "release")
-
-CHANGELOG_FILE = "CHANGELOG.md"
-
-# A rendered release heading: `## [1.2.3](compare-url) (date)` for a patch,
-# `# [1.3.0](...)` for a minor or major. A `### Bug Fixes` sub-heading inside
-# an entry does not match, so the next match is the next release.
-_ENTRY_HEADING = re.compile(r"^#{1,3}\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?")
 
 
 def _resolve_gh_release_flags(channel: str) -> list[str]:
@@ -138,7 +130,7 @@ def _top_changelog_entry(version: str, changelog: str) -> str | None:
     lines = changelog.splitlines()
     start: int | None = None
     for index, line in enumerate(lines):
-        match = _ENTRY_HEADING.match(line)
+        match = CHANGELOG_ENTRY_HEADING.match(line)
         if match is None:
             continue
         if start is None:

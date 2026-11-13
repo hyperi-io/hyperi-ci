@@ -1066,8 +1066,9 @@ jobs:
         # Runs after the tag exists and adds an untagged commit via the Git Data
         # API, so no tag points at machine-authored history (the #37 orphaning).
         #
-        # Skipped on a tag dispatch: that checkout is an old tag, and committing its
-        # version onto main would move main back.
+        # A tag dispatch (a promoted candidate) checks out the tagged commit, so
+        # --from-tag builds its CHANGELOG entry onto main's own copy, and a
+        # version older than main's commits nothing (issue #350).
         #
         # Lands on the branch that released, so a beta release never writes main
         # (issue #417). A release candidate is cut on main, so it is skipped for
@@ -1076,7 +1077,7 @@ jobs:
         # Non-fatal: once the registry has the release, a failure here must not
         # turn a shipped release red.
         id: releasecommit
-        if: steps.publish.outcome == 'success' && inputs.tag == '' && inputs.candidate != 'true'
+        if: steps.publish.outcome == 'success' && inputs.candidate != 'true'
         continue-on-error: true
         env:
           # Also a push to the default branch, so it needs the bypass actor
@@ -1087,6 +1088,7 @@ jobs:
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           RELEASE_VERSION: ${{ inputs.next-version }}
           RELEASE_BRANCH: ${{ github.ref_name }}
+          HYPERCI_RELEASE_FROM_TAG: ${{ inputs.tag != '' }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           --branch "$RELEASE_BRANCH"

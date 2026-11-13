@@ -1318,6 +1318,15 @@ def release_commit_cmd(
         bool,
         typer.Option("--dry-run", help="Report what would be committed"),
     ] = False,
+    from_tag: Annotated[
+        bool,
+        typer.Option(
+            "--from-tag",
+            envvar="HYPERCI_RELEASE_FROM_TAG",
+            help="The release dispatched an existing tag: build the CHANGELOG "
+            "entry from GitHub's notes onto the branch's own copy",
+        ),
+    ] = False,
 ) -> None:
     """Commit the rendered VERSION + CHANGELOG.md back to the branch.
 
@@ -1332,7 +1341,11 @@ def release_commit_cmd(
     dir_path = Path(project_dir) if project_dir else None
     raise typer.Exit(
         commit_release_artefacts(
-            version=version, branch=branch, project_dir=dir_path, dry_run=dry_run
+            version=version,
+            branch=branch,
+            project_dir=dir_path,
+            dry_run=dry_run,
+            from_tag=from_tag,
         )
     )
 
