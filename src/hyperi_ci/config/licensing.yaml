@@ -1,0 +1,108 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/licensing.yaml
+# Purpose:   Which dependency licences a BUSL-1.1 or proprietary product can ship
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+#
+# A licence on no list is unknown, and so is a dependency with no licence: a
+# human answers it under `quality.dep_licenses.overrides` in .hyperi-ci.yaml.
+# Only what ships is judged. A tool CI runs and never ships is out of scope.
+
+# Shipped with a notice: the package, its licence text and any NOTICE file.
+ok: [MIT, MIT-0, 0BSD, BSD-2-Clause, BSD-3-Clause, BSD-4-Clause, ISC, Zlib, BSL-1.0, Apache-2.0, MPL-2.0, Unicode-3.0, Unicode-DFS-2016, PSF-2.0, Python-2.0, CNRI-Python, X11, curl, HPND, CDLA-Permissive-2.0, CC-BY-3.0, CC-BY-4.0, CC0-1.0, Unlicense, LicenseRef-Public-Domain, LicenseRef-BSD-Unspecified]
+
+# Ok when loaded at runtime (Python, npm). Linked statically (Rust, Go,
+# copied-in source) they are unknown, because the build ships no relinkable objects.
+ok_when_dynamic: [LGPL-2.0-only, LGPL-2.0-or-later, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later, LicenseRef-LGPL-Unversioned, EPL-2.0]
+
+# Strong copyleft: combined with our code it would relicense it.
+poisons: [GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0, LicenseRef-GPL-Unversioned]
+
+# Third-party source-available or share-alike: restricts how we ship, a human decides.
+human: [BUSL-1.1, Elastic-2.0, CC-BY-SA-3.0, CC-BY-SA-4.0]
+
+# `A WITH <exception>` is ok for these when A is on a list above: each lets
+# code built against the runtime ship under any terms.
+exceptions: [LLVM-exception, GCC-exception-2.0, GCC-exception-3.1, Classpath-exception-2.0]
+
+# HyperI's own packages. Only an override can name one: metadata claiming it
+# stays unknown, so a squatted name cannot pass as ours.
+first_party: [LicenseRef-HyperI]
+
+# What ships beyond the notice, by SPDX id prefix:
+#   lgpl-texts   the LGPL text and the GPL text it incorporates
+#   replaceable  the user can swap the library for their own build
+#   mpl-source   where the source of each MPL file is, and any change to them
+#   advertising  the copyright holder's acknowledgement in advertising
+obligations:
+  LGPL-: [lgpl-texts, replaceable]
+  LicenseRef-LGPL-: [lgpl-texts, replaceable]
+  MPL-2.0: [mpl-source]
+  BSD-4-Clause: [advertising]
+  LicenseRef-BSD-Unspecified: [advertising]
+
+# Names package metadata carries (trove classifiers, free text) -> SPDX id.
+aliases:
+  "MIT License": MIT
+  "BSD License": LicenseRef-BSD-Unspecified
+  "BSD 2-Clause": BSD-2-Clause
+  "2-Clause BSD License": BSD-2-Clause
+  "BSD 3-Clause": BSD-3-Clause
+  "3-Clause BSD License": BSD-3-Clause
+  "ISC License (ISCL)": ISC
+  "zlib/libpng License": Zlib
+  "Boost Software License 1.0 (BSL-1.0)": BSL-1.0
+  "Python Software Foundation License": PSF-2.0
+  "Historical Permission Notice and Disclaimer (HPND)": HPND
+  "Apache Software License": Apache-2.0
+  "Apache License 2.0": Apache-2.0
+  "Apache 2.0": Apache-2.0
+  "Apache License, Version 2.0": Apache-2.0
+  "Mozilla Public License 2.0 (MPL 2.0)": MPL-2.0
+  "Eclipse Public License 2.0 (EPL-2.0)": EPL-2.0
+  "The Unlicense (Unlicense)": Unlicense
+  "CC0 1.0 Universal (CC0 1.0) Public Domain Dedication": CC0-1.0
+  "Public Domain": LicenseRef-Public-Domain
+  "GNU Lesser General Public License v3 (LGPLv3)": LGPL-3.0-only
+  "GNU Lesser General Public License v3 or later (LGPLv3+)": LGPL-3.0-or-later
+  "GNU Lesser General Public License v2 (LGPLv2)": LGPL-2.0-only
+  "GNU Lesser General Public License v2 or later (LGPLv2+)": LGPL-2.0-or-later
+  "GNU Library or Lesser General Public License (LGPL)": LicenseRef-LGPL-Unversioned
+  "GNU General Public License (GPL)": LicenseRef-GPL-Unversioned
+  "GNU General Public License v2 (GPLv2)": GPL-2.0-only
+  "GNU General Public License v2 or later (GPLv2+)": GPL-2.0-or-later
+  "GNU General Public License v3 (GPLv3)": GPL-3.0-only
+  "GNU General Public License v3 or later (GPLv3+)": GPL-3.0-or-later
+  "GNU Affero General Public License v3": AGPL-3.0-only
+  "GNU Affero General Public License v3 or later (AGPLv3+)": AGPL-3.0-or-later
+
+# The licence each classification (classification.CANONICAL) ships under, where its file bundle
+# comes from, and the root manifest values it takes. The first licence is the
+# one `licenses migrate` applies. `inherit` keeps a fork's upstream licence.
+outbound:
+  internal:
+    licences: [LicenseRef-HyperI-Proprietary]
+    bundle: hyperi-io/hyperi-licensing/internal-template
+    manifest:
+      project.license: LicenseRef-HyperI-Proprietary
+      package.license-file: LICENSE
+      workspace.package.license-file: LICENSE
+      .license: SEE LICENSE IN LICENSE
+  product:
+    licences: [BUSL-1.1]
+    bundle: hyperi-io/licensing
+    manifest:
+      project.license: LicenseRef-BUSL-1.1-HyperI
+      project.license-files: '["LICENSE", "COMMERCIAL.md", "AI-TRAINING-POLICY.md"]'
+      package.license-file: LICENSE
+      workspace.package.license-file: LICENSE
+      .license: SEE LICENSE IN LICENSE
+  general-oss:
+    licences: [Apache-2.0, MIT]
+  fork:
+    licences: [inherit]
+
+# HyperI's own licences, past and present. `licenses migrate` rewrites a
+# header only from one of these, so a file carrying another project's
+# licence (an Apache-2.0 chart copied from scalo-rs) is listed, never changed.
+own: [BUSL-1.1, LicenseRef-BUSL-1.1-HyperI, LicenseRef-HyperI-Proprietary, Proprietary, FSL-1.1-ALv2, FSL-1.1-Apache-2.0, FSL-1.1-MIT]

@@ -9,28 +9,60 @@
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
 
 from hyperi_ci import pytest_plugin, sizing
 
+_MEM = "test:\n  python:\n    worker_mem_mb: {}\n"
+
 
 @pytest.mark.parametrize(
-    ("yaml_text", "expected_mb"),
+    ("yaml_text", "env", "budget", "expected_mb", "expected"),
     [
-        pytest.param(None, 1024, id="shipped_default"),
-        pytest.param("test:\n  python:\n    worker_mem_mb: 4096\n", 4096, id="project"),
-        pytest.param("test:\n  python:\n    worker_mem_mb: 0\n", 1024, id="zero"),
-        pytest.param("test:\n  python:\n    worker_mem_mb: lots\n", 1024, id="junk"),
+        pytest.param(None, {}, 3, 1024, 3, id="shipped_default"),
+        pytest.param(_MEM.format(4096), {}, 3, 4096, 3, id="project"),
+        pytest.param(_MEM.format(0), {}, 3, 1024, 3, id="zero"),
+        pytest.param(_MEM.format("lots"), {}, 3, 1024, 3, id="junk"),
+        pytest.param(
+            _MEM.format(4096),
+            {"HYPERCI_TEST_PYTHON_WORKER_MEM_MB": "2048"},
+            3,
+            2048,
+            3,
+            id="env-memory-beats-file",
+        ),
+        pytest.param(None, {}, 40, 1024, 16, id="capped-at-16"),
+        pytest.param("a: [\n", {}, 3, 1024, 3, id="unparseable-file"),
+        pytest.param("- a\n- list\n", {}, 3, 1024, 3, id="list-shaped-file"),
+        pytest.param(None, {"HYPERCI_TEST_WORKERS": "5"}, 3, None, 5, id="forced"),
+        pytest.param(None, {"HYPERCI_TEST_WORKERS": "0"}, 3, None, 0, id="forced-0"),
+        pytest.param(
+            None, {"HYPERCI_TEST_WORKERS": "many"}, 3, 1024, 3, id="forced-junk"
+        ),
+        pytest.param(
+            "test:\n  python:\n    parallel: 6\n", {}, 3, None, 6, id="parallel-int"
+        ),
+        pytest.param(
+            "test:\n  python:\n    parallel: true\n", {}, 3, 1024, 3, id="parallel-true"
+        ),
     ],
 )
-def test_auto_workers_reads_the_project_memory_figure(
+def test_auto_workers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     yaml_text: str | None,
-    expected_mb: int,
+    env: dict[str, str],
+    budget: int,
+    expected_mb: int | None,
+    expected: int,
 ) -> None:
+    for name in ("HYPERCI_TEST_WORKERS", "HYPERCI_TEST_PYTHON_WORKER_MEM_MB"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     if yaml_text is not None:
         (tmp_path / ".hyperi-ci.yaml").write_text(
             yaml_text, encoding="utf-8", newline="\n"
@@ -39,11 +71,19 @@ def test_auto_workers_reads_the_project_memory_figure(
 
     def _budget(mb: int) -> sizing.WorkerBudget:
         seen.append(mb)
-        return sizing.WorkerBudget(3, 3, None, None, mb)
+        return sizing.WorkerBudget(budget, budget, None, None, mb)
 
     monkeypatch.setattr(pytest_plugin, "worker_budget", _budget)
-    assert pytest_plugin.auto_workers(tmp_path) == 3
-    assert seen == [expected_mb]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert pytest_plugin.auto_workers(tmp_path) == expected
+    assert seen == ([] if expected_mb is None else [expected_mb])
+
+
+def test_an_unreadable_file_warns(tmp_path: Path) -> None:
+    (tmp_path / ".hyperi-ci.yaml").write_text("a: [\n", encoding="utf-8")
+    with pytest.warns(UserWarning, match="cannot read"):
+        pytest_plugin.auto_workers(tmp_path)
 
 
 @pytest.mark.parametrize("xdist", ["-pxdist", "-pno:xdist"], ids=["with", "without"])
@@ -89,26 +129,34 @@ def pytest_xdist_auto_num_workers(config):
 
 
 @pytest.mark.parametrize(
-    ("xdist_last", "project_impl", "answer"),
+    ("xdist_last", "project_impl", "xdist_env", "answer"),
     [
         # None: the plugin's own count, read in the same process.
-        pytest.param(False, False, None, id="plugin-answers"),
-        pytest.param(True, False, None, id="plugin-answers-when-xdist-loads-last"),
+        pytest.param(False, False, "", None, id="plugin-answers"),
+        pytest.param(True, False, "", None, id="plugin-answers-when-xdist-loads-last"),
         # xdist is an entry point, so it always registers before any conftest.
-        pytest.param(False, True, "7", id="project-conftest-wins"),
+        pytest.param(False, True, "", "7", id="project-conftest-wins"),
+        pytest.param(False, False, "3", "3", id="xdist-env-wins"),
     ],
 )
 def test_the_plugin_answers_whatever_the_load_order(
-    tmp_path: Path, xdist_last: bool, project_impl: bool, answer: str | None
+    tmp_path: Path,
+    xdist_last: bool,
+    project_impl: bool,
+    xdist_env: str,
+    answer: str | None,
 ) -> None:
     conftest = _PROBE + (_PROJECT_IMPL if project_impl else "")
     (tmp_path / "conftest.py").write_text(conftest, encoding="utf-8", newline="\n")
     (tmp_path / "test_ok.py").write_text(
         "def test_ok():\n    assert True\n", encoding="utf-8", newline="\n"
     )
-    env = {k: v for k, v in os.environ.items() if k != "PROBE_XDIST_LAST"}
+    dropped = ("PROBE_XDIST_LAST", "PYTEST_XDIST_AUTO_NUM_WORKERS")
+    env = {k: v for k, v in os.environ.items() if k not in dropped}
     if xdist_last:
         env["PROBE_XDIST_LAST"] = "1"
+    if xdist_env:
+        env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = xdist_env
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-s", "-p", "no:cacheprovider"],
         cwd=tmp_path,

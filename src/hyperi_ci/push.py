@@ -35,6 +35,7 @@ from hyperi_ci.common import (
 from hyperi_ci.fork_version import check_fork, forced_version
 from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.release_branches import FLEET_PRERELEASE_BRANCHES
+from hyperi_ci.release_candidate import HOTFIX_TRAILER, candidate_version
 from hyperi_ci.version_source import seed_version
 from hyperi_ci.vocabulary import (
     TRAILER_KEY,
@@ -76,6 +77,7 @@ def push(
     dry_run: bool = False,
     force: bool = False,
     project_dir: Path | None = None,
+    hotfix: str | None = None,
 ) -> int:
     """Push with pre-checks and optional meta-operations.
 
@@ -83,6 +85,9 @@ def push(
         publish: Stamp the head commit with the ``Release: true`` trailer and
             push. The CI run predicts the next version, stamps it before
             build, then tags + publishes in the same run.
+        hotfix: The reason (a CVE or incident id) for a release that skips
+            the release candidate on a ``release.candidates`` repo. Adds a
+            ``Hotfix:`` trailer and implies ``publish``. From main only.
         no_ci: Amend last commit with ``[skip ci]`` and push.
         bump: ``"patch"`` or ``"minor"``. Adds a release-worthy marker commit
             on top of HEAD when the actual commits are no-bump (e.g. ``docs:``
@@ -109,13 +114,24 @@ def push(
         )
         return 1
 
+    if hotfix is not None:
+        hotfix = " ".join(hotfix.split())
+        if not hotfix:
+            error("--hotfix needs a reason: the CVE, advisory or incident id")
+            return 1
+        if no_ci:
+            error("--hotfix and --no-ci are mutually exclusive")
+            return 1
+
     cwd = str(project_dir) if project_dir else None
 
     if no_ci:
         return _skip_ci_push(dry_run=dry_run, cwd=cwd)
 
-    if publish or bump:
-        return _publish_push(dry_run=dry_run, force=force, bump=bump, cwd=cwd)
+    if publish or bump or hotfix:
+        return _publish_push(
+            dry_run=dry_run, force=force, bump=bump, cwd=cwd, hotfix=hotfix
+        )
 
     return _default_push(dry_run=dry_run, force=force, cwd=cwd)
 
@@ -146,6 +162,7 @@ def _publish_push(
     force: bool,
     bump: str | None,
     cwd: str | None,
+    hotfix: str | None = None,
 ) -> int:
     """Mark HEAD as a publish run, then push.
 
@@ -174,6 +191,10 @@ def _publish_push(
             f"{', '.join(FLEET_PRERELEASE_BRANCHES)}"
         )
         return 1
+    if hotfix and branch != "main":
+        error("--hotfix only works from main, where release candidates are cut")
+        return 1
+    hotfix_line = f"{HOTFIX_TRAILER}: {hotfix}" if hotfix else ""
 
     if rc := _check_dirty_tree(cwd=cwd):
         return rc
@@ -216,6 +237,7 @@ def _publish_push(
             f"the operator's explicit decision to publish anyway.\n"
             f"\n"
             f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}\n"
+            + (f"{hotfix_line}\n" if hotfix_line else "")
         )
         if dry_run:
             info(
@@ -238,16 +260,18 @@ def _publish_push(
             error("Could not read HEAD commit message")
             return 1
 
-        if _has_publish_trailer(head_msg):
-            info("HEAD already carries the release trailer -- pushing as-is")
+        trailers = []
+        if not _has_publish_trailer(head_msg):
+            trailers.append(f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}")
+        if hotfix_line and hotfix_line not in head_msg:
+            trailers.append(hotfix_line)
+        if not trailers:
+            info("HEAD already carries the release trailers -- pushing as-is")
         else:
             if dry_run:
-                info(
-                    "Dry run: would amend HEAD to add 'Release: true' trailer, "
-                    "then push"
-                )
+                info(f"Dry run: would amend HEAD to add {trailers}, then push")
                 return 0
-            rc = _amend_publish_trailer(cwd=cwd)
+            rc = _amend_trailers(trailers, cwd=cwd)
             if rc != 0:
                 return rc
 
@@ -282,16 +306,20 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
 
     ``bump`` is ``patch`` / ``minor`` (``last-tag + bump``) or an explicit
     ``X.Y.Z`` (the ``hyperi-ci publish --version`` override, used verbatim to
-    skip a taken or orphaned tag, as in issue #37).
+    skip a taken or orphaned tag, as in issue #37). An ``X.Y.Z-rc.N`` the plan
+    resolved for a release candidate is used verbatim too.
 
     Creates the tag at HEAD through the API and writes ``version=`` + ``tag=`` to
     ``$GITHUB_OUTPUT`` for the publish step. Used by the from-head dispatch path
     when ``bump != auto`` (``auto`` lets semantic-release pick). Idempotent: an
     existing tag at HEAD is reused.
     """
-    explicit = explicit_version(bump)
+    explicit = explicit_version(bump) or candidate_version(bump)
     if explicit is None and bump not in ("patch", "minor"):
-        error(f"tag-head: invalid bump '{bump}' (expected patch, minor, or X.Y.Z)")
+        error(
+            f"tag-head: invalid bump '{bump}' "
+            "(expected patch, minor, X.Y.Z or X.Y.Z-rc.N)"
+        )
         return 1
 
     next_version = explicit or _compute_next_version(bump=bump, cwd=cwd)
@@ -494,28 +522,21 @@ def _has_publish_trailer(message: str) -> bool:
     return has_release_trailer(message)
 
 
-def _amend_publish_trailer(*, cwd: str | None) -> int:
-    """Amend HEAD to add the Release: true trailer (no message change)."""
+def _amend_trailers(trailers: list[str], *, cwd: str | None) -> int:
+    """Amend HEAD to add ``trailers`` (no message change)."""
     # --allow-empty: git refuses to amend an already-empty HEAD (an empty
     # `chore: trigger` marker) without it.
+    args = [arg for trailer in trailers for arg in ("--trailer", trailer)]
     try:
         run_cmd(
-            [
-                "git",
-                "commit",
-                "--amend",
-                "--no-edit",
-                "--allow-empty",
-                "--trailer",
-                f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}",
-            ],
+            ["git", "commit", "--amend", "--no-edit", "--allow-empty", *args],
             cwd=cwd,
             capture=True,
         )
     except subprocess.CalledProcessError as exc:
-        error(f"Failed to amend HEAD with Release: true trailer: {exc}")
+        error(f"Failed to amend HEAD with {trailers}: {exc}")
         return 1
-    info(f"Amended HEAD with `{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}` trailer")
+    info(f"Amended HEAD with {', '.join(trailers)}")
     return 0
 
 
@@ -746,8 +767,12 @@ def _has_upstream(*, cwd: str | None) -> bool:
 
 
 def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
-    """Run ``git pull --rebase`` (optionally against ``origin <branch>``)."""
-    rebase_cmd = ["git", "pull", "--rebase"]
+    """Run ``git pull --rebase=merges`` (optionally against ``origin <branch>``).
+
+    A plain rebase flattens a local merge from main, replaying every commit it
+    brought in onto the branch's upstream as a new copy.
+    """
+    rebase_cmd = ["git", "pull", "--rebase=merges"]
     if branch:
         rebase_cmd.extend(["origin", branch])
 

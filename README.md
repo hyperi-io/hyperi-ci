@@ -188,8 +188,9 @@ Computer says no.
     spike  — experimental, throwaway investigation
 ```
 
-**Types that bump the version:** `feat:` (minor), `fix:` (patch), `perf:`,
-`hotfix:`, `security:` / `sec:` (all patch).
+**Types that bump the version:** `feat:` (minor), `fix:` and `perf:` (patch).
+`hotfix:`, `security:` and `sec:` are accepted but release nothing on their
+own, so a security patch is `fix(security):`.
 
 **Types that don't:** `docs`, `test`, `refactor`, `chore`, `ci`, `build`,
 `deps`, `style`, `revert`, `wip`, `cleanup`, `data`, `debt`, `design`,

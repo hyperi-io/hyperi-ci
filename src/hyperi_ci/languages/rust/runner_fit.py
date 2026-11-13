@@ -22,10 +22,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from hyperi_ci.common import append_step_summary, info, warn
+from hyperi_ci.common import append_step_summary, info, is_linux, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.cpu import cpu_budget, cpu_model
 from hyperi_ci.memory import GIB, MemoryLimit, memory_limit
+from hyperi_ci.swap import MODE_ENV, swap_total_bytes
 
 SCHEMA = 1
 RECORD_FILE = "runner-fit.json"
@@ -166,6 +167,28 @@ def _positive(value: object) -> float | None:
     return float(value) if _number(value) and value > 0 else None
 
 
+def planned_gib_per_job(
+    configured: float | None, config: CIConfig, environ: Mapping[str, str]
+) -> float | None:
+    """Return the per-job memory plan, raised to the free-mode floor on a free runner.
+
+    Args:
+        configured: ``build.rust.memory_per_job_gib``, or None when unusable.
+        config: Merged CI configuration.
+        environ: The environment, read for the runner mode.
+
+    Returns:
+        The larger of the two in free mode, else ``configured``.
+
+    """
+    if environ.get(MODE_ENV) != "free":
+        return configured
+    floor = _positive(config.setting("build.rust.free_memory_per_job_gib"))
+    if floor is None:
+        return configured
+    return max(configured or 0.0, floor)
+
+
 def _profile(raw: object) -> RunnerProfile | None:
     if not isinstance(raw, Mapping):
         return None
@@ -225,8 +248,13 @@ def verdict(
     limit_gib: float | None,
     memory_per_job_gib: float | None,
     settings: FitSettings | None,
+    jobs: int | None = None,
 ) -> Verdict:
     """Judge whether the runner fit the build and which profile would.
+
+    The recommendation keeps the build's parallelism: the cheapest profile
+    with a CPU for each cargo job it ran, and the memory for that many jobs,
+    never fewer than ``min_jobs``.
 
     Args:
         arch: ``amd64`` or ``arm64``.
@@ -236,6 +264,7 @@ def verdict(
         limit_gib: The memory limit the build ran under, or None.
         memory_per_job_gib: The configured per-job plan, or None.
         settings: The tunables, or None when the block was malformed.
+        jobs: The cargo jobs the build ran, or None when unknown.
 
     Returns:
         The verdict. ``unknown`` names what is missing and still carries a
@@ -267,12 +296,15 @@ def verdict(
     if per_job_peak_gib is None:
         return Verdict(status, f"{reason}, no per-job peak", headroom=headroom)
 
-    needed = per_job_peak_gib * settings.min_jobs
+    wanted_jobs = max(settings.min_jobs, jobs or 0)
+    needed = per_job_peak_gib * wanted_jobs
     chosen = next(
         (
             p
             for p in settings.profiles
-            if p.arch == arch and p.memory_gib * (1 - settings.min_headroom) >= needed
+            if p.arch == arch
+            and p.cpus >= wanted_jobs
+            and p.memory_gib * (1 - settings.min_headroom) >= needed
         ),
         None,
     )
@@ -292,8 +324,8 @@ def verdict(
             headroom=headroom,
             needed_gib=needed,
             move_reason=(
-                f"no {arch} profile holds {needed:.1f} GiB "
-                f"at {settings.min_headroom:.0%} headroom"
+                f"no {arch} profile has {wanted_jobs} CPUs and holds "
+                f"{needed:.1f} GiB at {settings.min_headroom:.0%} headroom"
             ),
             notes=tuple(notes),
         )
@@ -301,8 +333,8 @@ def verdict(
     move_reason = ""
     if move:
         move_reason = (
-            f"per-job peak {per_job_peak_gib:.1f} GiB x {settings.min_jobs} jobs "
-            f"fits {chosen.label} ({chosen.memory_gib:g} GiB), "
+            f"per-job peak {per_job_peak_gib:.1f} GiB x {wanted_jobs} jobs "
+            f"fits {chosen.label} ({chosen.cpus} CPUs, {chosen.memory_gib:g} GiB), "
             f"{_against(runner_label, chosen, settings)}"
         )
     return Verdict(
@@ -342,6 +374,7 @@ def build_record(
     cpus: int,
     cpu_name: str | None,
     machine: str,
+    swap_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Return the ``runner-fit.json`` content for a finished build.
 
@@ -356,6 +389,7 @@ def build_record(
         cpus: The CPU budget.
         cpu_name: The CPU model, or None.
         machine: ``platform.machine()``.
+        swap_bytes: Active swap at the end of the build, or None when unread.
 
     Returns:
         A JSON-ready mapping with ``schema`` 1.
@@ -367,7 +401,9 @@ def build_record(
     peaks = [p.peak_bytes for p in phases if p.peak_bytes is not None]
     max_peak = _gib(max(peaks)) if peaks else None
     per_job = max_peak / jobs if max_peak is not None and jobs else None
-    planned = _positive(config.setting("build.rust.memory_per_job_gib"))
+    planned = planned_gib_per_job(
+        _positive(config.setting("build.rust.memory_per_job_gib")), config, environ
+    )
     judged = verdict(
         arch=arch,
         runner_label=label,
@@ -376,6 +412,7 @@ def build_record(
         limit_gib=limit.gib if limit is not None else None,
         memory_per_job_gib=planned,
         settings=parse_settings(config.setting("build.rust.runner_fit")),
+        jobs=jobs,
     )
     return {
         "schema": SCHEMA,
@@ -388,6 +425,7 @@ def build_record(
         "cpu_budget": cpus,
         "memory_limit_gib": _rounded(limit.gib if limit else None, 2),
         "memory_limit_source": limit.source if limit else None,
+        "swap_gib": _rounded(_gib(swap_bytes), 2),
         "cargo_jobs": jobs,
         "memory_per_job_gib": planned,
         "optimization": optimization,
@@ -477,6 +515,7 @@ def finish(
             cpus=cpus if cpus is not None else cpu_budget(),
             cpu_name=cpu_model(),
             machine=platform.machine(),
+            swap_bytes=swap_total_bytes() if is_linux() else None,
         )
         target = (root or Path.cwd()) / RECORD_FILE
         target.write_text(

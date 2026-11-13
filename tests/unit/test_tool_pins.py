@@ -108,6 +108,8 @@ class _Cargo:
 
     def run(self, cmd: list[str], **kw: Any) -> subprocess.CompletedProcess:
         if cmd[:3] == ["cargo", "hack", "--version"]:
+            if self.installed is None:
+                return _done(cmd, rc=101)
             return _done(cmd, out=f"cargo-hack {self.installed}\n")
         if cmd[:2] == ["cargo", "install"]:
             self.installs.append(list(cmd))
@@ -156,6 +158,25 @@ class TestCargoHackRunsItsPin:
         cargo = _Cargo(installed=tool_version("cargo-hack"))
         assert self._matrix(monkeypatch, cargo) is True
         assert cargo.installs == []
+
+    def test_the_pin_in_cargo_home_but_off_path_is_left_alone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Cargo finds subcommands in $CARGO_HOME/bin even when PATH lacks it.
+        cargo = _Cargo(installed=tool_version("cargo-hack"))
+        monkeypatch.setattr(cargo, "which", _on_path("cargo"))
+        assert self._matrix(monkeypatch, cargo) is True
+        assert cargo.installs == []
+
+    def test_an_install_cargo_still_cannot_run_fails_the_matrix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        cargo = _Cargo(installed=None)
+        monkeypatch.setattr(rust_quality, "error", said.append)
+        monkeypatch.setattr(cargo, "run", _shadowed(cargo.run))
+        assert self._matrix(monkeypatch, cargo) is False
+        assert any("check nothing" in e for e in said), said
 
     def test_a_failed_install_fails_the_matrix(
         self, monkeypatch: pytest.MonkeyPatch

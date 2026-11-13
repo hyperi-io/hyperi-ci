@@ -24,6 +24,7 @@ import binascii
 import os
 import random
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -39,6 +40,7 @@ from hyperi_ci.release_branches import (
 )
 from hyperi_ci.release_notify import refusal_advice
 from hyperi_ci.stamp import (
+    CHANGELOG_ENTRY_HEADING,
     CHANGELOG_FILE,
     SUPPLEMENT_FILE,
     VERSION_FILE,
@@ -253,7 +255,8 @@ def _supplement_entry(
     A null sha removes a path in the tree API. The rendered changelog must name
     the version, because a forced bump skips semantic-release and prints the
     supplement into nothing. The branch must still carry the file, because the
-    API rejects deleting a path the base tree lacks.
+    API rejects deleting a path the base tree lacks, and carry it unchanged,
+    because a supplement edited since this checkout is the next release's.
     """
     if not (root / SUPPLEMENT).is_file():
         return []
@@ -266,10 +269,100 @@ def _supplement_entry(
     if version not in rendered:
         info(f"release-commit: no v{version} entry in {CHANGELOG} -- {SUPPLEMENT} kept")
         return []
-    if _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"]) is None:
+    remote = _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"])
+    if remote is None:
         info(f"release-commit: {SUPPLEMENT} is not on {branch} -- leaving it alone")
         return []
+    if remote.get("sha") != _local_blob(root, SUPPLEMENT):
+        warn(
+            f"release-commit: {SUPPLEMENT} changed on {branch} since this checkout "
+            "-- keeping it for the next release"
+        )
+        return []
     return [{"path": SUPPLEMENT, "mode": "100644", "type": "blob", "sha": None}]
+
+
+def _previous_release(root: Path, version: str) -> str | None:
+    """Return the highest final-release tag below ``version``, or None."""
+    result = run_cmd(
+        ["git", "tag", "--list", "v[0-9]*"], capture=True, check=False, cwd=root
+    )
+    ours = Version(version)
+    older: list[Version] = []
+    for line in (result.stdout or "").splitlines():
+        try:
+            tagged = Version(line.strip().removeprefix("v"))
+        except InvalidVersion:
+            continue
+        if not tagged.is_prerelease and tagged < ours:
+            older.append(tagged)
+    return f"v{max(older)}" if older else None
+
+
+def _promote_entry(repo: str, root: Path, version: str) -> str | None:
+    """Return the CHANGELOG section for a tag-dispatched ``version``, from GitHub.
+
+    The notes start at the previous final release, so a promoted candidate's
+    entry covers every change since the last GA.
+    """
+    previous = _previous_release(root, version)
+    body = {"tag_name": f"v{version}"}
+    if previous:
+        body["previous_tag_name"] = previous
+    notes = _api(["-X", "POST", f"repos/{repo}/releases/generate-notes"], body=body)
+    text = str((notes or {}).get("body") or "").strip()
+    if not text:
+        return None
+    lines = [
+        f"#{line}" if line.startswith("## ") else line
+        for line in text.splitlines()
+        if not line.startswith("**Full Changelog**")
+    ]
+    target = (
+        f"compare/{previous}...v{version}" if previous else f"releases/tag/v{version}"
+    )
+    today = datetime.now(UTC).date().isoformat()
+    heading = f"## [{version}](https://github.com/{repo}/{target}) ({today})"
+    return f"{heading}\n\n" + "\n".join(lines).strip() + "\n"
+
+
+def _changelog_with_entry(
+    *, repo: str, root: Path, tip: str, version: str, entry: str
+) -> bool:
+    """Write the branch's CHANGELOG.md with ``entry`` on top, when it lacks one.
+
+    The checkout of a tag dispatch is the tagged commit, so its own copy would
+    lose every entry the branch gained since.
+
+    Returns:
+        True when ``CHANGELOG.md`` in ``root`` now holds the copy to commit.
+    """
+    remote = _api([f"repos/{repo}/contents/{CHANGELOG}?ref={tip}"])
+    encoded = (remote or {}).get("content")
+    if not encoded:
+        info(f"release-commit: the branch has no {CHANGELOG} -- leaving it out")
+        return False
+    text = base64.b64decode(encoded).decode("utf-8", errors="replace")
+    lines = text.splitlines(keepends=True)
+    updated = text.rstrip("\n") + "\n\n" + entry if text.strip() else entry
+    for index, line in enumerate(lines):
+        match = CHANGELOG_ENTRY_HEADING.match(line)
+        if match is None:
+            continue
+        try:
+            listed = Version(match.group(1))
+        except InvalidVersion:
+            continue
+        if listed >= Version(version):
+            info(
+                f"release-commit: {CHANGELOG} on the branch already lists "
+                f"v{listed} -- adding no v{version} entry"
+            )
+            return False
+        updated = "".join(lines[:index]) + entry + "\n" + "".join(lines[index:])
+        break
+    (root / CHANGELOG).write_text(updated, encoding="utf-8", newline="\n")
+    return True
 
 
 def commit_release_artefacts(
@@ -278,6 +371,7 @@ def commit_release_artefacts(
     branch: str = "main",
     project_dir: Path | None = None,
     dry_run: bool = False,
+    from_tag: bool = False,
 ) -> int:
     """Commit the rendered release artefacts onto ``branch``, untagged.
 
@@ -288,12 +382,18 @@ def commit_release_artefacts(
     declare ``prerelease``, so a beta release cannot put its VERSION and
     CHANGELOG entry onto ``main`` (issue #417).
 
+    A tag dispatch, such as a promoted candidate, checks out the tagged commit.
+    Its VERSION is written from ``version``, and its CHANGELOG entry is built
+    from GitHub's release notes on top of the branch's own copy. A prerelease
+    tag commits nothing.
+
     Args:
         version: Version just released, used in the commit subject.
         branch: Branch to update. Defaults to ``main``. The release workflow
             passes the branch it released from.
         project_dir: Project root. Defaults to cwd.
         dry_run: Report what would be committed, change nothing.
+        from_tag: The release is a dispatch of an existing tag.
 
     Returns:
         0 when the branch ends up carrying the artefacts (committed, or
@@ -305,6 +405,10 @@ def commit_release_artefacts(
     if not version:
         error("release-commit: empty version")
         return 1
+
+    if from_tag and is_prerelease_version(version):
+        info(f"release-commit: v{version} is a prerelease tag -- committing nothing")
+        return 0
 
     if is_prerelease_version(version) and branch not in FLEET_PRERELEASE_BRANCHES:
         error(
@@ -322,10 +426,21 @@ def commit_release_artefacts(
     if not _restore_prepared(root, version):
         return 1
 
-    fixed = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]
+    entry = None
+    if from_tag:
+        fixed = []
+        if release_prepare.tracked(root, VERSION):
+            (root / VERSION).write_text(f"{version}\n", encoding="utf-8", newline="\n")
+            fixed = [VERSION]
+        consumed = []
+        entry = _promote_entry(repo, root, version)
+        if entry is None:
+            warn(f"release-commit: no release notes for v{version} -- {CHANGELOG} kept")
+    else:
+        fixed = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]
+        consumed = [SUPPLEMENT] if (root / SUPPLEMENT).is_file() else []
     stamped = _stamped_artefacts(root)
-    present = fixed + stamped
-    consumed = [SUPPLEMENT] if (root / SUPPLEMENT).is_file() else []
+    present = fixed + stamped + ([CHANGELOG] if entry else [])
     if not present and not consumed:
         info("release-commit: no release artefacts on disk -- nothing to commit")
         return 0
@@ -345,6 +460,8 @@ def commit_release_artefacts(
             branch=branch,
             fixed=fixed,
             stamped=stamped,
+            entry=entry,
+            from_tag=from_tag,
         )
         if outcome != "retry":
             return 0 if outcome == "ok" else 1
@@ -376,6 +493,8 @@ def _attempt(
     branch: str,
     fixed: list[str],
     stamped: list[str],
+    entry: str | None = None,
+    from_tag: bool = False,
 ) -> str:
     """One create-tree/commit/update-ref cycle. Returns ok, retry or fail."""
     ref = _api([f"repos/{repo}/git/ref/heads/{branch}"])
@@ -394,10 +513,18 @@ def _attempt(
         return "fail"
 
     fresh = _unchanged_on_tip(repo=repo, root=root, tip=tip, names=stamped)
-    entries = _blob_entries(repo, root, fixed + fresh)
+    names = fixed + fresh
+    if entry and _changelog_with_entry(
+        repo=repo, root=root, tip=tip, version=version, entry=entry
+    ):
+        names.append(CHANGELOG)
+    entries = _blob_entries(repo, root, names)
     if entries is None:
         return "fail"
-    entries += _supplement_entry(repo=repo, root=root, branch=branch, version=version)
+    if not from_tag:
+        entries += _supplement_entry(
+            repo=repo, root=root, branch=branch, version=version
+        )
     if not entries:
         info("release-commit: nothing to write")
         return "ok"

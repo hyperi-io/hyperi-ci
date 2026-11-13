@@ -757,6 +757,26 @@ class TestDepGroupLoading:
             (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
         assert native_deps.group_matches("rust", "llvm-clang", tmp_path) is expected
 
+    @pytest.mark.parametrize(
+        ("lock", "expected"),
+        [
+            ('[[package]]\nname = "odbc-sys"\nversion = "0.29.0"\n', True),
+            ('[[package]]\nname = "libsqlite3-sys"\nversion = "0.35.0"\n', False),
+            (None, False),
+        ],
+    )
+    def test_unixodbc_follows_odbc_sys_in_the_lock(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        lock: str | None,
+        expected: bool,
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        if lock is not None:
+            (tmp_path / "Cargo.lock").write_text(lock)
+        assert native_deps.group_matches("rust", "unixodbc", tmp_path) is expected
+
     def test_group_matches_refuses_an_unknown_group(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

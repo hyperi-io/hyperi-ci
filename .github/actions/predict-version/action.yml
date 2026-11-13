@@ -48,6 +48,10 @@ inputs:
     description: "'true' to run build + container on pull_request events (branch-mode: PRs validate the full pipeline; whether the container also pushes a dev image is the separate publish.container.dev_push opt-in in .hyperi-ci.yaml)"
     required: false
     default: ""
+  runner-mode:
+    description: "The caller's runner-mode input or GH_RUNNER_MODE, empty when neither is set. Empty resolves from repo visibility: public free, private self-hosted."
+    required: false
+    default: ""
   python-version:
     description: "Fallback Python version. The project's own declaration wins over it -- a pegged .python-version, else the requires-python floor."
     required: false
@@ -68,7 +72,10 @@ outputs:
     value: ${{ steps.gate.outputs.will-publish }}
   version:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
-    value: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+    value: ${{ steps.rc.outputs.version || steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+  candidate:
+    description: "'true' iff this run releases a candidate (X.Y.Z-rc.N) because the repo sets release.candidates, so the release tail tags HEAD with tag-head and skips semantic-release; else 'false'"
+    value: ${{ steps.rc.outputs.candidate == 'true' && 'true' || 'false' }}
   fork:
     description: "'true' iff this run versions a fork from its first-parent commits, so the release tail tags HEAD with tag-head instead of running semantic-release; else 'false'"
     value: ${{ steps.firstparent.outputs.first-parent == 'true' && 'true' || 'false' }}
@@ -96,6 +103,9 @@ outputs:
   rust-targets:
     description: "build.rust.targets from the project config, space-separated. Empty means every target, and is what a project without Cargo.toml gets"
     value: ${{ steps.targets.outputs.rust-targets }}
+  runner-mode:
+    description: "free or self-hosted -- the mode every later job of the run routes by"
+    value: ${{ steps.mode.outputs.runner-mode }}
 
 runs:
   using: composite
@@ -105,20 +115,20 @@ runs:
       # A failed download must not fail Plan. The next step finds no uv and
       # falls back to python3, loudly.
       continue-on-error: true
-      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         enable-cache: false
     - name: Install uv (config readers) (retry 1)
       id: uv_try2
       if: ${{ steps.uv_try1.outcome == 'failure' }}
       continue-on-error: true
-      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         enable-cache: false
     - name: Install uv (config readers) (retry 2)
       if: ${{ steps.uv_try2.outcome == 'failure' }}
       continue-on-error: true
-      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         enable-cache: false
 
@@ -184,7 +194,17 @@ runs:
         FROM_HEAD: ${{ inputs.from-head }}
         BUMP: ${{ inputs.bump }}
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
       run: |
+        # Every publish passes the declared-classification check first. A
+        # refusal fails Plan, so no tag, container or registry upload follows.
+        publish() {
+          # The value is a command and its arguments, so it is split on purpose.
+          # shellcheck disable=SC2086
+          $CONFIG_PYTHON "$GITHUB_ACTION_PATH/classification_gate.py" || exit 1
+          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+        }
+
         # A schedule runs on main's HEAD, so the trailer check below would
         # publish any HEAD still carrying `Release: true`. A scheduled run
         # tests; releasing stays a push or a dispatch.
@@ -208,7 +228,9 @@ runs:
           # registry.
           if [[ -z "$DISPATCH_TAG" && "$FROM_HEAD" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Bare workflow_dispatch -- validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
+            # A notice: a validate-only dispatch is deliberate, and alert sweeps
+            # count warnings.
+            echo "::notice::Bare workflow_dispatch -- validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
             exit 0
           fi
 
@@ -230,7 +252,7 @@ runs:
               exit 0
             fi
           fi
-          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          publish
           echo "::notice::Triggered by workflow_dispatch -- publish run"
           exit 0
         fi
@@ -260,7 +282,7 @@ runs:
         # same set in Python; this runs where hyperi-ci is not installed.
         msg=$(git log -1 --format=%B HEAD)
         if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
-          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          publish
           echo "::notice::Release trailer detected -- this run tags and publishes"
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
@@ -367,7 +389,12 @@ runs:
         # A prerelease keeps semantic-release's own answer: the seed names a
         # stable starting version, and stamping it over `1.0.0-beta.1` would
         # cut the first stable release off a prerelease branch.
-        if [[ -z "$tags_all" && "$version" != *-* ]]; then
+        #
+        # "No release" means no stable tag: semantic-release ignores prerelease
+        # tags on main, so a repo with only X.Y.Z-rc.N tags still starts from
+        # the seed. The release tail tests the same thing.
+        tags_stable=$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags_all" || true)
+        if [[ -z "$tags_stable" && "$version" != *-* ]]; then
           start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
           if [[ -n "$start" && "$start" != "$version" ]]; then
             echo "::notice::First release on a tag-less repo -- starting at $start (semantic-release default was $version)"
@@ -456,6 +483,19 @@ runs:
         RELEASE_TAG: ${{ inputs.tag }}
       run: python3 "$GITHUB_ACTION_PATH/tag_version.py"
 
+    - name: Resolve a release candidate
+      # A repo with release.candidates on ships every release from main as
+      # X.Y.Z-rc.N, and the release tail tags it from the plan, never through
+      # semantic-release. A tag dispatch keeps the tag's own version, which is
+      # how `hyperi-ci promote` ships the GA.
+      id: rc
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.ref == 'refs/heads/main' && inputs.tag == '' }}
+      shell: bash
+      env:
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rc_version.py"
+
     - name: Detect a release-worthy push, and what it changed
       # Checks run on PRs and RELEASE-WORTHY pushes. The release trailer marks only
       # pushes that PUBLISH, a smaller set, so a squash merge of a fix: to main
@@ -492,7 +532,7 @@ runs:
         RELEASE_WORTHY: ${{ steps.worthy.outputs.release-worthy }}
         CODE_CHANGED: ${{ steps.worthy.outputs.code-changed }}
         TOUCHED: ${{ steps.worthy.outputs.touched }}
-        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
+        PLANNED_VERSION: ${{ steps.rc.outputs.version || steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forkforced.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
       run: |
         set -euo pipefail
         will_publish="$WILL_PUBLISH"
@@ -600,3 +640,12 @@ runs:
       env:
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
       run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rust_targets.py"
+
+    - name: Resolve the runner mode
+      id: mode
+      shell: bash
+      env:
+        RUNNER_MODE: ${{ inputs.runner-mode }}
+        REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: python3 "$GITHUB_ACTION_PATH/runner_mode.py"

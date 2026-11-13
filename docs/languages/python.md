@@ -91,7 +91,7 @@ An explicit number always wins:
 
 hyperi-ci probes the resolved pytest for pytest-xdist (`pytest -VV`).
 
-With hyperi-ci as a dev dependency, a bare `pytest -n auto` gets this count too. Your own conftest hook still wins.
+With hyperi-ci as a dev dependency, a bare `pytest -n auto` gets this count too, `HYPERCI_TEST_WORKERS` and `parallel: <n>` included. Your own conftest hook, `PYTEST_XDIST_AUTO_NUM_WORKERS` and `-n logical` leave the count to xdist.
 
 When hyperi-ci supplies the `-n` it adds `--dist worksteal` too. xdist's default `load` mode queues a batch on each worker up front. One worker can sit on slow tests while the rest go idle. Worksteal moves queued tests from a busy worker to one that has run dry.
 

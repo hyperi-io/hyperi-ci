@@ -45,10 +45,12 @@ from typing import Annotated
 import typer
 
 from hyperi_ci import __version__
+from hyperi_ci.check_lock import check_lock
 from hyperi_ci.config import CIConfig, ConfigError, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
-from hyperi_ci.languages.tiering import SuiteTier
+from hyperi_ci.languages.tiering import TIER_EXPORT_ENV, SuiteTier
+from hyperi_ci.memory_scope import run_in_memory_scope
 from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV
 from hyperi_ci.version_source import build_version
 
@@ -160,7 +162,7 @@ _TIER_HELP = (
 def _apply_test_tier(tier: SuiteTier | None) -> None:
     """Hand ``--tier`` to the config cascade, above the env var it overwrites."""
     if tier is not None:
-        os.environ["HYPERCI_TEST_TIER"] = tier.value
+        os.environ[TIER_EXPORT_ENV] = tier.value
 
 
 @app.command()
@@ -248,10 +250,14 @@ def check(
     if full:
         stages.append("build")
 
-    for stage in stages:
-        rc = run_stage(stage, project_dir=dir_path, local=True)
-        if rc != 0:
-            raise typer.Exit(rc)
+    with check_lock():
+        scoped_rc = run_in_memory_scope()
+        if scoped_rc is not None:
+            raise typer.Exit(scoped_rc)
+        for stage in stages:
+            rc = run_stage(stage, project_dir=dir_path, local=True)
+            if rc != 0:
+                raise typer.Exit(rc)
 
     raise typer.Exit(0)
 
@@ -516,6 +522,18 @@ def push(
         bool,
         typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
     ] = False,
+    hotfix: Annotated[
+        str | None,
+        typer.Option(
+            "--hotfix",
+            help=(
+                "Release X.Y.Z straight away on a release.candidates repo, "
+                "with no release candidate. Takes the reason, a CVE, advisory "
+                "or incident id, and adds it as a `Hotfix:` trailer. Implies "
+                "--release. From main only."
+            ),
+        ),
+    ] = None,
     allow_feat: Annotated[
         bool,
         typer.Option(
@@ -600,6 +618,7 @@ def push(
         dry_run=dry_run,
         force=force,
         project_dir=dir_path,
+        hotfix=hotfix,
     )
     raise typer.Exit(rc)
 
@@ -627,6 +646,13 @@ def init(
             help="Create the repo's first v* tag when it has none",
         ),
     ] = True,
+    schedule_only: Annotated[
+        bool,
+        typer.Option(
+            "--schedule-only",
+            help="Add the nightly schedule to an existing ci.yml, write nothing else",
+        ),
+    ] = False,
 ) -> None:
     """Initialise a project for hyperi-ci (generates config, Makefile, workflow).
 
@@ -635,13 +661,23 @@ def init(
     skip). The version pipeline reads tags, so a tag-less repo has nothing
     to release from.
 
+    The ci.yml carries a nightly `schedule:` cron at a per-repo time inside
+    `test.full.schedule_window_utc`, which runs the full test tier.
+    `--schedule-only` adds that trigger to a ci.yml already in place.
+
     `--force` here overwrites existing files, unlike `push --force`, which
     skips pre-push checks.
     """
     from hyperi_ci.init import init_project
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
-    rc = init_project(dir_path, language=language, force=force, seed_tag=seed_tag)
+    rc = init_project(
+        dir_path,
+        language=language,
+        force=force,
+        seed_tag=seed_tag,
+        schedule_only=schedule_only,
+    )
     raise typer.Exit(rc)
 
 
@@ -1210,7 +1246,8 @@ def release_notify_cmd(
     is waiting in the morning; `--outcome commit-back-failed` records a release
     that shipped but could not push VERSION and CHANGELOG.md back to main. All
     are idempotent, and all always exit 0 -- a notification must never be the
-    thing that fails a release.
+    thing that fails a release. A success that is a hotfix on a
+    `release.candidates` repo is also reported to the alert bridge.
 
     Slack is off unless `notify.slack.webhook_env` names an env var holding a
     webhook URL.
@@ -1218,6 +1255,7 @@ def release_notify_cmd(
     from hyperi_ci.release_notify import (
         notify_commit_back_failed,
         notify_failure,
+        notify_hotfix,
         notify_slack,
         notify_success,
     )
@@ -1233,7 +1271,9 @@ def release_notify_cmd(
         rc = notify_commit_back_failed(version=version, run_url=run_url)
         notify_slack(cfg, text=f"Released v{bare}, but its commit-back to main FAILED")
     else:
-        rc = notify_success(version=version, cwd=str(dir_path) if dir_path else None)
+        cwd = str(dir_path) if dir_path else None
+        rc = notify_success(version=version, cwd=cwd)
+        notify_hotfix(cfg, version=version, cwd=cwd)
         notify_slack(cfg, text=f"Released v{bare}")
     raise typer.Exit(rc)
 
@@ -1278,6 +1318,15 @@ def release_commit_cmd(
         bool,
         typer.Option("--dry-run", help="Report what would be committed"),
     ] = False,
+    from_tag: Annotated[
+        bool,
+        typer.Option(
+            "--from-tag",
+            envvar="HYPERCI_RELEASE_FROM_TAG",
+            help="The release dispatched an existing tag: build the CHANGELOG "
+            "entry from GitHub's notes onto the branch's own copy",
+        ),
+    ] = False,
 ) -> None:
     """Commit the rendered VERSION + CHANGELOG.md back to the branch.
 
@@ -1292,7 +1341,11 @@ def release_commit_cmd(
     dir_path = Path(project_dir) if project_dir else None
     raise typer.Exit(
         commit_release_artefacts(
-            version=version, branch=branch, project_dir=dir_path, dry_run=dry_run
+            version=version,
+            branch=branch,
+            project_dir=dir_path,
+            dry_run=dry_run,
+            from_tag=from_tag,
         )
     )
 
@@ -1545,6 +1598,51 @@ def runner_report_cmd(
     raise typer.Exit(rc)
 
 
+static_libs_app = typer.Typer(help="Static librdkafka, OpenSSL, zstd and zlib")
+app.add_typer(static_libs_app, name="static-libs")
+
+
+@static_libs_app.command(name="build")
+def static_libs_build_cmd(
+    prefix: Annotated[
+        Path, typer.Option("--prefix", help="Install directory, which must not exist")
+    ],
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for the archive and its .sha256")
+    ],
+    work: Annotated[
+        Path | None,
+        typer.Option("--work", help="Scratch directory, a temporary one by default"),
+    ] = None,
+) -> None:
+    """Build the versions.yaml static_libs pins into one prefix and archive it."""
+    import tempfile
+
+    from hyperi_ci.static_libs import build, package
+
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-static-libs-") as scratch:
+        rc = build(prefix.resolve(), (work or Path(scratch)).resolve())
+    if rc != 0:
+        raise typer.Exit(rc)
+    package(prefix.resolve(), out.resolve())
+
+
+@static_libs_app.command(name="publish")
+def static_libs_publish_cmd(
+    out: Annotated[
+        Path, typer.Option("--dir", help="Directory holding every arch's build output")
+    ],
+    target: Annotated[str, typer.Option("--target", help="Commit to tag")],
+) -> None:
+    """Create the static-libs GitHub release, unless its tag already exists."""
+    from hyperi_ci.gh import require_gh
+    from hyperi_ci.static_libs import publish
+
+    if not require_gh():
+        raise typer.Exit(1)
+    raise typer.Exit(publish(out.resolve(), target=target))
+
+
 vendor_app = typer.Typer(help="Mirror files one way from another repo at a pinned ref")
 app.add_typer(vendor_app, name="vendor")
 
@@ -1575,6 +1673,205 @@ def vendor_check_cmd(
 
     root = Path(project_dir) if project_dir else Path.cwd()
     raise typer.Exit(run(load_config(project_dir=root), root))
+
+
+licenses_app = typer.Typer(help="Dependency licence policy")
+app.add_typer(licenses_app, name="licenses")
+
+
+@licenses_app.command(name="judge")
+def licenses_judge_cmd(
+    licence: Annotated[
+        str,
+        typer.Argument(help="SPDX id, expression or alias, as an override names it"),
+    ],
+    mode: Annotated[
+        str,
+        typer.Option("--mode", help="import, static, vendored or modified"),
+    ] = "import",
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the answer as JSON"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Print the verdict this repo's licence policy gives an override naming LICENCE."""
+    from hyperi_ci.quality.dep_licenses import (
+        Mode,
+        PolicyError,
+        judge_override,
+        load_settings,
+    )
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    if mode not in {m.value for m in Mode}:
+        typer.echo(f"--mode {mode!r}: use one of {', '.join(Mode)}", err=True)
+        raise typer.Exit(2)
+    try:
+        policy, _ = load_settings(load_config(project_dir=root))
+    except PolicyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    answer = judge_override(licence, Mode(mode), policy)
+    if as_json:
+        typer.echo(json.dumps(answer))
+        return
+    obligations = (
+        f" [{', '.join(answer['obligations'])}]" if answer["obligations"] else ""
+    )
+    typer.echo(
+        f"{answer['spdx'] or 'unknown'} {mode} -> {answer['verdict']}{obligations} "
+        f"(rule {answer['rule'] or 'none'})"
+    )
+
+
+@licenses_app.command(name="outbound")
+def licenses_outbound_cmd(
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the answer as JSON"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Print the licence this repo's declared classification ships under."""
+    from hyperi_ci import licenses
+    from hyperi_ci.classification import resolve_checkout
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    try:
+        resolution, _ = resolve_checkout(root)
+    except (ValueError, OSError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    entry = licenses.outbound(resolution.effective)
+    answer = {
+        "classification": resolution.value,
+        "effective": resolution.effective,
+        "source": resolution.source,
+        "licences": list(entry.get("licences", ())),
+        "bundle": entry.get("bundle"),
+        "manifest": dict(entry.get("manifest") or {}),
+    }
+    if as_json:
+        typer.echo(json.dumps(answer))
+        return
+    bundle = f", bundle {answer['bundle']}" if answer["bundle"] else ""
+    typer.echo(
+        f"{resolution.effective} ({resolution.source}): "
+        f"{', '.join(answer['licences']) or 'none configured'}{bundle}"
+    )
+
+
+@licenses_app.command(name="migrate")
+def licenses_migrate_cmd(
+    apply_changes: Annotated[
+        bool,
+        typer.Option("--apply", help="Write the changes. Without it, list them"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Bring this repo to the licence its declared classification ships under.
+
+    Syncs the bundle's licence files, sets License: and SPDX-License-Identifier
+    header lines under a HYPERI PTY LIMITED copyright, and the root manifest
+    licence fields. Copied-in directories are left alone. Lines still naming
+    the old licence are listed for a human.
+    """
+    from hyperi_ci import licence_migrate, licenses
+    from hyperi_ci.classification import resolve_checkout
+
+    root = (Path(project_dir) if project_dir else Path.cwd()).resolve()
+    try:
+        resolution, _ = resolve_checkout(root)
+        settings = load_config(project_dir=root).setting("quality.dep_licenses")
+        vendored = [
+            str(item.get("path", ""))
+            for item in (
+                settings.get("vendored") or [] if isinstance(settings, dict) else []
+            )
+            if isinstance(item, dict)
+        ]
+        migration = licence_migrate.plan(
+            root,
+            licence_migrate.tracked_files(root),
+            licenses.outbound(resolution.effective),
+            licenses.own_licences(),
+            vendored,
+        )
+    except (ValueError, OSError, licence_migrate.MigrateError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"{resolution.effective} ({resolution.source}) ships under {migration.licence}"
+    )
+    for change in migration.changes:
+        typer.echo(f"  {change.path}: {change.before} -> {change.after}")
+    if not migration.changes:
+        typer.echo("  nothing to change")
+    for leftover in migration.leftovers:
+        typer.echo(f"  still names the old licence, not changed: {leftover}")
+    if apply_changes:
+        licence_migrate.apply(root, migration)
+        typer.echo(f"wrote {len(migration.writes)} files")
+    elif migration.writes:
+        typer.echo("dry run: --apply writes these")
+
+
+@licenses_app.command(name="notices")
+def licenses_notices_cmd(
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Copy THIRD-PARTY-NOTICES here"),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Write THIRD-PARTY-NOTICES for the dependencies this repo ships.
+
+    A held licence never fails it, the gate does that. It fails only when the
+    language's licence tool did not run.
+    """
+    import contextlib
+    import shutil
+
+    from hyperi_ci.detect import detect_language
+    from hyperi_ci.languages.python import licenses as python_licences
+    from hyperi_ci.languages.rust import licenses as rust_licences
+    from hyperi_ci.languages.typescript import licenses as npm_licences
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    readers = {
+        "python": python_licences,
+        "rust": rust_licences,
+        "typescript": npm_licences,
+    }
+    root = (Path(project_dir) if project_dir else Path.cwd()).resolve()
+    language = detect_language(root)
+    reader = readers.get(language or "")
+    if reader is None:
+        typer.echo(f"no licence reader for {language or 'this project'}", err=True)
+        raise typer.Exit(2)
+    with contextlib.chdir(root):
+        notices = fresh_notices(reader.run_gate, load_config(project_dir=root))
+        written = notices.resolve() if notices else None
+    if written is None:
+        typer.echo("the licence tool did not run, so no notices", err=True)
+        raise typer.Exit(1)
+    if output is not None:
+        shutil.copyfile(written, output)
+        written = output
+    typer.echo(str(written))
 
 
 @app.command(name="seed-version")
@@ -2268,11 +2565,20 @@ def check_commit_cmd(
         bool,
         typer.Option("--list", help="List all accepted commit types"),
     ] = False,
+    list_register: Annotated[
+        bool,
+        typer.Option(
+            "--register-words",
+            help="Print the REGISTER word list as JSON: term, pattern, replacement",
+        ),
+    ] = False,
 ) -> None:
     """Validate a commit message against conventional commit rules.
 
-    Used by the .githooks/commit-msg hook. Reads a file or stdin.
+    Used by the .githooks/commit-msg hook. Reads a file or stdin. A REGISTER
+    word in the subject is a warning on stderr, never a failure.
     """
+    from hyperi_ci.quality import register_words
     from hyperi_ci.quality.commit_validation import (
         format_rejection,
         format_type_list,
@@ -2282,9 +2588,21 @@ def check_commit_cmd(
     if list_types:
         typer.echo(format_type_list())
         raise typer.Exit(0)
+    if list_register:
+        typer.echo(json.dumps(register_words.words(), indent=2))
+        raise typer.Exit(0)
 
     if message_file:
-        msg = Path(message_file).read_text(encoding="utf-8", errors="replace").strip()
+        try:
+            msg = Path(message_file).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            typer.echo(
+                f"Cannot read the commit message file {message_file!r} ({exc}). "
+                "Pass a file, or pipe the message on stdin.",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
+        msg = msg.strip()
     elif not sys.stdin.isatty():
         msg = sys.stdin.read().strip()
     else:
@@ -2293,6 +2611,8 @@ def check_commit_cmd(
         )
         raise typer.Exit(1)
 
+    for finding in register_words.describe(msg.split("\n")[0]):
+        typer.echo(f"warning: {finding}", err=True)
     result = validate_message(msg)
     if result.valid:
         raise typer.Exit(0)
@@ -2506,6 +2826,29 @@ def publish(
     _release_impl(
         tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
     )
+
+
+@app.command()
+def promote(
+    tag: Annotated[
+        str,
+        typer.Argument(help="The release candidate to ship, e.g. v2.2.3-rc.2"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show the tag and dispatch only"),
+    ] = False,
+) -> None:
+    """Ship a release candidate as its GA version.
+
+    Tags the candidate's commit ``vX.Y.Z`` and dispatches that tag's release.
+    The run rebuilds the commit as a GA, with PGO and BOLT where the project
+    builds them, and marks the GitHub Release latest unless a newer GA holds
+    it. For a repo that sets ``release.candidates``.
+    """
+    from hyperi_ci.release.dispatch import promote as promote_candidate
+
+    raise typer.Exit(promote_candidate(tag, dry_run=dry_run))
 
 
 @app.command(name="tag-head", hidden=True)

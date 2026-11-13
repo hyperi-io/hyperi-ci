@@ -12,14 +12,19 @@ from hyperi_ci import licenses
 
 
 def test_default_allowed_is_the_three() -> None:
-    assert licenses.allowed_licenses() == {"BUSL-1.1", "Apache-2.0", "MIT"}
+    assert licenses.allowed_licenses() == {
+        "LicenseRef-HyperI-Proprietary",
+        "BUSL-1.1",
+        "Apache-2.0",
+        "MIT",
+    }
 
 
 def test_extra_extends_allowed_and_keeps_defaults() -> None:
     allowed = licenses.allowed_licenses(["MPL-2.0", " GPL-3.0 "])
     assert "MPL-2.0" in allowed
     assert "GPL-3.0" in allowed  # whitespace stripped
-    assert {"BUSL-1.1", "Apache-2.0", "MIT"} <= allowed
+    assert {"LicenseRef-HyperI-Proprietary", "BUSL-1.1", "Apache-2.0", "MIT"} <= allowed
 
 
 def test_is_allowed_defaults_and_override() -> None:
@@ -39,4 +44,9 @@ def test_is_recognised_covers_common_and_rejects_junk() -> None:
 
 def test_allowed_ignores_non_string_extra() -> None:
     junk: Any = [None, 5, "MIT"]
-    assert licenses.allowed_licenses(junk) == {"BUSL-1.1", "Apache-2.0", "MIT"}
+    assert licenses.allowed_licenses(junk) == {
+        "LicenseRef-HyperI-Proprietary",
+        "BUSL-1.1",
+        "Apache-2.0",
+        "MIT",
+    }

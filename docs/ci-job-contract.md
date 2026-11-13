@@ -41,6 +41,7 @@ On a `pull_request` the line a squash merge would land is validated too, and a b
 - A `feat:` title is confirmed only by an `Allow-Feat: true` trailer in a branch commit. The squash body is built from the commit messages, and the PR description never lands.
 - The job token cannot read the repo's merge settings, so the squash-subject assumption is not checked per repo.
 - The PR is read live from the API, because the event payload is frozen at trigger time and a re-run replays it. With no token or no API answer it uses the payload's PR and warns.
+- A REGISTER word (`src/hyperi_ci/config/register-words.yaml`) in a commit subject or the PR title is a warning on every event, never a failure. The commit-msg hook warns on it too. `hyperi-ci check-commit --register-words` prints the list as JSON. hyperi-ai imports it through `hyperi_ci.quality.register_words.words()` at an exact hyperi-ci pin, so a changed word reaches hyperi-ai after a release and a pin bump.
 
 ## Gate outputs (computed in `plan`)
 

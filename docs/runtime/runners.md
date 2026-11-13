@@ -1,30 +1,37 @@
 # Runners and the build environment
 
-CI runs on self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster), Namespace cloud runners (namespace.so) or GitHub-hosted runners. What the runner image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
+CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Controller on the DevEx RKE2 cluster). What the ARC image holds and how apt dependencies reach it is [runner-image.md](runner-image.md). Rebuilding it and redeploying the scale sets is [arc-operations.md](arc-operations.md).
 
 ## Runner policy
 
-- x64 jobs under 32 CPUs run on ARC, the cheapest place to run them.
-- x64 jobs that need 32 CPUs, the heaviest Rust release builds, run on Namespace 32x64.
-- arm64 jobs run on Namespace. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner.
-- Anything else is a project-specific exception, set as a repo-level variable on that repo only.
-- Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception too.
+- A public repo runs every job on GitHub's free runners: `ubuntu-latest` and `ubuntu-26.04-arm`, 4 CPUs and 15.6 GiB each.
+- A private repo runs x64 on ARC, which is never billed. Setting `GH_RUNNER_MODE=free` on the repo moves it to GitHub-hosted runners, billed at 2 vCPU and 8 GB.
+- arm64 always runs on `ubuntu-26.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
+- Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
+- A public repo whose build outgrows a free runner, or the 6-hour job limit, moves to ARC with `runner-mode: self-hosted`. Every ARC set but the two 4-CPU ones scales to zero, so the big runners hold no RAM until a job asks for one.
 
-Namespace profiles are named `namespace-profile-hyperi-<arch>-<CPU>x<GiB>`. Namespace runners cannot reach Harbor or the devex services, so Quality and Test stay on ARC. A failing ARC job is fixed on ARC, not moved off it. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
+The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
 
 ## Runner modes
 
 | Mode | Runners | Cache | Toolchain |
 |---|---|---|---|
-| `self-hosted` | ARC runners on the DevEx RKE2 cluster | persistent NFS sccache/ccache | pre-baked in the runner image |
-| `free` | GitHub-hosted `ubuntu-latest` | none between runs | installed per job by `setup-runtime` |
+| `self-hosted` | ARC runners on the DevEx RKE2 cluster for x64, `ubuntu-26.04-arm` for arm64 | persistent NFS sccache/ccache | pre-baked in the runner image |
+| `free` | GitHub-hosted `ubuntu-latest` and `ubuntu-26.04-arm` | none between runs | installed per job by `setup-runtime` |
 
-`free` lets any GitHub org use the reusable workflows with no self-hosted infrastructure, at the cost of cold compiles and per-job toolchain installs. Resolution, highest wins:
+Plan resolves the mode once, in `predict-version`'s `runner_mode.py`, and every later job reads its `runner-mode` output. The caller's `runner-mode` input wins, then `GH_RUNNER_MODE`. With neither set, a public repo runs free and a private or internal one self-hosted. Visibility comes from the event payload, else the repositories API. A repo whose visibility cannot be read runs self-hosted. Plan and Commit messages start before the mode exists, so they read the payload's visibility themselves, and a payload with no repository lands them on `GH_RUNNER_DEFAULT`.
+
+In `free` mode each Rust Quality, Test and Build job adds a swap file in `$RUNNER_TEMP` before cargo runs. It brings swap up to twice the runner's RAM, at most 32 GiB and at most a quarter of the free disk, so a build that outgrows 15.6 GiB runs slower instead of being killed. The `cargo jobs:` log line and the runner-fit record carry the swap size. Other modes never add swap.
+
+A job fits its runner when it has no OOM kills and its full memory stall is under about 1% of its time. Both are on every phase line. `memory.peak` is no guide, because it counts page cache, which a Rust build fills to the limit.
+
+Resolution, highest wins:
 
 ```mermaid
 flowchart TD
     A["inputs.runner-mode (ci.yml)"] -->|set| R{"mode == free?"}
     B["vars.GH_RUNNER_MODE"] -->|else| R
+    V["repo visibility: public = free"] -->|else| R
     R -->|yes| F["ubuntu-latest"]
     R -->|no| J["inputs.runner-JOB"]
     J -->|unset| L["vars.GH_RUNNER_LANG"]
@@ -39,19 +46,17 @@ gh variable list --org hyperi-io          # what is set now
 gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16x32
 ```
 
-A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-build` / `runner-build-arm64` workflow inputs. `ubuntu-latest` is reached only when the variables are unset. With `GH_RUNNER_DEFAULT` set, every repo gets a self-hosted runner without asking.
+A repo overrides the org default with a repo-level variable of the same name, or per job with the `runner-quality` / `runner-test` / `runner-build` / `runner-build-arm64` workflow inputs, which only self-hosted mode reads.
 
-There is no C++ reusable workflow. The org `GH_RUNNER_CPP` variable is read by nothing, and #517 covers deleting it.
-
-### Which chain each job takes
+The chain each job takes:
 
 | Job | Chain | Why |
 |---|---|---|
-| Quality, Test, Build | renovate carve-out -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
-| Plan, Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git, python3 and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
-| Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
-| arm64 build leg | `runner-build-arm64` input -> `GH_RUNNER_ARM64` -> `ubuntu-24.04-arm` | `free` does not change it |
-| arm64 parity build | `runner-arm64-check` input -> `GH_RUNNER_ARM64_CHECK` -> the arm64 build leg's chain | no PGO or BOLT, so it fits a smaller runner than a release build |
+| Quality, Test, Build | `free` -> `runner-<job>` input (or `test-matrix` for Test) -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
+| Plan, Commit messages | explicit `free`, or no explicit mode and a public payload -> `ubuntu-latest`, else `GH_RUNNER_DEFAULT` | start before Plan resolves the mode. Need only git, python3 and uv |
+| Gate, release tail (x64) | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | need only uv. The tail takes Plan's mode as its `runner-mode` input |
+| arm64 build legs and parity build | `free` -> `ubuntu-26.04-arm`, else `runner-build-arm64` input -> `ubuntu-26.04-arm` | the parity build skips PGO and BOLT, so it takes the same runner |
+| arm64 container leg | `ubuntu-26.04-arm` | arm64 images build natively, never under emulation on x64 |
 
 Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml` (version: `tools.pyyaml` in `versions.yaml`). No image needs PyYAML or yq. A config that exists and cannot be read raises a `::warning::` naming the file, and its settings take their defaults.
 
@@ -66,7 +71,7 @@ The self-hosted fleet is ARC scale sets on two axes:
 | type | `vanilla` | stock runner + internal CA + docker CLI + uv. Fast start. |
 | type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM, the distro gcc, and the shared sccache/crate cache. |
 | type | `debian` | vanilla on Debian Trixie, for .deb builds, which have to happen on the distro they target. No toolchain. |
-| size | `4x8` | 4 CPUs and 8 GiB, the stock GitHub ubuntu runner |
+| size | `4x8` | 4 CPUs and 8 GiB |
 | size | `8x16`, `16x32` | the steps up, 2 GiB a CPU |
 
 **A job addresses a scale set as `arc-<type>-<CPU>x<GiB>`**, for example:
@@ -97,7 +102,7 @@ The hyperi-infra manifests are the SSoT, including each set's `maxRunners`. Sizi
 
 There is no 2-CPU tier. Each runner also requests `hyperi.io/arc-mem-gi` equal to its memory, against a 96 per node, so at most three 16x32 runners fit on one node.
 
-cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it (6 gives 5 jobs on 16x32).
+cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it. `free` mode plans at least `build.rust.free_memory_per_job_gib` (default 4), so a 15.6 GiB runner gets 3 jobs.
 
 The limit comes from cgroup v2 `memory.max`, then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
 
@@ -107,12 +112,12 @@ It holds the arch, runner label, CPU model, CPU budget, memory limit and its sou
 
 The verdict advises and never changes a runner or fails a Build. The `build.rust.runner_fit` tunables set it:
 
-- `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing.
-- `recommended` is the first profile in `profiles` order, for this arch, that holds `min_jobs` jobs at the per-job peak with `min_headroom` free. Order the profiles cheapest first.
+- `status` is `tight` when the peak leaves less than `min_headroom` of the limit free, `fits` otherwise, and `unknown` when the peak or the limit is missing or the `build.rust.runner_fit` block is malformed.
+- `recommended` is the first profile in `profiles` order, for this arch, with a CPU for each cargo job the build ran (at least `min_jobs`) and the memory for that many jobs at the per-job peak with `min_headroom` free. A build that used every CPU is never told to move to fewer. Order the profiles cheapest first.
 - `move` is true when that differs from the runner used, and `move_reason` says how.
-- A per-job peak further than `per_job_drift` from `build.rust.memory_per_job_gib` adds a note naming both.
+- A per-job peak more than `per_job_drift` off `build.rust.memory_per_job_gib`, as a fraction (0.25 is 25%), adds a note naming both.
 
-One command tables a fleet round, newest run with a record per repo:
+One command tables a fleet round, the newest run with a record per repo, from each repo's latest 20 runs:
 
 ```bash
 hyperi-ci runner report dfe-loader dfe-receiver   # bare names are hyperi-io/
@@ -125,8 +130,8 @@ Multi-arch builds use a native runner per architecture:
 
 | Arch | Runner | Source var |
 |---|---|---|
-| x86_64 (amd64) | ARC, or Namespace 32x64 for the heaviest builds | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
-| aarch64 (arm64) | Namespace `namespace-profile-hyperi-arm64-<CPU>x<GiB>`, else GitHub `ubuntu-24.04-arm` | `GH_RUNNER_ARM64`, `runner-build-arm64` input |
+| x86_64 (amd64) | `ubuntu-latest` in free mode, else ARC | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT`, `runner-build` input |
+| aarch64 (arm64) | GitHub `ubuntu-26.04-arm` | `runner-build-arm64` input in self-hosted mode |
 
 Each leg builds its own arch, so no build cross-compiles (see [No cross-compilation](#no-cross-compilation)).
 

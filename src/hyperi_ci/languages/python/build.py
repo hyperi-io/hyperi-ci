@@ -7,6 +7,7 @@
 """Python build handler: wheel and sdist via uv."""
 
 import re
+import shutil
 import subprocess
 import tomllib
 from contextlib import contextmanager
@@ -99,7 +100,30 @@ def _build_native(config: CIConfig) -> int:
         error("Python build failed")
         return result.returncode
 
+    rc = _write_notices(config)
+    if rc != 0:
+        return rc
     success("Python build complete")
+    return 0
+
+
+def _write_notices(config: CIConfig) -> int:
+    """Ship THIRD-PARTY-NOTICES in dist/ when an image installs the dependencies.
+
+    A wheel or sdist redistributes no dependency, so a library writes none.
+    """
+    from hyperi_ci.container.stage import should_build_container
+    from hyperi_ci.languages.python import licenses
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    if not should_build_container(config, language="python")[0]:
+        return 0
+    notices = fresh_notices(licenses.run_gate, config)
+    if notices is None:
+        error("THIRD-PARTY-NOTICES not written: the dependency licences were not read")
+        return 1
+    shutil.copyfile(notices, Path("dist") / "THIRD-PARTY-NOTICES")
+    info("Wrote dist/THIRD-PARTY-NOTICES for the image")
     return 0
 
 

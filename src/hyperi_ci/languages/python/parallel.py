@@ -21,13 +21,8 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python.pytest_args import project_args
-from hyperi_ci.sizing import worker_budget
-from hyperi_ci.workers import WORKERS_ENV, forced_workers, per_worker_mb
-
-# Past 16 workers collection cost cancels the gain: hyperi-ci's own 2598-test
-# suite takes 23.6s at 8, 23.4s at 16 and 23.8s at 32. An explicit number
-# overrides it.
-_MAX_AUTO_WORKERS = 16
+from hyperi_ci.sizing import MAX_AUTO_WORKERS, WORKERS_ENV, worker_budget
+from hyperi_ci.workers import forced_workers, per_worker_mb
 
 _WORKER_MEM_KEY = "test.python.worker_mem_mb"
 
@@ -196,7 +191,7 @@ def parallel_unset(config: CIConfig) -> bool:
 def _auto(config: CIConfig) -> tuple[int, str]:
     """Return the host-derived worker count and its bounds."""
     budget = worker_budget(per_worker_mb(config, _WORKER_MEM_KEY))
-    return min(budget.workers, _MAX_AUTO_WORKERS), budget.describe()
+    return min(budget.workers, MAX_AUTO_WORKERS), budget.describe()
 
 
 def auto_workers(config: CIConfig) -> int:

@@ -77,6 +77,9 @@ class TestCurlFetch:
         assert _contains(cmd, ["-w", "%{http_code}"])
         assert "-fsS" in cmd
         assert "-L" in cmd
+        # No fetch, and no redirect, leaves https.
+        assert _contains(cmd, ["--proto", "=https"])
+        assert _contains(cmd, ["--proto-redir", "=https"])
         assert kwargs["check"] is False
         assert kwargs["capture"] is True
 
@@ -234,6 +237,33 @@ class TestCurlRetryRule:
         assert _fetch(tmp_path) == 22
         assert len(attempts) == 1
         assert sleeps == []
+
+    @pytest.mark.parametrize(
+        ("max_time", "elapsed", "attempts_made"),
+        [
+            pytest.param(600, 620.0, 2, id="a-timed-out-600s-attempt-gets-a-retry"),
+            pytest.param(600, 1190.0, 1, id="the-long-window-is-twice-max-time"),
+            pytest.param(180, 620.0, 1, id="short-max-time-keeps-600s"),
+        ],
+    )
+    def test_a_long_max_time_widens_the_window(
+        self,
+        scripted_curl: Script,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        max_time: int,
+        elapsed: float,
+        attempts_made: int,
+    ) -> None:
+        outcomes, attempts, _, _ = scripted_curl
+        outcomes.append((28, "000", "curl: (28) Operation timed out"))
+        clock = iter([0.0])
+        monkeypatch.setattr(common.time, "monotonic", lambda: next(clock, elapsed))
+        monkeypatch.setattr(common, "backoff", lambda _retry: 16.0)
+        common.curl_fetch(
+            "https://example.invalid/x", tmp_path / "o", max_time=max_time
+        )
+        assert len(attempts) == attempts_made
 
     @pytest.mark.parametrize(
         ("elapsed", "attempts_made"),
@@ -423,6 +453,21 @@ def flaky_server(
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not installed")
 class TestRealCurlRetries:
     """The real curl binary, against a server that fails once and then serves."""
+
+    @pytest.fixture(autouse=True)
+    def _plain_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The loopback test server speaks plain http.
+        monkeypatch.setattr(common, "_CURL_PROTOCOLS", "=http,https")
+
+    def test_a_plain_http_url_is_refused_once(
+        self,
+        flaky_server: tuple[str, list[str], list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(common, "_CURL_PROTOCOLS", "=https")
+        url, _plan, hits = flaky_server
+        rc, body = common.curl_read(url, extra=("--noproxy", "*"))
+        assert (rc, body, hits) == (1, b"", [])
 
     @pytest.mark.parametrize("failure", ["500", "503", "408", "429", "partial"])
     def test_one_failure_then_the_body_exactly_once(

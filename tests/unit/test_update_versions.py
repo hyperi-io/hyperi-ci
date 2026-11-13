@@ -1019,6 +1019,177 @@ class TestPypiReleaseSource:
         ]
 
 
+class TestStaticLibsBump:
+    """static_libs pins move to the newest upstream, and the release pin follows."""
+
+    YAML = (
+        "static_libs:\n"
+        "  # comment kept\n"
+        "  zlib:\n"
+        '    version: "1.3.2"\n'
+        "    repo: madler/zlib\n"
+        "    sha256: " + "a" * 64 + "\n"
+        "  librdkafka:\n"
+        '    version: "2.16.0"\n'
+        "    commit: " + "c" * 40 + "\n"
+        "    sha256: " + "b" * 64 + "\n"
+        "\n"
+        "static_libs_release:\n"
+        "  tag: static-libs-old\n"
+        "  sha256:\n"
+        "    x86_64-unknown-linux-gnu: " + "1" * 64 + "\n"
+        "    aarch64-unknown-linux-gnu: " + "2" * 64 + "\n"
+    )
+
+    def test_an_entry_rewrite_touches_only_that_entry(self) -> None:
+        out = update_versions._set_section_fields(
+            self.YAML,
+            "static_libs",
+            {"version": "2.17.0", "sha256": "d" * 64, "commit": "e" * 40},
+            entry="librdkafka",
+        )
+        data = yaml.safe_load(out)
+        assert data["static_libs"]["librdkafka"] == {
+            "version": "2.17.0",
+            "commit": "e" * 40,
+            "sha256": "d" * 64,
+        }
+        assert data["static_libs"]["zlib"]["sha256"] == "a" * 64
+        assert "  # comment kept\n" in out
+
+    def test_the_release_rewrite_sets_the_tag_and_each_triple(self) -> None:
+        out = update_versions._set_section_fields(
+            self.YAML,
+            "static_libs_release",
+            {
+                "tag": "static-libs-new",
+                "sha256.x86_64-unknown-linux-gnu": "3e" * 32,
+                "sha256.aarch64-unknown-linux-gnu": "4e" * 32,
+            },
+        )
+        release = yaml.safe_load(out)["static_libs_release"]
+        assert release == {
+            "tag": "static-libs-new",
+            "sha256": {
+                "x86_64-unknown-linux-gnu": "3e" * 32,
+                "aarch64-unknown-linux-gnu": "4e" * 32,
+            },
+        }
+        assert yaml.safe_load(out)["static_libs"]["zlib"]["version"] == "1.3.2"
+
+    @staticmethod
+    def _rel(tag: str, *assets: str) -> dict:
+        return {
+            "tag_name": tag,
+            "published_at": "2026-10-01T00:00:00Z",
+            "assets": [{"name": a} for a in assets],
+        }
+
+    _OPENSSL = {
+        "version": "3.5.9",
+        "lts": "3.5",
+        "repo": "openssl/openssl",
+        "tag_prefix": "openssl-",
+        "url": "https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz",
+        "sha256": "f" * 64,
+    }
+    _RDKAFKA = {
+        "version": "2.16.0",
+        "repo": "confluentinc/librdkafka",
+        "url": "https://github.com/confluentinc/librdkafka/archive/refs/tags/v{version}.tar.gz",
+        "commit": "c" * 40,
+        "sha256": "b" * 64,
+    }
+
+    @pytest.mark.parametrize(
+        ("spec", "releases", "recorded", "want", "status"),
+        [
+            pytest.param(
+                _OPENSSL,
+                ["openssl-4.1.0", "openssl-3.6.6", "openssl-3.5.10", "openssl-3.5.9"],
+                {"openssl-3.5.10.tar.gz": "9" * 64},
+                {"version": "3.5.10", "sha256": "9" * 64},
+                "ok",
+                id="openssl-stays-on-its-lts-line",
+            ),
+            pytest.param(
+                _OPENSSL, ["openssl-3.5.9"], {}, None, "current", id="openssl-current"
+            ),
+            pytest.param(
+                _OPENSSL,
+                ["openssl-3.5.10"],
+                {},
+                None,
+                "lookup-failed",
+                id="no-digest-anywhere",
+            ),
+            pytest.param(
+                _RDKAFKA,
+                ["v2.17.0", "v2.16.0"],
+                {},
+                {"version": "2.17.0", "sha256": "8" * 64, "commit": "7" * 40},
+                "ok",
+                id="rdkafka-archive-digest-and-commit",
+            ),
+        ],
+    )
+    def test_newest_static_lib(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        spec: dict,
+        releases: list[str],
+        recorded: dict[str, str],
+        want: dict | None,
+        status: str,
+    ) -> None:
+        monkeypatch.setattr(
+            update_versions, "_gh_json", lambda _path: [self._rel(t) for t in releases]
+        )
+        monkeypatch.setattr(update_versions, "_release_digests", lambda *_a: recorded)
+        monkeypatch.setattr(update_versions, "_downloaded_sha256", lambda _u: "8" * 64)
+        monkeypatch.setattr(update_versions, "_tag_commit", lambda *_a: "7" * 40)
+        assert update_versions._newest_static_lib(spec) == (want, status)
+
+    @pytest.mark.parametrize(
+        ("pinned", "recorded", "want"),
+        [
+            pytest.param("static-libs-new", {"x": "1" * 64}, None, id="already-pinned"),
+            pytest.param("static-libs-old", None, None, id="not-published-yet"),
+            pytest.param(
+                "static-libs-old",
+                {
+                    "hyperi-static-libs-x86_64-unknown-linux-gnu.tar.gz": "3" * 64,
+                    "hyperi-static-libs-x86_64-unknown-linux-gnu.json": "5" * 64,
+                    "hyperi-static-libs-aarch64-unknown-linux-gnu.tar.gz": "4" * 64,
+                },
+                (
+                    "static-libs-new",
+                    {
+                        "x86_64-unknown-linux-gnu": "3" * 64,
+                        "aarch64-unknown-linux-gnu": "4" * 64,
+                    },
+                ),
+                id="published-and-unpinned",
+            ),
+        ],
+    )
+    def test_the_release_pin_follows_a_published_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        pinned: str,
+        recorded: dict[str, str] | None,
+        want: tuple | None,
+    ) -> None:
+        import hyperi_ci.static_libs
+
+        monkeypatch.setattr(
+            hyperi_ci.static_libs, "release_tag", lambda: "static-libs-new"
+        )
+        monkeypatch.setattr(update_versions, "_release_digests", lambda *_a: recorded)
+        versions = {"static_libs_release": {"tag": pinned}}
+        assert update_versions._published_static_release(versions) == want
+
+
 class TestSetToolVersionInYaml:
     """Block-scoped AND `tools:`-anchored rewrite of one tool's version."""
 

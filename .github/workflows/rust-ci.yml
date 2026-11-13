@@ -17,7 +17,7 @@ on:
       runner-mode:
         type: string
         default: ""
-        description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
+        description: "Runner mode: free (GitHub-hosted) or self-hosted. Empty takes GH_RUNNER_MODE, else the repo's visibility: public free, private self-hosted"
       publish-target:
         type: string
         default: "oss"
@@ -41,11 +41,11 @@ on:
       runner-build-arm64:
         type: string
         default: ""
-        description: "Runner for the arm64 build leg (default: GH_RUNNER_ARM64, else ubuntu-24.04-arm)"
+        description: "Runner for the arm64 build legs in self-hosted mode (default: ubuntu-26.04-arm). Free mode always uses ubuntu-26.04-arm."
       runner-arm64-check:
         type: string
         default: ""
-        description: "Runner for the arm64 parity build on a release-worthy main push that does not release, which skips PGO and BOLT (default: GH_RUNNER_ARM64_CHECK, else the arm64 build leg's runner)"
+        description: "Ignored. The arm64 parity build runs on the arm64 build leg's runner. Kept so a caller that passes it still starts."
       test-matrix:
         type: string
         default: ""
@@ -107,6 +107,8 @@ on:
         default: ""
         description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
     secrets:
+      ALERT_BRIDGE_TOKEN:
+        required: false
       CARGO_REGISTRY_TOKEN:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:
@@ -232,29 +234,44 @@ jobs:
   plan:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
-    # the default set is enough and no renovate carve-out applies (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # the default set is enough (issue #291). It runs before the mode is
+    # resolved, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # semantic-release's git plugin verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:
       contents: write
     outputs:
+      runner-mode: ${{ steps.predict.outputs.runner-mode }}
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
       run-arm64-check: ${{ steps.predict.outputs.run-arm64-check }}
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
       fork: ${{ steps.predict.outputs.fork }}
+      candidate: ${{ steps.predict.outputs.candidate }}
       test-tier: ${{ steps.predict.outputs.test-tier }}
       full-required-for-release: ${{ steps.predict.outputs.full-required-for-release }}
       prerelease: ${{ steps.predict.outputs.prerelease }}
+      # run-build split in two. The phased build is PGO + BOLT as three jobs: a GA
+      # release, or a dispatch asking for the tier. Everything else, a
+      # prerelease included, builds plain.
+      run-plain-build: ${{ steps.predict.outputs.run-build == 'true' && !((steps.predict.outputs.will-release == 'true' && steps.predict.outputs.prerelease != 'true') || inputs.optimize-tier == 'release') }}
+      run-phased-build: ${{ steps.predict.outputs.run-build == 'true' && ((steps.predict.outputs.will-release == 'true' && steps.predict.outputs.prerelease != 'true') || inputs.optimize-tier == 'release') }}
+      # The arm64 parity leg alone. predict-version also sets run-arm64-check on
+      # a release push, which already builds both arches.
+      run-arm64-parity: ${{ steps.predict.outputs.run-arm64-check == 'true' && steps.predict.outputs.run-build != 'true' }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0  # full history -- semantic-release dry-run reads it
+
+      - name: Free mode on a private repo
+        if: (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && github.event.repository.private
+        run: echo "::warning title=Free mode on a private repo::GitHub-hosted runners are billed on a private repo and have 2 vCPU and 8 GB there, not 4 vCPU and 16 GB."
 
       - name: Predict version + derive gates
         id: predict
@@ -266,24 +283,25 @@ jobs:
           bump: ${{ inputs.bump }}
           test-tier: ${{ inputs.test-tier }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
+          runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
 
       - name: Install uv (preflight)
         id: uv_try1
         if: steps.predict.outputs.will-release == 'true'
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (preflight) (retry 1)
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (preflight) (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
 
@@ -314,11 +332,6 @@ jobs:
         # A project listing `build.rust.targets` in .hyperi-ci.yaml ships only those
         # arches, so one whose release build does not fit the arm64 runner can still
         # release amd64 (issue #127). One listing none keeps both.
-        #
-        # The renovate/ carve-out must land on a runner with cargo, because Rust does
-        # not bootstrap its toolchain at job time and GH_RUNNER_RENOVATE /
-        # GH_RUNNER_DEFAULT carry none (issue #91). Chain: GH_RUNNER_RENOVATE_RUST
-        # -> GH_RUNNER_RUST -> hosted ubuntu-latest, which ships cargo.
         id: matrix
         shell: bash
         env:
@@ -327,10 +340,10 @@ jobs:
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
-          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-          ARM64_RUNNER: ${{ inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
           # Its own runner, so a parity build does not take a release-sized slot.
-          ARM64_CHECK_RUNNER: ${{ inputs.runner-arm64-check || vars.GH_RUNNER_ARM64_CHECK || inputs.runner-build-arm64 || vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          ARM64_CHECK_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
         run: |
           set -euo pipefail
           run_build="$RUN_BUILD"
@@ -367,9 +380,9 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
-    # Needs only git and uv, so no language variable and no renovate carve-out
-    # (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Needs only git and uv, so no language variable (issue #291). It does not
+    # wait for Plan, so it reads the payload's visibility directly.
+    runs-on: ${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # pull-requests: read reads the PR title live. A job-level block replaces the
     # workflow default, so contents: read is restated.
     permissions:
@@ -384,19 +397,19 @@ jobs:
       - name: Install uv
         id: uv_try1
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (retry 1)
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
       - name: Validate commit messages
@@ -410,9 +423,11 @@ jobs:
     # dfe-transform-elastic's 39-minute feature matrix (issue #262).
     timeout-minutes: 90
     needs: [plan]
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
-    # Renovate branches use lightweight runners.
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -429,7 +444,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
@@ -494,11 +509,14 @@ jobs:
     # which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.test-timeout-minutes || 360 }}
     needs: [plan]
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -515,7 +533,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -615,7 +633,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-rust-${{ matrix.os }}
           path: test-results/
@@ -623,15 +641,20 @@ jobs:
           retention-days: 7
 
   build:
-    name: Build (${{ matrix.os_arch }})
+    name: Release build, plain (${{ matrix.os_arch }})
     # At least twice the longest successful run across the fleet (issue #262). A
     # caller can raise it for a PGO+BOLT release build that outruns that. The
     # fallback covers a dispatch, which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
-    # The second clause is the arm64-parity case (issue #249): a release-worthy
-    # merge to main builds the arm64 leg alone. See the plan job's matrix step.
-    if: needs.plan.outputs.run-build == 'true' || needs.plan.outputs.run-arm64-check == 'true'
+    # `free` adds swap before cargo runs (swap.py). Paid runners never see it.
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
+      # A prerelease ships, but only a GA release gets PGO + BOLT.
+      HYPERCI_SKIP_OPTIMIZE: ${{ needs.plan.outputs.prerelease == 'true' && 'true' || inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
+    # Every build but a release-tier one, which the three jobs below run. The
+    # arm64-parity leg (issue #249) builds where run-build is false.
+    if: needs.plan.outputs.run-plain-build == 'true' || needs.plan.outputs.run-arm64-parity == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       # A leg that dies on its runner must not cancel one that finished, so the
@@ -662,7 +685,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -704,7 +727,7 @@ jobs:
 
       - name: Upload build artifacts
         # VERSION keeps the artifact root at the workspace; a lone `dist/` strips the dist/ prefix the release tail looks for.
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
@@ -716,20 +739,292 @@ jobs:
       - name: Upload runner-fit record
         # Its own artifact, never dist/, which the release tail ships. A failed build still writes one.
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-${{ matrix.os_arch }}
           path: runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
 
+  # A release-tier build as three jobs, so no one job holds the instrumented
+  # build, both workloads and the profile-use compile (docs/runtime/pgo-bolt.md).
+  # Each hands the next its profiles and binaries through .hyperi-ci/phase/. The
+  # job that finishes the binaries packages them: the first when PGO does not
+  # apply (a library, PGO off), the second when BOLT is off, else the third.
+  build-pgo-profile:
+    name: PGO instrument + profile, full release only (${{ matrix.os_arch }})
+    timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
+    needs: [plan, quality, test]
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
+      HYPERCI_BUILD_PHASE: pgo-profile
+    if: needs.plan.outputs.run-phased-build == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          persist-credentials: false
+
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        with:
+          language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
+
+      - name: Stamp predicted version
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
+        env:
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Cache cargo
+        if: ${{ runner.environment != 'self-hosted' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run build
+        env:
+          RUST_BUILD_TARGETS: ${{ matrix.target }}
+          # A validate-only optimize-tier dispatch reaches the tier through
+          # HYPERCI_OPTIMIZE_TIER and must not read as a run that ships.
+          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
+          HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
+          HYPERCI_RUNNER_LABEL: ${{ matrix.runner }}
+        run: ${{ env.HYPERCI_INSTALL }} run build
+
+      - name: Hand over to the optimise job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phase-1-${{ matrix.os_arch }}
+          path: .hyperi-ci/phase/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload build artifacts
+        # Only the job that finished the build has dist/, and VERSION is in every
+        # checkout, so an unconditional upload would name the artifact twice.
+        if: hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-dist-${{ matrix.os_arch }}
+          path: |
+            dist/
+            VERSION
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload runner-fit record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-fit-pgo-profile-${{ matrix.os_arch }}
+          path: runner-fit.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  build-pgo-optimize:
+    name: PGO optimised build, full release only (${{ matrix.os_arch }})
+    timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
+    needs: [plan, build-pgo-profile]
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
+      HYPERCI_BUILD_PHASE: pgo-optimize
+    if: needs.plan.outputs.run-phased-build == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          persist-credentials: false
+
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        with:
+          language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
+
+      - name: Stamp predicted version
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
+        env:
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Cache cargo
+        if: ${{ runner.environment != 'self-hosted' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Take over from the profile job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phase-1-${{ matrix.os_arch }}
+          path: .hyperi-ci/phase/
+
+      - name: Run build
+        env:
+          RUST_BUILD_TARGETS: ${{ matrix.target }}
+          # A validate-only optimize-tier dispatch reaches the tier through
+          # HYPERCI_OPTIMIZE_TIER and must not read as a run that ships.
+          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
+          HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
+          HYPERCI_RUNNER_LABEL: ${{ matrix.runner }}
+        run: ${{ env.HYPERCI_INSTALL }} run build
+
+      - name: Hand over to the BOLT job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phase-2-${{ matrix.os_arch }}
+          path: .hyperi-ci/phase/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload build artifacts
+        # Only the job that finished the build has dist/, and VERSION is in every
+        # checkout, so an unconditional upload would name the artifact twice.
+        if: hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-dist-${{ matrix.os_arch }}
+          path: |
+            dist/
+            VERSION
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload runner-fit record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-fit-pgo-optimize-${{ matrix.os_arch }}
+          path: runner-fit.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  build-bolt:
+    name: BOLT, full release only (${{ matrix.os_arch }})
+    timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
+    needs: [plan, build-pgo-optimize]
+    env:
+      HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
+      HYPERCI_BUILD_PHASE: bolt
+    if: needs.plan.outputs.run-phased-build == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          persist-credentials: false
+
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        with:
+          language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
+
+      - name: Stamp predicted version
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
+        env:
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
+
+      # The BOLT fallback recompiles with cargo-pgo, so it needs the toolchain.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Cache cargo
+        if: ${{ runner.environment != 'self-hosted' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Take over from the optimise job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phase-2-${{ matrix.os_arch }}
+          path: .hyperi-ci/phase/
+
+      - name: Run build
+        env:
+          RUST_BUILD_TARGETS: ${{ matrix.target }}
+          # A validate-only optimize-tier dispatch reaches the tier through
+          # HYPERCI_OPTIMIZE_TIER and must not read as a run that ships.
+          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
+          HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
+          HYPERCI_RUNNER_LABEL: ${{ matrix.runner }}
+        run: ${{ env.HYPERCI_INSTALL }} run build
+
+      - name: Upload build artifacts
+        if: hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-dist-${{ matrix.os_arch }}
+          path: |
+            dist/
+            VERSION
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload runner-fit record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-fit-bolt-${{ matrix.os_arch }}
+          path: runner-fit.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   release-tail:
     name: Release tail
-    needs: [plan, build]
+    needs: [plan, build, build-pgo-profile, build-pgo-optimize, build-bolt]
     # The arm64-parity build (issue #249) compiles one leg and ships nothing, so
     # the tail's container build would be cost with no deliverable. That build
-    # has run-build false, so the tail skips it.
-    if: needs.plan.outputs.run-build == 'true'
+    # has run-build false, so the tail skips it. One of the two build paths is
+    # always skipped, so the tail runs unless a build job failed.
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && needs.plan.outputs.run-build == 'true'
     # Passed to _release-tail.yml: its tag-and-release job commits + tags
     # (contents), pushes GHCR (packages) and runs the semantic-release GH plugin
     # (issues + pull-requests). Capped by the caller's grant.
@@ -741,10 +1036,11 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: rust
-      runner-mode: ${{ inputs.runner-mode }}
+      runner-mode: ${{ needs.plan.outputs.runner-mode }}
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       fork: ${{ needs.plan.outputs.fork }}
+      candidate: ${{ needs.plan.outputs.candidate }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}
       bump: ${{ inputs.bump }}
@@ -772,16 +1068,16 @@ jobs:
     if: always()
     # commit-check is absent: it is not run-checks-gated, so it fires on every
     # push and works as a required context by itself.
-    needs: [plan, quality, test, build]
+    needs: [plan, quality, test, build, build-pgo-profile, build-pgo-optimize, build-bolt]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.
       - name: Install uv
         id: uv_try1
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         # Gate never checks out the repo, so its workdir is always empty.
         with:
           enable-cache: false
@@ -790,13 +1086,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -807,7 +1103,8 @@ jobs:
           HYPERCI_GATE_PLAN: ${{ needs.plan.result }}
           HYPERCI_GATE_QUALITY: ${{ needs.quality.result }}
           HYPERCI_GATE_TEST: ${{ needs.test.result }}
-          HYPERCI_GATE_BUILD: ${{ needs.build.result }}
+          # A release-tier build's result is the first phase that did not succeed.
+          HYPERCI_GATE_BUILD: ${{ needs.plan.outputs.run-phased-build != 'true' && needs.build.result || needs.build-pgo-profile.result != 'success' && needs.build-pgo-profile.result || needs.build-pgo-optimize.result != 'success' && needs.build-pgo-optimize.result || needs.build-bolt.result }}
           HYPERCI_GATE_TEST_TIER: ${{ needs.plan.outputs.test-tier }}
           HYPERCI_GATE_WILL_RELEASE: ${{ needs.plan.outputs.will-release }}
           HYPERCI_GATE_FULL_REQUIRED: ${{ needs.plan.outputs.full-required-for-release }}

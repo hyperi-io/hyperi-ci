@@ -19,6 +19,7 @@ from hyperi_ci import native_tools, release_prepare, vendor
 from hyperi_ci.common import (
     ReleaseVersionError,
     announce,
+    echo_chunk,
     error,
     group,
     info,
@@ -36,9 +37,10 @@ from hyperi_ci.languages.quality_common import (
     note_quality_disabled,
     resolve_tool_mode,
 )
-from hyperi_ci.languages.rust._jobs import capped_cargo_jobs
+from hyperi_ci.languages.rust._jobs import capped_cargo_jobs, log_peak_memory
 from hyperi_ci.languages.tiering import (
     TEST_TIER_ENV,
+    TIER_EXPORT_ENV,
     InvalidTestTierError,
     resolve_test_tier,
 )
@@ -54,6 +56,7 @@ from hyperi_ci.quality import (
     repo_advisor,
     semgrep,
 )
+from hyperi_ci.release import charts
 
 
 class StageRunFn(Protocol):
@@ -308,6 +311,11 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     if rc != 0:
         return rc
 
+    with group("Helm release config"):
+        rc = charts.check_config(config, Path.cwd())
+        if rc != 0:
+            return rc
+
     # Every doc check defaults to `warn` until a repo promotes it.
     docs_rc = lint_docs.run(Path.cwd(), config)
     if docs_rc != 0:
@@ -338,6 +346,38 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     return rc
 
 
+_TEST_LOG_LINES = 400
+
+
+def show_test_logs(globs: object, root: Path) -> None:
+    """Print the tail of each file ``test.logs`` matches under ``root``.
+
+    A test harness's own record (which services it started, and how often)
+    then shows in the CI log beside the test output. A pattern that is not a
+    relative glob, or a match outside ``root``, is skipped with a warning.
+    """
+    if not isinstance(globs, list):
+        return
+    resolved_root = root.resolve()
+    for pattern in globs:
+        try:
+            matches = sorted(root.glob(pattern)) if isinstance(pattern, str) else []
+        except (NotImplementedError, ValueError) as exc:
+            warn(f"test.logs: cannot glob {pattern!r} ({exc})")
+            continue
+        for path in matches:
+            if not path.is_file():
+                continue
+            if not path.resolve().is_relative_to(resolved_root):
+                warn(f"test.logs: {path} is outside the project, not printed")
+                continue
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            with group(f"Test log {path.relative_to(root)}"):
+                if len(lines) > _TEST_LOG_LINES:
+                    info(f"  last {_TEST_LOG_LINES} of {len(lines)} lines")
+                echo_chunk("\n".join(lines[-_TEST_LOG_LINES:]) + "\n")
+
+
 def stage_test(language: str, config: CIConfig) -> int:
     """Run tests -- dispatch to language-specific handler."""
     if not config.setting("test.enabled"):
@@ -350,6 +390,7 @@ def stage_test(language: str, config: CIConfig) -> int:
         error(str(exc))
         return 1
     info(f"Test tier: {test_tier}")
+    os.environ[TIER_EXPORT_ENV] = test_tier.value
 
     extra_env: dict[str, str] = {TEST_TIER_ENV: test_tier.value}
     if language == "rust":
@@ -361,6 +402,7 @@ def stage_test(language: str, config: CIConfig) -> int:
         return 1
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
+    show_test_logs(config.setting("test.logs"), Path.cwd())
     if rc == -1:
         # A missing handler is a packaging bug, not "no tests". A project with
         # none sets `test.enabled: false`.
@@ -421,9 +463,28 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
                 error(f"Unknown build strategy: {strategy}")
                 return 1
 
+    if language == "rust" and _phase_packaged_nothing(Path.cwd()):
+        info("This build phase packaged no binary, so the one that does emits")
+        return 0
+
     from hyperi_ci.release.assemble import emit_contract
 
     return emit_contract(config, Path.cwd())
+
+
+def _phase_packaged_nothing(root: Path) -> bool:
+    """Return True for a release build phase that left no ``dist/``.
+
+    Only the phase that finishes the build packages, the same test rust-ci.yml
+    uses to pick which job's ``dist/`` it uploads.
+    """
+    from hyperi_ci.languages.rust import build_phase
+
+    try:
+        phase = build_phase.build_phase()
+    except build_phase.PhaseError:
+        return False
+    return bool(phase) and not (root / "dist").is_dir()
 
 
 def check_prepared(language: str) -> int:
@@ -602,6 +663,10 @@ def run_stage(
     except ReleaseVersionError as exc:
         error(f"{stage}: {exc}")
         return 1
+
+    # Build logs its own per-phase peaks, so this covers the other heavy stages.
+    if stage in ("quality", "test"):
+        log_peak_memory(stage)
 
     if rc == 0:
         success(f"{stage} complete")

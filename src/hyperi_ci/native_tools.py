@@ -27,6 +27,7 @@ missing one fails the stage with install advice.
 
 import contextlib
 import hashlib
+import json
 import os
 import platform
 import re
@@ -38,6 +39,7 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import IO
+from urllib.parse import quote, unquote
 
 from hyperi_ci.common import download_to_file, error, info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
@@ -87,6 +89,12 @@ _MUSL_ARCH = {"amd64": "x86_64", "arm64": "aarch64"}
 _DOWNLOAD_MAX_TIME = 600
 # Bytes read or written at a time, so no asset is ever held whole in memory.
 _CHUNK = 1024 * 1024
+
+_GITHUB_API = "https://api.github.com"
+_GITHUB_RELEASE_ASSET = re.compile(
+    r"^https://github\.com/(?P<repo>[^/]+/[^/]+)/releases/download/"
+    r"(?P<tag>[^/]+)/(?P<asset>[^/]+)$"
+)
 
 _TOOLS: dict[str, NativeTool] = {
     "alint": NativeTool(
@@ -252,6 +260,46 @@ def _sha256_file(path: Path) -> str:
         return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
+def github_release_source(url: str) -> tuple[str, str, str] | None:
+    """Return ``(owner/repo, tag, asset)`` for a github.com release download URL."""
+    found = _GITHUB_RELEASE_ASSET.match(url)
+    if found is None:
+        return None
+    return found["repo"], unquote(found["tag"]), unquote(found["asset"])
+
+
+def _api_download(name: str, repo: str, tag: str, asset: str, dest: Path) -> bool:
+    """Fetch a release asset through the GitHub REST API.
+
+    github.com's download link and the API are served separately, and one has
+    answered 504 for an asset the other served.
+    """
+    listing = dest.with_name(dest.name + ".release.json")
+    release = f"{_GITHUB_API}/repos/{repo}/releases/tags/{quote(tag, safe='')}"
+    if not download_to_file(f"{name} release", release, listing):
+        return False
+    try:
+        assets = json.loads(listing.read_text(encoding="utf-8")).get("assets", [])
+    except (OSError, ValueError, AttributeError) as exc:
+        error(f"  {name}: unreadable release listing from the GitHub API: {exc}")
+        return False
+    finally:
+        listing.unlink(missing_ok=True)
+    ids = [
+        a.get("id") for a in assets if isinstance(a, dict) and a.get("name") == asset
+    ]
+    if not ids:
+        error(f"  {name}: release {tag} of {repo} lists no asset {asset}")
+        return False
+    return download_to_file(
+        name,
+        f"{_GITHUB_API}/repos/{repo}/releases/assets/{ids[0]}",
+        dest,
+        max_time=_DOWNLOAD_MAX_TIME,
+        extra=("-H", "Accept: application/octet-stream"),
+    )
+
+
 def _fetch_pinned(name: str, arch: str, dest: Path) -> bool:
     """Download ``name`` for ``arch`` into ``dest``, False after logging why not.
 
@@ -261,7 +309,11 @@ def _fetch_pinned(name: str, arch: str, dest: Path) -> bool:
     """
     url, _ = _asset_url(name, arch)
     expected = _pinned_digest(name, arch)
-    if not download_to_file(name, url, dest, max_time=_DOWNLOAD_MAX_TIME):
+    fetched = download_to_file(name, url, dest, max_time=_DOWNLOAD_MAX_TIME)
+    if not fetched and (source := github_release_source(url)):
+        info(f"  {name}: retrying through the GitHub API")
+        fetched = _api_download(name, *source, dest)
+    if not fetched:
         return False
     try:
         got = _sha256_file(dest)
@@ -348,14 +400,22 @@ def _link_aliases(name: str, bin_dir: Path) -> None:
     """Point each of the tool's ``links`` at its binary, replacing a stale link.
 
     Raises:
-        OSError: A link could not be made.
+        OSError: A link could not be made. The links made before it are removed.
 
     """
-    for alias in _TOOLS[name].links:
-        staged = bin_dir / f".{alias}.{os.getpid()}.link"
-        staged.unlink(missing_ok=True)
-        staged.symlink_to(name)
-        os.replace(staged, bin_dir / alias)
+    made: list[Path] = []
+    try:
+        for alias in _TOOLS[name].links:
+            staged = bin_dir / f".{alias}.{os.getpid()}.link"
+            staged.unlink(missing_ok=True)
+            staged.symlink_to(name)
+            os.replace(staged, bin_dir / alias)
+            made.append(bin_dir / alias)
+    except OSError:
+        for link in made:
+            with contextlib.suppress(OSError):
+                link.unlink(missing_ok=True)
+        raise
 
 
 def install_into(name: str, bin_dir: Path) -> Path | None:

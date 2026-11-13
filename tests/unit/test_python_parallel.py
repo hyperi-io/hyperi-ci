@@ -19,7 +19,7 @@ import pytest
 from hyperi_ci import workers
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python import parallel
-from hyperi_ci.sizing import WorkerBudget
+from hyperi_ci.sizing import MAX_AUTO_WORKERS, WorkerBudget
 
 
 def _config(value: object) -> CIConfig:
@@ -79,7 +79,7 @@ class TestRequestedWorkers:
 class TestAutoWorkers:
     def test_it_never_exceeds_the_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _fix_budget(monkeypatch, 96)
-        assert parallel.auto_workers(CIConfig(_raw={})) == parallel._MAX_AUTO_WORKERS
+        assert parallel.auto_workers(CIConfig(_raw={})) == MAX_AUTO_WORKERS
 
     def test_it_tracks_a_small_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _fix_budget(monkeypatch, 4)

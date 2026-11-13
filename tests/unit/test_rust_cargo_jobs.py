@@ -7,6 +7,7 @@
 """Tests for :mod:`hyperi_ci.languages.rust._jobs` and its wiring in dispatch."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from hyperi_ci.languages.rust._jobs import (
     cargo_jobs_env,
     config_file_setting_jobs,
     jobs_for,
+    log_free_disk,
     log_peak_memory,
 )
 from hyperi_ci.memory import GIB, MemoryLimit
@@ -137,15 +139,60 @@ class TestPrecedence:
         )
         assert got == {JOBS_ENV: "8"}
 
-    def test_memory_per_job_is_configurable(self, clean_dir: Path) -> None:
+    @pytest.mark.parametrize(
+        ("rust", "mode", "jobs"),
+        [
+            pytest.param({"memory_per_job_gib": 4}, "", "4", id="configured"),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "free",
+                "4",
+                id="free-floor-raises-the-plan",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 14, "free_memory_per_job_gib": 4},
+                "free",
+                "1",
+                id="higher-configured-plan-wins-in-free-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "",
+                "8",
+                id="floor-ignored-off-free-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 4},
+                "paid",
+                "8",
+                id="floor-ignored-in-another-mode",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": 0},
+                "free",
+                "8",
+                id="zero-floor-ignored",
+            ),
+            pytest.param(
+                {"memory_per_job_gib": 2, "free_memory_per_job_gib": "big"},
+                "free",
+                "8",
+                id="non-numeric-floor-ignored",
+            ),
+        ],
+    )
+    def test_memory_per_job_plan(
+        self, clean_dir: Path, rust: dict[str, Any], mode: str, jobs: str
+    ) -> None:
+        extra = {"HYPERCI_RUNNER_MODE": mode} if mode else {}
         got = cargo_jobs_env(
-            _config(memory_per_job_gib=4),
-            _environ(clean_dir),
+            _config(**rust),
+            _environ(clean_dir, **extra),
             cwd=clean_dir / "repo",
             limit=SIXTEEN_GIB,
             cpus=16,
         )
-        assert got == {JOBS_ENV: "4"}
+        assert got == {JOBS_ENV: jobs}
 
     @pytest.mark.parametrize("value", [0, -1, "big", False])
     def test_unusable_memory_per_job_uses_the_fallback(
@@ -236,6 +283,7 @@ def test_the_cap_reaches_a_quality_cargo_call(
     monkeypatch.setattr(quality_common, "run_cmd", rec.run)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr(f"{QUALITY}._ensure_cargo_hack", lambda: True)
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)
     monkeypatch.setattr(f"{QUALITY}._package_lib_map", lambda *_a: {})
     monkeypatch.setattr(f"{QUALITY}.osv_scanner.run", lambda *_a, **_k: True)
@@ -258,18 +306,50 @@ class TestLogPeakMemory:
         proc.write_text("0::/job\n", encoding="utf-8", newline="\n")
         return proc
 
+    @pytest.mark.parametrize(
+        ("swap", "pressure", "shown"),
+        [
+            (None, None, ""),
+            (0, None, ", swap peak 0.0 GiB"),
+            (int(2.5 * GIB), None, ", swap peak 2.5 GiB"),
+            (
+                0,
+                "some avg10=0.00 total=12500000\nfull avg10=0.00 total=400000\n",
+                ", swap peak 0.0 GiB, memory stall 12.5s some / 0.4s full, 0 OOM kills",
+            ),
+            (None, "garbage\n", ""),
+        ],
+        ids=["no-swap-file", "no-swap-used", "swap-used", "stall", "bad-pressure"],
+    )
     def test_logs_the_peak_with_its_source(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        swap: int | None,
+        pressure: str | None,
+        shown: str,
     ) -> None:
         peak = tmp_path / "cg" / "job" / "memory.peak"
         peak.parent.mkdir(parents=True)
         peak.write_text(f"{int(13.4 * GIB)}\n", encoding="utf-8", newline="\n")
+        if swap is not None:
+            peak.with_name("memory.swap.peak").write_text(
+                f"{swap}\n", encoding="utf-8", newline="\n"
+            )
+        if pressure is not None:
+            peak.with_name("memory.pressure").write_text(
+                pressure, encoding="utf-8", newline="\n"
+            )
         lines: list[str] = []
         monkeypatch.setattr(_jobs, "info", lines.append)
         log_peak_memory(
             "pgo-optimize", root=tmp_path / "cg", proc_self_cgroup=self._proc(tmp_path)
         )
-        assert lines == [f"memory peak after pgo-optimize: 13.4 GiB (cgroup v2 {peak})"]
+        memory = [line for line in lines if line.startswith("memory")]
+        assert memory == [
+            f"memory peak after pgo-optimize: 13.4 GiB{shown} (cgroup v2 {peak})"
+        ]
+        assert any(line.startswith("disk after pgo-optimize: ") for line in lines)
 
     def test_logs_nothing_where_the_host_reports_no_peak(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -279,4 +359,18 @@ class TestLogPeakMemory:
         log_peak_memory(
             "bolt", root=tmp_path / "none", proc_self_cgroup=self._proc(tmp_path)
         )
-        assert lines == []
+        assert not [line for line in lines if line.startswith("memory")]
+
+    def test_free_disk_is_logged_once_per_filesystem(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        lines: list[str] = []
+        monkeypatch.setattr(_jobs, "info", lines.append)
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        log_free_disk("test", (tmp_path, inner))
+        (line,) = lines
+        assert re.fullmatch(
+            rf"disk after test: {re.escape(str(tmp_path))} [\d.]+ GiB free of [\d.]+ GiB",
+            line,
+        )

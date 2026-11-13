@@ -12,8 +12,10 @@
 #   (caller)  build     <- stamps Cargo.toml/VERSION with next-version
 #                         BEFORE building, uploads dist/ artefacts
 #
-#   (here)    container         <- docker build (validate or push, gated
-#                                  on will-publish)
+#   (here)    container-plan    <- resolve + plan: platforms, push, reuse
+#   (here)    container-build   <- one native leg per platform, pushed by
+#                                  digest (validate builds push nothing)
+#   (here)    container         <- one imagetools create under every tag
 #   (here)    prepare           <- hyperi-ci release-prepare: stamp, semver
 #                                  checks, cargo package, npm pack -- every
 #                                  step that runs repo code, holding no secret
@@ -55,6 +57,10 @@ on:
         type: string
         default: ""
         description: "'true' iff the caller's plan versioned a fork from its first-parent commits (predict-version's `fork` output). Tag & Release then tags HEAD with tag-head and skips semantic-release. Empty reads as not a fork."
+      candidate:
+        type: string
+        default: ""
+        description: "'true' iff the caller's plan cut a release candidate, X.Y.Z-rc.N (predict-version's `candidate` output). Tag & Release then tags HEAD with tag-head and skips semantic-release, as for a fork. Empty reads as not a candidate."
       tag:
         type: string
         default: ""
@@ -117,25 +123,22 @@ env:
   HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
 
 jobs:
-  container:
-    name: Container
-    # At least twice the longest successful run across the fleet (issue #262).
-    timeout-minutes: 135
+  container-plan:
+    name: Container plan
+    timeout-minutes: 30
     # A non-release branch push never reaches this workflow (the caller gates on
     # quality+test+build). Pushes to main, workflow_dispatch and branch-mode
     # pull_request runs (the caller's branch-build opt-in) do:
     #
-    # - Publish (will-publish == 'true'): docker build + push to all configured
-    #   registries. Admitted on will-publish itself, so a push to a declared
-    #   prerelease branch ships its image too (issue #479). Tag & Release goes
-    #   ahead when this job skips, so skipping here would release with no image
-    #   behind the tag.
-    # - Validate-only (push to main, will-publish == 'false'): docker build to
-    #   catch Dockerfile breakage, no push.
-    # - pull_request (branch-mode): docker build, pushed as a DEV image
-    #   (branch-<slug> + sha tags, GHCR only) iff the project sets
-    #   publish.container.dev_push, else validate-only. Fork PRs are excluded
-    #   outright (first clause), as they have no secrets.
+    # - Publish (will-publish == 'true'): native per-arch legs push by digest and
+    #   the merge job tags them. Admitted on will-publish itself, so a push to a
+    #   declared prerelease branch ships its image too (issue #479).
+    # - Validate-only (push to main, will-publish == 'false'): each leg builds to
+    #   catch Dockerfile breakage, no push, no merge.
+    # - pull_request (branch-mode): legs push a DEV image (branch-<slug> + sha
+    #   tags, GHCR only) iff the project sets publish.container.dev_push, else
+    #   validate-only. Fork PRs are excluded outright (first clause), as they have
+    #   no secrets.
     #
     # The decision lives in hyperi_ci.release_mode, keyed off
     # HYPERCI_RELEASE_MODE + the event context.
@@ -146,17 +149,132 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
-      packages: write
+      packages: read
     outputs:
       # Whether this project ships a container at all, so tag-and-release can
       # tell "the deliverable failed" from "there was never a container".
       ships-container: ${{ steps.resolve.outputs.build }}
-      # <repo>:<version tag>@sha256:<digest>, set only when an image was pushed.
-      # The release.helm.contract chart pins it.
-      image: ${{ steps.build.outputs.image }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+      push: ${{ steps.plan.outputs.push }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      created: ${{ steps.plan.outputs.created }}
+    steps:
+      - name: Install uv
+        id: uv_try1
+        continue-on-error: true
+        # Before the checkout, so setup-uv reads no repo `required-version`. The
+        # workdir is empty by design, hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          # The v* tags decide whether this image may take `:latest`.
+          fetch-tags: true
+          # A persisted token sits on disk for every later step to read.
+          persist-credentials: false
+
+      - name: Resolve container build (app vs library)
+        # enabled:false -> no, enabled:true -> yes, auto -> filesystem signal
+        # (Dockerfile or rustlib contract). A library allocates no leg runner and
+        # never logs in to a registry (issue #33).
+        id: resolve
+        env:
+          HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
+        run: ${{ env.HYPERCI_INSTALL }} run container
+
+      - name: Set up Python
+        # --no-config: in the checkout uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that runs hyperi-ci,
+        # credentials and all, is downloaded from.
+        if: steps.resolve.outputs.build == 'true'
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install --no-config "$PYTHON_VERSION"
+
+      - name: GHCR login
+        # Read-only: the plan only reads the published image to decide reuse.
+        if: steps.resolve.outputs.build == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build artifacts
+        # A binary-backed image builds only the arches whose binaries exist.
+        if: steps.resolve.outputs.build == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-dist-*
+          path: ${{ runner.temp }}/build-dist
+          merge-multiple: true
+
+      - name: Place dist/
+        # Only that tree, so an artefact from a job that ran repo code
+        # cannot overwrite .hyperi-ci.yaml, the Dockerfile or any other checkout file.
+        # --remove-destination and no -L, as in Tag & Release.
+        if: steps.resolve.outputs.build == 'true'
+        run: |
+          for tree in dist; do
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
+          done
+
+      - name: Plan the per-arch legs
+        id: plan
+        if: steps.resolve.outputs.build == 'true'
+        env:
+          HYPERCI_CONTAINER_MODE: plan
+          # A CLI release without plan mode ignores the mode and only resolves.
+          HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
+          HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} run container
+
+      - name: Refuse a CLI without plan mode
+        # Its legs would ignore the mode and push a full tagged multi-arch image.
+        if: steps.resolve.outputs.build == 'true' && steps.plan.outputs.platforms == ''
+        run: |
+          echo "::error::The hyperi-ci CLI wrote no container plan, so it predates per-arch legs. Clear HYPERCI_INSTALL_OVERRIDE or pin a newer release."
+          exit 1
+
+  container-build:
+    name: Container (${{ matrix.platform }})
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 135
+    needs: [container-plan]
+    if: github.event.pull_request.head.repo.fork != true && needs.container-plan.outputs.ships-container == 'true' && needs.container-plan.outputs.reuse != 'true'
+    # arm64 builds on GitHub's native arm64 runner in every mode, never under
+    # emulation on x64. ARC has no arm64 nodes.
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-26.04-arm' || (inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      # One leg dying must not cancel another that is pushing.
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.container-plan.outputs.platforms) }}
     # This job holds registry logins and a packages:write token, so its stamp skips
     # release.stamp_cmd (Build and Prepare run it). The skip needs a CLI release
     # that carries it: on an older CLI, or under a HYPERCI_INSTALL_OVERRIDE pin,
@@ -169,7 +287,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -177,13 +295,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -191,8 +309,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.sha }}
-          # The v* tags decide whether this image may take `:latest`: a
-          # re-published older tag must not move it off a newer release.
           fetch-tags: true
           # A persisted token sits on disk for every later step to read.
           persist-credentials: false
@@ -215,22 +331,10 @@ jobs:
           export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
           git submodule update --init --depth 1 $SUBMODULES
 
-      - name: Resolve container build (app vs library)
-        # Decide before booting Buildx whether this project ships a container:
-        # enabled:false -> no, enabled:true -> yes, auto -> filesystem signal
-        # (Dockerfile or rustlib contract). Gating every Docker step on this keeps a
-        # library from pulling buildkit from Docker Hub or logging in to GHCR
-        # (issue #33).
-        id: resolve
-        env:
-          HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
-        run: ${{ env.HYPERCI_INSTALL }} run container
-
       - name: Set up Python
         # --no-config: in the checkout uv reads the repo's [tool.uv], whose
         # python-install-mirror picks where the interpreter that runs hyperi-ci,
         # credentials and all, is downloaded from.
-        if: steps.resolve.outputs.build == 'true'
         env:
           PYTHON_VERSION: ${{ inputs.python-version }}
         run: uv python install --no-config "$PYTHON_VERSION"
@@ -240,7 +344,7 @@ jobs:
         # never reaches the tree the Dockerfile copies (issue dfe-engine#271).
         # A `tag` dispatch stamps too: the tagged tree carries the release
         # before it (issue #352). This tree is never committed.
-        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.next-version != ''
+        if: inputs.will-publish == 'true' && inputs.next-version != ''
         env:
           RELEASE_VERSION: ${{ inputs.next-version }}
           # Env, not the --no-stamp-cmd flag: a CLI release older than the flag
@@ -251,8 +355,8 @@ jobs:
       - name: Docker Hub login (authenticated pulls only)
         # Docker Hub is not a publish target. The login only avoids anonymous rate
         # limits when the Dockerfile pulls a Hub base image, and needs the org var.
-        if: steps.resolve.outputs.build == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -260,8 +364,7 @@ jobs:
       - name: GHCR login
         # GITHUB_TOKEN with job-level packages:write can create repo-owned packages
         # on first push.
-        if: steps.resolve.outputs.build == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -270,7 +373,7 @@ jobs:
       - name: Find the runner pod's job cgroup for the builder
         # After the Docker Hub login: the probe pulls the buildkit image setup-buildx uses next.
         id: cgroup
-        if: steps.resolve.outputs.build == 'true' && vars.HYPERCI_BUILDX_CGROUP_PARENT == ''
+        if: vars.HYPERCI_BUILDX_CGROUP_PARENT == ''
         continue-on-error: true
         env:
           HYPERCI_CONTAINER_CGROUP_PROBE: "1"
@@ -279,7 +382,6 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run container
 
       - name: Set up Docker Buildx
-        if: steps.resolve.outputs.build == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         # The builder's default cgroup parent, /docker/buildx, sits at the node root outside a runner pod's memory limit (issue #284). HYPERCI_BUILDX_CGROUP_PARENT overrides the probe, and with neither set buildx keeps its default.
         with:
@@ -288,8 +390,7 @@ jobs:
       - name: Download build artifacts
         # The build-dist-* artifact carries dist/, and the Container stage looks for
         # dist/<binary> relative to cwd.
-        if: steps.resolve.outputs.build == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -299,18 +400,123 @@ jobs:
         # Only that tree, so an artefact from a job that ran repo code
         # cannot overwrite .hyperi-ci.yaml, the Dockerfile or any other checkout file.
         # --remove-destination and no -L, as in Tag & Release.
-        if: steps.resolve.outputs.build == 'true'
         run: |
           for tree in dist; do
             if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
+      - name: Build container
+        # A push run pushes this platform by digest alone, and the merge job tags it.
+        id: build
+        env:
+          HYPERCI_CONTAINER_MODE: leg
+          HYPERCI_CONTAINER_PLATFORM: ${{ matrix.platform }}
+          HYPERCI_CONTAINER_CREATED: ${{ needs.container-plan.outputs.created }}
+          HYPERCI_CONTAINER_DIGEST_DIR: ${{ runner.temp }}/container-digests
+          HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
+          # Authoritative image-tag version, the value Build stamps and
+          # Tag-and-Release releases. The VERSION file fallback is stale on a
+          # shallow/tagless container checkout (issue #27).
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} run container
+
+      - name: Upload the leg's digest
+        # Named by matrix index because a platform holds a `/`, which an artifact name may not.
+        if: needs.container-plan.outputs.push == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-digest-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/container-digests/
+          if-no-files-found: error
+          retention-days: 1
+
+  container:
+    name: Container
+    timeout-minutes: 30
+    needs: [container-plan, container-build]
+    # always(): a reuse run skips every leg, and the merge still re-points the tags.
+    if: >-
+      ${{ always()
+          && needs.container-plan.result == 'success'
+          && needs.container-plan.outputs.ships-container == 'true'
+          && needs.container-plan.outputs.push == 'true'
+          && (needs.container-build.result == 'success'
+              || needs.container-plan.outputs.reuse == 'true') }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ships-container: ${{ needs.container-plan.outputs.ships-container }}
+      # <repo>:<version tag>@sha256:<digest>, set only when an image was pushed.
+      # The release.helm.contract chart pins it.
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Install uv
+        id: uv_try1
+        continue-on-error: true
+        # Before the checkout, so setup-uv reads no repo `required-version`. The
+        # workdir is empty by design, hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          # The v* tags decide whether this image may take `:latest`: a
+          # re-published older tag must not move it off a newer release.
+          fetch-tags: true
+          # A persisted token sits on disk for every later step to read.
+          persist-credentials: false
+
+      - name: Set up Python
+        # --no-config: in the checkout uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that runs hyperi-ci,
+        # credentials and all, is downloaded from.
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install --no-config "$PYTHON_VERSION"
+
+      - name: GHCR login
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Download the leg digests
+        if: needs.container-plan.outputs.reuse != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: container-digest-*
+          path: ${{ runner.temp }}/container-digests
+          merge-multiple: true
+
       - name: Guard -- the branch has not moved past this release
-        # Last step before the push, which runs ahead of the tag: semantic-release
+        # Last step before the tags, which go on ahead of the git tag: semantic-release
         # tags nothing once main moves, and the image would ship untagged (issue #717).
         if: >-
-          ${{ steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true'
-              && inputs.tag == '' && inputs.fork != 'true'
+          ${{ inputs.will-publish == 'true'
+              && inputs.tag == '' && inputs.fork != 'true' && inputs.candidate != 'true'
               && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
         uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
         with:
@@ -318,16 +524,15 @@ jobs:
           before: pushing the container image, so nothing was published
           version: ${{ inputs.next-version }}
 
-      - name: Build container
-        # HYPERCI_RELEASE_MODE unset/false -> docker build only. true -> build and
-        # push to all configured registries.
+      - name: Merge the legs into one tagged image
         id: build
-        if: steps.resolve.outputs.build == 'true'
         env:
+          HYPERCI_CONTAINER_MODE: merge
+          HYPERCI_CONTAINER_PLATFORMS: ${{ needs.container-plan.outputs.platforms }}
+          HYPERCI_CONTAINER_REUSE: ${{ needs.container-plan.outputs.reuse }}
+          HYPERCI_CONTAINER_CREATED: ${{ needs.container-plan.outputs.created }}
+          HYPERCI_CONTAINER_DIGEST_DIR: ${{ runner.temp }}/container-digests
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
-          # Authoritative image-tag version, the value Build stamps and
-          # Tag-and-Release releases. The VERSION file fallback is stale on a
-          # shallow/tagless container checkout (issue #27).
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
@@ -341,7 +546,7 @@ jobs:
     # no secret and a read-only token, and Tag & Release only uploads what it
     # leaves (issue #409).
     if: inputs.will-publish == 'true'
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -350,7 +555,7 @@ jobs:
         continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -358,13 +563,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -382,7 +587,7 @@ jobs:
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
         if: inputs.language == 'typescript'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -399,7 +604,7 @@ jobs:
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -423,7 +628,7 @@ jobs:
       - name: Set up Node.js
         # No self-hosted skip: the org's publish runners carry no Node.
         if: inputs.language == 'typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -439,7 +644,7 @@ jobs:
       - name: Upload the stamp outputs
         # Before the packaging below runs the repo's build scripts and package
         # scripts, which could otherwise rewrite these files.
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-stamped
           path: ${{ runner.temp }}/release-stamped
@@ -458,7 +663,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$PREPARED_DIR" --phase package
 
       - name: Upload the prepared release
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
@@ -472,7 +677,7 @@ jobs:
     # notice never fires. Its own job, because prepare holds no write token.
     needs: [prepare]
     if: failure() && needs.prepare.result == 'failure'
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       issues: write
@@ -482,7 +687,7 @@ jobs:
         continue-on-error: true
         # This job never checks out the repo, so the workdir is empty throughout,
         # hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -490,13 +695,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -522,7 +727,7 @@ jobs:
     name: Tag & Release
     # At least twice the longest successful run across the fleet (issue #262).
     timeout-minutes: 45
-    needs: [container, prepare]
+    needs: [container-plan, container, prepare]
     # Runs iff a release is being published. For a project with no container it is
     # decoupled from the container outcome (issue #33), so a transient registry
     # hiccup cannot lose the crate/PyPI/npm + GitHub Release or skip the tag.
@@ -540,15 +745,19 @@ jobs:
     # Nothing here builds, packs or stamps: those run the repo's code, and this
     # job holds every publish credential, so they happen in `prepare` and this
     # job uploads what it left. A failed prepare therefore cuts no tag.
+    #
+    # Only an explicit `false` from the plan's resolve reads as "no container": a
+    # plan that dies before resolve leaves the output empty, and that blocks
+    # (issue #764). The merge job skips for a library, so the plan carries it.
     if: >-
       ${{ always() && inputs.will-publish == 'true'
           && needs.prepare.result == 'success'
           && (needs.container.result == 'success'
-              || needs.container.outputs.ships-container != 'true') }}
+              || needs.container-plan.outputs.ships-container == 'false') }}
     # ARC, like the rest of the tail. The image lacks the aws CLI needed for R2, so
     # hyperi-ci installs AWS's signed v2 bundle on demand
     # (native_deps.ensure_aws_cli).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: write
       issues: write
@@ -563,7 +772,7 @@ jobs:
         # First, before anything that can fail: every later step, including the
         # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted runners
         # ship no uv. The workdir is empty by design, hence ignore-empty-workdir.
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -571,13 +780,13 @@ jobs:
         id: uv_try2
         if: ${{ steps.uv_try1.outcome == 'failure' }}
         continue-on-error: true
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
       - name: Install uv (retry 2)
         if: ${{ steps.uv_try2.outcome == 'failure' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           ignore-empty-workdir: true
@@ -588,7 +797,7 @@ jobs:
         # working directory's rust-toolchain.toml, and its `path` names a
         # program to run.
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -597,7 +806,7 @@ jobs:
         # a from-head auto dispatch, and the org's publish runners carry none.
         # Before the checkout, so no repo file can steer which Node is installed.
         if: inputs.language == 'typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -612,7 +821,7 @@ jobs:
 
       - name: Download build artifacts
         # The Build job uploads dist/.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
@@ -631,7 +840,7 @@ jobs:
           done
 
       - name: Download the prepared release
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
@@ -643,7 +852,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/release-prepared/stamped"
 
       - name: Download the stamp outputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-stamped
           path: ${{ runner.temp }}/release-prepared/stamped
@@ -678,7 +887,7 @@ jobs:
         # workflows.
         id: bot
         if: steps.appkey.outputs.has == 'true'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -701,8 +910,8 @@ jobs:
       - name: Setup semantic-release (shared toolchain -- single source of truth)
         # Runs the version oracle on a push, and on a from-head `auto`
         # dispatch (release/retry HEAD letting semantic-release pick the
-        # version from commits). Forced bumps and a fork use tag-head instead.
-        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' }}
+        # version from commits). Forced bumps, a fork and a candidate use tag-head instead.
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' && inputs.candidate != 'true' }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Guard -- predicted tag must not already exist off-HEAD
@@ -730,7 +939,7 @@ jobs:
       - name: Guard -- the branch has not moved past this release
         # Before the charts, which publish ahead of the tag, as in the Container job.
         if: >-
-          ${{ inputs.tag == '' && inputs.fork != 'true'
+          ${{ inputs.tag == '' && inputs.fork != 'true' && inputs.candidate != 'true'
               && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
         uses: hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main
         with:
@@ -765,24 +974,25 @@ jobs:
         # version oracle, so its next-version is materialised via tag-head
         # (idempotent, off-HEAD-guarded, works with persist-credentials: false).
         # Once the first tag exists this branch never fires again.
-        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' }}
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && inputs.fork != 'true' && inputs.candidate != 'true' }}
         env:
           # One token variable: with two, semantic-release vets each auth URL with a push dry-run that a stale checkout fails. tag-head gets GH_TOKEN on its own command line.
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
-          if [ -z "$(git tag --list 'v[0-9]*')" ]; then
+          if [ -z "$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)" ]; then
             echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
             GH_TOKEN="$GITHUB_TOKEN" ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
             semantic-release --repository-url "https://github.com/${GITHUB_REPOSITORY}"
           fi
 
-      - name: Tag HEAD (fork, first-parent version)
-        # The plan predicted this version from the fork's first-parent commits,
-        # and semantic-release's real run would tag its own from every commit.
-        # CHANGELOG.md gets no entry, as on a tag-less repo's first release.
-        if: ${{ inputs.fork == 'true' }}
+      - name: Tag HEAD (fork or release candidate)
+        # The plan predicted this version: a fork's from its first-parent
+        # commits, a candidate's with its -rc.N suffix. semantic-release's real
+        # run would tag a version of its own. CHANGELOG.md gets no entry, as on
+        # a tag-less repo's first release. A forced bump tags in the next step.
+        if: ${{ inputs.fork == 'true' || (inputs.candidate == 'true' && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto'))) }}
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
@@ -856,16 +1066,18 @@ jobs:
         # Runs after the tag exists and adds an untagged commit via the Git Data
         # API, so no tag points at machine-authored history (the #37 orphaning).
         #
-        # Skipped on a tag dispatch: that checkout is an old tag, and committing its
-        # version onto main would move main back.
+        # A tag dispatch (a promoted candidate) checks out the tagged commit, so
+        # --from-tag builds its CHANGELOG entry onto main's own copy, and a
+        # version older than main's commits nothing (issue #350).
         #
         # Lands on the branch that released, so a beta release never writes main
-        # (issue #417).
+        # (issue #417). A release candidate is cut on main, so it is skipped for
+        # the same reason.
         #
         # Non-fatal: once the registry has the release, a failure here must not
         # turn a shipped release red.
         id: releasecommit
-        if: steps.publish.outcome == 'success' && inputs.tag == ''
+        if: steps.publish.outcome == 'success' && inputs.candidate != 'true'
         continue-on-error: true
         env:
           # Also a push to the default branch, so it needs the bypass actor
@@ -876,6 +1088,7 @@ jobs:
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           RELEASE_VERSION: ${{ inputs.next-version }}
           RELEASE_BRANCH: ${{ github.ref_name }}
+          HYPERCI_RELEASE_FROM_TAG: ${{ inputs.tag != '' }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           --branch "$RELEASE_BRANCH"
@@ -897,11 +1110,13 @@ jobs:
 
       - name: Announce the release
         # semantic-release's `success` step: comment on every issue and PR the
-        # release carries. Idempotent, and never fails a shipped release.
+        # release carries, and report a hotfix to the alert bridge. Idempotent,
+        # and never fails a shipped release.
         if: steps.publish.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALERT_BRIDGE_TOKEN: ${{ secrets.ALERT_BRIDGE_TOKEN }}
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify

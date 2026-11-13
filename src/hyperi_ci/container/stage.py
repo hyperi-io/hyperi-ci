@@ -39,6 +39,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from hyperi_ci.ci_env import is_ci, machine_arch
 from hyperi_ci.common import (
     ReleaseVersionError,
     error,
@@ -59,6 +60,7 @@ from hyperi_ci.container.build import (
     BuildArgError,
     PublishedImage,
     build_and_push,
+    built_natively,
     imagetools_create_command,
     published_image,
     push_by_digest_output,
@@ -224,6 +226,13 @@ def _reusable(
         warn(
             f"{version_tag} is already published from this commit but has no "
             f"{', '.join(missing)} image; rebuilding it with every platform."
+        )
+        return False
+    if image.native is not None and (emulated := sorted(set(platforms) - image.native)):
+        warn(
+            f"{version_tag} is already published from this commit, but its "
+            f"provenance does not show {', '.join(emulated)} built on its own "
+            "arch; rebuilding it natively."
         )
         return False
     info(f"{version_tag} is already published from this commit: reusing it")
@@ -705,6 +714,18 @@ def _merge(
         labels_to_index_annotation_args(spec.labels) if len(platforms) > 1 else []
     )
     sources = [f"{spec.repo}@{digest}" for digest in digests]
+    # Before any tag moves, so an emulated leg never reaches a released tag.
+    emulated = [
+        platform
+        for platform, source in zip(platforms, sources, strict=True)
+        if not built_natively(source, platform)
+    ]
+    if emulated:
+        error(
+            f"The {', '.join(emulated)} leg's provenance does not show it built on "
+            "its own arch, so it is not tagged. Rebuild it on a native runner."
+        )
+        return 1
     if not _create_index(spec.tags, sources, annotations):
         return 1
 
@@ -797,6 +818,8 @@ def _dispatch_build(
     platforms = _select_platforms(spec, requested, binary_backed=binary_backed)
     if platforms is None:
         return 1
+    if is_ci() and _refuse_emulation(platforms):
+        return 1
 
     from hyperi_ci.container.binary_stage import stage_binary_dockerfile
 
@@ -846,6 +869,22 @@ def _dispatch_build(
     return rc
 
 
+def _refuse_emulation(platforms: list[str], machine: str | None = None) -> bool:
+    """Return True, with an error, when a platform is not this runner's own arch.
+
+    BuildKit falls back to its bundled QEMU for a foreign platform, so the only
+    check that the build is native is the runner's CPU.
+    """
+    native = f"linux/{machine_arch(machine)}"
+    foreign = [p for p in platforms if p != native]
+    if foreign:
+        error(
+            f"Refusing to build {', '.join(foreign)} on a {native} runner: it would "
+            "run under emulation. Build each arch on its own runner (leg mode)."
+        )
+    return bool(foreign)
+
+
 def _write_leg_digest(digest_dir: Path, platform: str, digest: str | None) -> int:
     """Write ``digest`` to ``digest_dir/<arch>`` for the merge, returning an exit code."""
     if digest is None:
@@ -874,7 +913,7 @@ _PLATFORM_TO_OS_ARCH = {
 def _template_platforms(platforms: list[str]) -> list[str]:
     """Return one platform for a source-built image's validate or dev build.
 
-    Prefers linux/amd64, the runner's native arch (arm64 runs under qemu),
+    Prefers linux/amd64, the x64 runners' own arch,
     else the first configured platform.
     """
     if "linux/amd64" in platforms:

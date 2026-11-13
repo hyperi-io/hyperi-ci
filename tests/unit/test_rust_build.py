@@ -173,6 +173,7 @@ class TestTier2Summary:
         monkeypatch.setattr(build, "_package_binaries", lambda *_args, **_kwargs: 0)
         # Packaging is stubbed, so there is no packaged file to inspect.
         monkeypatch.setattr(build, "_verify_bolt_shipped", lambda *_args: 0)
+        monkeypatch.setattr(build, "_write_notices", lambda _config: 0)
         monkeypatch.setattr(build, "_build_for_target", on_build)
         monkeypatch.setattr(build, "log_outcome", logged.append)
         return logged
@@ -188,6 +189,7 @@ class TestTier2Summary:
             profile=None,
             *,
             outcome: OptimizationOutcome,
+            phase="",
         ):
             outcome.pgo_applied = True
             outcome.bolt_applied = target.startswith("x86_64")
@@ -224,6 +226,7 @@ class TestTier2Summary:
             profile=None,
             *,
             outcome: OptimizationOutcome,
+            phase="",
         ):
             outcome.pgo_applied = True
             outcome.bolt_applied = True
@@ -276,6 +279,7 @@ class TestTier2Summary:
         self._patch_build(monkeypatch, on_build)
         monkeypatch.setattr(build, "_package_binaries", package)
         monkeypatch.setattr(build, "_verify_bolt_shipped", real_verify)
+        monkeypatch.setattr(build, "_write_notices", lambda _config: 0)
         monkeypatch.chdir(tmp_path)
         config = self._config(
             {
@@ -750,3 +754,59 @@ class TestGlibcGate:
             lambda *_a, **_k: subprocess.CompletedProcess([], 0, self._READELF, ""),
         )
         assert build._check_glibc(tmp_path / "app", limit) is passes
+
+
+class TestStaticLibsLeakGate:
+    """With build.rust.static_libs on, a binary still needing librdkafka fails."""
+
+    @staticmethod
+    def _fake(needed: list[str]):
+        def run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            out = ""
+            if cmd[:2] == ["readelf", "-h"]:
+                out = "  Machine:                           Advanced Micro Devices X86-64\n"
+            elif cmd[:2] == ["readelf", "-d"]:
+                out = "".join(
+                    f" 0x0000000000000001 (NEEDED)  Shared library: [{n}]\n"
+                    for n in needed
+                )
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+
+        return run
+
+    @pytest.mark.parametrize(
+        ("needed", "static_only", "passes"),
+        [
+            pytest.param(["libc.so.6", "libm.so.6"], ("librdkafka",), True, id="clean"),
+            pytest.param(
+                ["libc.so.6", "librdkafka.so.1"],
+                ("librdkafka",),
+                False,
+                id="rdkafka-leaked",
+            ),
+            pytest.param(
+                ["libssl.so.3"], ("librdkafka", "libssl"), False, id="ssl-leaked"
+            ),
+            pytest.param(["librdkafka.so.1"], (), True, id="gate-off"),
+        ],
+    )
+    def test_a_leaked_shared_library_fails_verification(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        needed: list[str],
+        static_only: tuple[str, ...],
+        passes: bool,
+    ) -> None:
+        binary = tmp_path / "app"
+        binary.write_bytes(b"\0" * 200_000)
+        monkeypatch.setattr(build, "run_cmd", self._fake(needed))
+        monkeypatch.setattr(
+            build.shutil,
+            "which",
+            lambda name: "/usr/bin/readelf" if name == "readelf" else None,
+        )
+        verified = build._verify_binary(
+            binary, "x86_64-unknown-linux-gnu", None, static_only
+        )
+        assert verified is passes

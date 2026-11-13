@@ -10,7 +10,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from hyperi_ci.cli import app
 from hyperi_ci.quality import commit_validation as cv
 from hyperi_ci.quality.commit_validation import (
     ValidationResult,
@@ -18,6 +20,70 @@ from hyperi_ci.quality.commit_validation import (
     format_type_list,
     validate_message,
 )
+
+
+@pytest.mark.parametrize(
+    ("message", "code", "says"),
+    [
+        pytest.param("fix: correct the parser", 0, "", id="valid"),
+        pytest.param("fixed the parser", 1, "Computer says no", id="invalid"),
+        pytest.param(None, 1, "Cannot read the commit message file", id="no-file"),
+        pytest.param(
+            "fix: a robust parser\n\nThe body may say leverage.",
+            0,
+            "register word 'robust': say what it withstands",
+            id="register-word-warns",
+        ),
+    ],
+)
+def test_check_commit_reads_a_message_file(
+    tmp_path: Path, message: str | None, code: int, says: str
+) -> None:
+    path = tmp_path / "MSG"
+    if message is not None:
+        path.write_text(message, encoding="utf-8")
+    result = CliRunner().invoke(app, ["check-commit", str(path)])
+    assert result.exit_code == code
+    assert says in result.output
+    # Only the subject is judged.
+    assert "leverage" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_check_commit_prints_the_register_words() -> None:
+    result = CliRunner().invoke(app, ["check-commit", "--register-words"])
+    assert result.exit_code == 0
+    words = json.loads(result.output)
+    assert len(words) == 56
+    assert all(set(w) == {"term", "pattern", "replacement"} for w in words)
+    robust = {
+        "term": "robust",
+        "pattern": r"\brobust(?:ly|ness)?\b",
+        "replacement": "say what it withstands",
+    }
+    assert robust in words
+
+
+@pytest.mark.parametrize(
+    ("line", "terms"),
+    [
+        pytest.param("fix: correct the parser", [], id="clean"),
+        pytest.param("fix: a ROBUST parser", ["robust"], id="any-case"),
+        pytest.param("fix: leverage the cache", ["leverage (verb)"], id="verb"),
+        pytest.param("fix: add end-to-end tests", [], id="lookahead-exempt"),
+        pytest.param("fix: end-to-end flow", ["end-to-end"], id="lookahead-hit"),
+        pytest.param("fix: elevate privileges", [], id="elevate-privileges"),
+        pytest.param(
+            "fix: simply a seamless seam", ["simply", "seamless", "seam"], id="several"
+        ),
+        pytest.param("", [], id="empty"),
+    ],
+)
+def test_register_hits(line: str, terms: list[str]) -> None:
+    from hyperi_ci.quality import register_words
+
+    assert [w.term for w in register_words.hits(line)] == terms
+
 
 # ---------------------------------------------------------------------------
 # Valid messages
@@ -654,6 +720,28 @@ class TestRunDegraded:
         assert rc == 1
         assert any("DEGRADED" in w for w in warns)  # warns loudly, never silent
 
+    def test_register_word_on_push_only_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "fix: base")
+        head = _commit(repo, "fix: leverage the cache")
+        _git(repo, "commit", "--allow-empty", "-q", "-m", "Merge a robust branch")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        payload = _write_push_event(tmp_path, base, "HEAD")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+        warns: list[str] = []
+        monkeypatch.setattr(cv, "warn", warns.append)
+
+        assert cv.run() == 0
+        # The skipped merge commit is not judged.
+        assert warns == [
+            f"[{head[:8]}] register word 'leverage (verb)': use"
+            " -- in 'fix: leverage the cache'"
+        ]
+
     def test_degraded_head_valid_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -909,6 +997,19 @@ class TestRunPrTitle:
         assert any("(PR title; 2 commit(s))" in s for s in log.successes)
         assert log.errors == []
         assert log.warns == []
+
+    def test_register_word_in_the_title_only_warns(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr_run("fix: robust tree", _FakeGh(pr=_pr("fix: robust tree")))
+
+        assert cv.run() == 0
+        assert log.errors == []
+        assert log.warns == [
+            "[PR title] register word 'robust': say what it withstands"
+            " -- in 'fix: robust tree'"
+        ]
 
     def test_live_title_wins_over_the_stale_payload(
         self, pr_run, monkeypatch: pytest.MonkeyPatch

@@ -105,8 +105,8 @@ class TestEveryInstallRetries:
 
 
 def test_the_expected_installs_are_all_found() -> None:
-    # setup-runtime, predict-version, 4 in the tail, 3 in each of 4 language CIs.
-    assert len(_all()) == 1 + 1 + 4 + 3 * 4
+    # setup-runtime, predict-version, 6 in the tail, 3 in each of 4 language CIs.
+    assert len(_all()) == 1 + 1 + 6 + 3 * 4
 
 
 @pytest.mark.parametrize("rel", SOURCES)

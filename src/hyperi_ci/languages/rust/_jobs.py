@@ -16,24 +16,28 @@ last is detected and nothing is set, since cargo ranks our env var above it.
 """
 
 import os
+import shutil
 import tomllib
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
-from hyperi_ci.languages.rust.runner_fit import record_phase
+from hyperi_ci.languages.rust.runner_fit import planned_gib_per_job, record_phase
 from hyperi_ci.memory import (
     CGROUP_ROOT,
     GIB,
     PROC_SELF_CGROUP,
     MemoryLimit,
+    cgroup_v2_memory_stall,
     cgroup_v2_peak,
     cgroup_v2_peak_file,
+    cgroup_v2_swap_peak,
     memory_limit,
 )
+from hyperi_ci.swap import ensure_free_runner_swap
 
 JOBS_ENV = "CARGO_BUILD_JOBS"
 
@@ -106,17 +110,18 @@ def _override(config: CIConfig) -> int | None:
     return None
 
 
-def _gib_per_job(config: CIConfig) -> float:
-    """Return ``build.rust.memory_per_job_gib``, the shipped value when unusable."""
+def _gib_per_job(config: CIConfig, environ: Mapping[str, str]) -> float:
+    """Return the per-job memory plan, the shipped value when the setting is unusable."""
     value = config.setting("build.rust.memory_per_job_gib")
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-        return float(value)
-    shipped = float(shipped_default("build.rust.memory_per_job_gib"))
-    warn(
-        f"  build.rust.memory_per_job_gib: {value!r} is not a positive number, "
-        f"using {shipped}"
-    )
-    return shipped
+        configured = float(value)
+    else:
+        configured = float(shipped_default("build.rust.memory_per_job_gib"))
+        warn(
+            f"  build.rust.memory_per_job_gib: {value!r} is not a positive number, "
+            f"using {configured}"
+        )
+    return planned_gib_per_job(configured, config, environ) or configured
 
 
 def cargo_jobs_env(
@@ -126,6 +131,7 @@ def cargo_jobs_env(
     cwd: Path | None = None,
     limit: MemoryLimit | None = None,
     cpus: int | None = None,
+    swap_bytes: int | None = None,
 ) -> dict[str, str]:
     """Return the ``CARGO_BUILD_JOBS`` setting a Rust stage should run with.
 
@@ -135,6 +141,7 @@ def cargo_jobs_env(
         cwd: The directory cargo runs in; the process cwd if None.
         limit: The memory limit; read from the host if None.
         cpus: The CPU budget; read from the host if None.
+        swap_bytes: Active swap, logged beside the memory limit when known.
 
     Returns:
         ``{"CARGO_BUILD_JOBS": "<n>"}``, or empty when the job count is
@@ -154,7 +161,7 @@ def cargo_jobs_env(
         info(f"cargo jobs: from [build] jobs in {found}")
         return {}
 
-    gib_per_job = _gib_per_job(config)
+    gib_per_job = _gib_per_job(config, environ)
     cpus = cpus if cpus is not None else cpu_budget()
     limit = limit if limit is not None else memory_limit()
     jobs = jobs_for(cpus, limit, gib_per_job)
@@ -163,6 +170,8 @@ def cargo_jobs_env(
         if limit is not None
         else "no memory limit found"
     )
+    if swap_bytes is not None:
+        memory += f", {swap_bytes / GIB:.1f} GiB swap"
     info(
         f"cargo jobs: {jobs} ({memory}, {gib_per_job:g} GiB per job, CPU budget {cpus},"
         f" CPU {cpu_model() or 'unknown'})"
@@ -181,6 +190,9 @@ def capped_cargo_jobs(
 ) -> Iterator[None]:
     """Set ``CARGO_BUILD_JOBS`` for the duration of a Rust stage.
 
+    On a free runner swap is added first, so memory short of the build costs
+    time instead of the job.
+
     Args:
         config: Merged CI configuration.
         environ: The environment to set it in; ``os.environ`` if None.
@@ -193,13 +205,32 @@ def capped_cargo_jobs(
 
     """
     target = os.environ if environ is None else environ
-    updates = cargo_jobs_env(config, target, cwd=cwd, limit=limit, cpus=cpus)
+    limit = limit if limit is not None else memory_limit()
+    swap = ensure_free_runner_swap(limit.limit_bytes, target) if limit else None
+    updates = cargo_jobs_env(
+        config, target, cwd=cwd, limit=limit, cpus=cpus, swap_bytes=swap
+    )
     target.update(updates)
     try:
         yield
     finally:
         for key in updates:
             target.pop(key, None)
+
+
+def log_free_disk(phase: str, mounts: tuple[Path, ...] | None = None) -> None:
+    """Log free space on the workspace's filesystem and on ``/``, once each."""
+    seen: set[int] = set()
+    for mount in mounts or (Path.cwd(), Path("/")):
+        device = mount.stat().st_dev
+        if device in seen:
+            continue
+        seen.add(device)
+        usage = shutil.disk_usage(mount)
+        info(
+            f"disk after {phase}: {mount} {usage.free / GIB:.1f} GiB free"
+            f" of {usage.total / GIB:.1f} GiB"
+        )
 
 
 def log_peak_memory(
@@ -221,7 +252,20 @@ def log_peak_memory(
     """
     peak = cgroup_v2_peak(root, proc_self_cgroup)
     record_phase(phase, peak)
+    log_free_disk(phase)
     if peak is None:
         return
     source = cgroup_v2_peak_file(root, proc_self_cgroup)
-    info(f"memory peak after {phase}: {peak / GIB:.1f} GiB (cgroup v2 {source})")
+    swap = cgroup_v2_swap_peak(root, proc_self_cgroup)
+    swap_text = f", swap peak {swap / GIB:.1f} GiB" if swap is not None else ""
+    stall = cgroup_v2_memory_stall(root, proc_self_cgroup)
+    stall_text = (
+        f", memory stall {stall.some_seconds:.1f}s some / {stall.full_seconds:.1f}s"
+        f" full, {stall.oom_kills} OOM kills"
+        if stall is not None
+        else ""
+    )
+    info(
+        f"memory peak after {phase}: {peak / GIB:.1f} GiB{swap_text}{stall_text}"
+        f" (cgroup v2 {source})"
+    )

@@ -137,6 +137,8 @@ holding a webhook URL. The URL never goes in config -- config is committed.
 
 ## Before the release starts
 
+Plan refuses a release from a repo whose DECLARED classification forbids publishing. That means `internal`, or `product` while the GitHub repo is private. The refusal fails Plan, so nothing is tagged, pushed or uploaded. It reads `.hyperi-ci.yaml`, then `.hyperi-classification`, and honours `HYPERCI_CLASSIFICATION`. An undeclared repo still publishes. A misspelt marker does not.
+
 `hyperi-ci preflight` runs in the plan job on a release run: semantic-release's
 `verifyConditions` equivalent. It checks only the destinations the project
 actually publishes to, and blocks only where the handler hard-fails without the
@@ -147,7 +149,7 @@ credential.
 | crates.io | **blocks** -- `cargo publish` cannot authenticate |
 | npm | **blocks** -- `npm publish` cannot authenticate |
 | PyPI | warns -- the upload falls back to OIDC trusted publishing |
-| Cloudflare R2 | warns -- binaries reach GitHub Releases but not downloads.hyperi.io |
+| Cloudflare R2 | warns here, because a repo with no binaries in `dist/` never uploads. A release that has binaries fails at the R2 upload, since R2 is the only binary destination by default |
 
 A Rust binary app is never asked for a crates.io token: its publish handler
 returns early whatever `release.destinations.cargo` says (the old
@@ -173,7 +175,8 @@ footer.
 - [versioning-commit-back.md](versioning-commit-back.md) -- how VERSION gets
   committed back after a release, and the stamp_cmd mechanics
 - [prereleases.md](prereleases.md) -- cutting `1.2.0-beta.1` off a branch so a
-  release can be rehearsed without the stable sequence moving
+  release can be rehearsed without the stable sequence moving, and release
+  candidates from main with `hyperi-ci promote`
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) -- how this
   per-repo line relates to a DFE stack version, and which ladder owns `rc`
 - [architecture.md](architecture.md) -- the job graph these versions flow through

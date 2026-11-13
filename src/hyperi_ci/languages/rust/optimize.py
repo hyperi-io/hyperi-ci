@@ -85,6 +85,8 @@ class OptimizationOutcome:
     allocator: str = "system"
     pgo_applied: bool = False
     bolt_applied: bool = False
+    # Another build phase packages this target, so this job packages nothing.
+    deferred: bool = False
 
     def describe(self) -> str:
         """Human-readable one-line summary for CI logs."""

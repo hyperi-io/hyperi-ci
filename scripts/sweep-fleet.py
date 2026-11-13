@@ -43,8 +43,8 @@ Usage:
     uv run scripts/sweep-fleet.py --pending-file pending.json
     uv run scripts/sweep-fleet.py --collect pending.json
 Exit 1 on a failing fixture, 2 when the sweep proved nothing. With
-`--pending-file`, exit 0 when only runs still going are left, because the
-`--collect` run decides.
+`--pending-file`, exit 0 when runs are still going and none has failed, because
+the `--collect` run decides.
 """
 
 import argparse
@@ -663,7 +663,8 @@ def main() -> int:
     results = _sweep(targets, args.timeout_minutes)
     if args.pending_file:
         settled, pending = split_pending(results)
-        if pending:
+        # A fixture that already failed is FLEET RED whatever the slow ones do.
+        if pending and sweep_verdict(names, settled)[0] != 1:
             write_pending(Path(args.pending_file), names, settled, pending)
             set_github_output(pending="true")
             _print_results(sweep_verdict(names, results)[1])

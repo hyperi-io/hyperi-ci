@@ -133,6 +133,47 @@ class TestResolveCharts:
             charts.resolve_charts(["charts/app"], repo)
 
 
+@pytest.mark.parametrize(
+    ("helm", "rc", "says"),
+    [
+        pytest.param({"enabled": False}, 0, "", id="disabled"),
+        pytest.param(
+            {"enabled": True, "charts": []}, 1, "lists no chart", id="nothing-listed"
+        ),
+        pytest.param({"enabled": True, "contract": "emit"}, 0, "", id="contract-only"),
+        pytest.param(
+            {"enabled": True, "charts": ["helm/charts/*"]}, 0, "", id="glob-resolves"
+        ),
+        pytest.param(
+            {"enabled": True, "charts": ["deploy"]},
+            1,
+            "has no Chart.yaml",
+            id="bad-dir",
+        ),
+        pytest.param(
+            {"enabled": True, "charts": ["helm/library/*"]},
+            1,
+            "no application chart",
+            id="library-only",
+        ),
+    ],
+)
+def test_check_config_fails_before_the_release(
+    dfe_infra_shape: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    helm: dict,
+    rc: int,
+    says: str,
+) -> None:
+    errors: list[str] = []
+    monkeypatch.setattr(charts, "error", errors.append)
+    config = CIConfig(_raw={"release": {"helm": helm}})
+
+    assert charts.check_config(config, dfe_infra_shape) == rc
+    assert all(says in e and "publish-charts would fail" in e for e in errors)
+    assert len(errors) == rc
+
+
 @needs_helm
 class TestPackageWithRealHelm:
     def test_app_version_is_set_only_when_missing(

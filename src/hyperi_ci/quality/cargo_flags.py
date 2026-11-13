@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from hyperi_ci.build_targets import declared_targets
+from hyperi_ci.build_targets import DEFAULT_CI_TRIPLES, ci_targets
 from hyperi_ci.common import info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
@@ -35,9 +35,6 @@ from hyperi_ci.quality import findings as fdg
 
 _TOOL = "cargo-flags"
 CARGO_CONFIG = Path(".cargo/config.toml")
-
-#: The triples CI builds when ``build.rust.targets`` lists none.
-DEFAULT_CI_TRIPLES = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
 
 
 def _negations_under_excluded_dirs(gitignore: str) -> list[tuple[int, str, str]]:
@@ -195,11 +192,7 @@ def run(
         return 0
 
     root = project_root or Path.cwd()
-    try:
-        triples = declared_targets(config._raw) or DEFAULT_CI_TRIPLES
-    except ValueError:
-        triples = DEFAULT_CI_TRIPLES
-    found = scan(root, ci_triples=triples)
+    found = scan(root, ci_triples=ci_targets(config._raw))
 
     fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 

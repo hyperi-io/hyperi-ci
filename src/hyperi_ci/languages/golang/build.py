@@ -150,7 +150,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         error("go not installed")
         return 1
 
-    extra = extra_env or {}
+    # Dispatch passes no GO_* keys, so the documented env vars come from the
+    # process, as GO_MAIN_PKG and GO_LDFLAGS already do.
+    extra = {**os.environ, **(extra_env or {})}
     info("Building Golang project...")
 
     targets_raw = config.setting("build.golang.targets")

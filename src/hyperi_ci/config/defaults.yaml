@@ -104,6 +104,11 @@ quality:
   # See docs/quality-gate.md#relaxing-a-security-gate.
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+  # Each shipped dependency's licence against config/licensing.yaml. A
+  # mapping also takes `overrides` (name, licence, reason, version) for a
+  # dependency the tools cannot settle, and `vendored` (path, licence + reason
+  # for files with no SPDX header) for source copied into the tree.
+  dep_licenses: warn
   # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
   # ratchet: this repo still carries ~900 lines of it. Promote at zero.
   charset: warn              # Typography a keyboard cannot produce; plus ASCII-art diagrams
@@ -273,9 +278,18 @@ test:
   # fails the stage. Known: helm, kustomize, tofu.
   native_tools: []
 
+  # Globs, relative to the project root, of logs a test run writes. The test
+  # stage prints the last 400 lines of each match after the tests, pass or
+  # fail. The default is the shared-service harness's per-run log.
+  logs:
+    - "target/tmp/shared-services-*.log"
+
   full:
     # Whether a release must have run the full tier.
     required_for_release: false
+    # UTC hours, both ends inclusive, in which `hyperi-ci init` places a repo's
+    # nightly full-tier cron. Each repo hashes to its own minute and hour in it.
+    schedule_window_utc: "14-18"
     python:
       # pytest -m expression the full tier passes in place of the project's
       # addopts -m. Empty selects every test; "not live" keeps one marker out.
@@ -382,11 +396,16 @@ build:
     # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
     # workspace whose big crates each take several GiB.
     memory_per_job_gib: 2
+    # The floor on that plan in free mode, where a 4-CPU runner has 15.6 GiB and
+    # 2 GiB per job left 5-9% headroom. A higher `memory_per_job_gib` wins.
+    free_memory_per_job_gib: 4
     # Advice in runner-fit.json on which runner profile holds the Build. It
-    # never changes a runner. `profiles` run cheapest first: x64 under 32 cores
-    # on ARC, 32 cores and arm64 on Namespace. A profile is recommended when
-    # `min_jobs` concurrent rustc at the measured per-job peak fit its memory
-    # with `min_headroom` free. `per_job_drift` is the relative gap to
+    # never changes a runner. `profiles` run cheapest first: the ARC sets for
+    # x64 and GitHub's arm64 runner, the only arm64 runner. A free-mode run has
+    # one size, so its advice is only whether it fits. A profile is recommended when it
+    # has a CPU for each cargo job the build ran (at least `min_jobs`) and that
+    # many jobs at the measured per-job peak fit its memory with `min_headroom`
+    # free. `per_job_drift` is the relative gap to
     # `memory_per_job_gib` that earns a note.
     runner_fit:
       min_headroom: 0.2
@@ -397,11 +416,7 @@ build:
         - {label: arc-native-4x8, arch: amd64, cpus: 4, memory_gib: 8}
         - {label: arc-native-8x16, arch: amd64, cpus: 8, memory_gib: 16}
         - {label: arc-native-16x32, arch: amd64, cpus: 16, memory_gib: 32}
-        - {label: namespace-profile-hyperi-amd64-32x64, arch: amd64, cpus: 32, memory_gib: 64}
-        - {label: namespace-profile-hyperi-arm64-4x8, arch: arm64, cpus: 4, memory_gib: 8}
-        - {label: namespace-profile-hyperi-arm64-8x16, arch: arm64, cpus: 8, memory_gib: 16}
-        - {label: namespace-profile-hyperi-arm64-16x32, arch: arm64, cpus: 16, memory_gib: 32}
-        - {label: namespace-profile-hyperi-arm64-32x64, arch: arm64, cpus: 32, memory_gib: 64}
+        - {label: ubuntu-26.04-arm, arch: arm64, cpus: 4, memory_gib: 15.6}
     # LLVM major for bolt-NN / lld-NN / clang-NN, shimmed ahead of the runner's
     # own unversioned ld.lld and clang. HYPERCI_LLVM_VERSION beats this key, and
     # versions.yaml `runtimes.llvm` is the default, so no value is set here.
@@ -410,6 +425,11 @@ build:
     # debian:trixie). Packaging fails a binary needing newer GLIBC_ symbols.
     # Unset reports the binary's need without failing.
     # glibc_max: "2.41"
+    # Link librdkafka, OpenSSL, zstd and zlib statically from the pinned
+    # static-libs release (docs/languages/rust-static-libs.md). The app keeps
+    # rdkafka's `dynamic-linking` feature, and packaging fails a binary that
+    # still needs librdkafka, libssl, libcrypto, libsasl2 or libcurl.
+    # static_libs: false
 
   golang:
     targets:
@@ -434,6 +454,11 @@ release:
   # channel path, to the same registries as release. A prerelease version
   # carries its own label, which wins over this.
   channel: release
+
+  # true ships every release from main as X.Y.Z-rc.N, a GitHub prerelease with
+  # no PGO or BOLT. `hyperi-ci promote vX.Y.Z-rc.N` tags that commit vX.Y.Z and
+  # rebuilds it as the GA. `hyperi-ci push --hotfix <reason>` releases X.Y.Z directly.
+  candidates: false
 
   # A push to main with no release trailer reports the releasable commits the
   # last v* tag lacks. It is a notice until the oldest of them is more than
@@ -551,6 +576,13 @@ description: ""
 notify:
   slack:
     webhook_env: ""
+  # A hotfix (release.candidates on, a `Hotfix:` trailer) posts its reason to
+  # this alert bridge. The bearer token comes from the variable named here, and
+  # an unset variable or an empty url posts nothing.
+  alerts:
+    url: https://hooks.hyperi.io/infra
+    token_env: ALERT_BRIDGE_TOKEN
+    route: build
 
 # Issue labelling (`hyperi-ci labels`). The org label set is read at run time
 # from `labels.path` on the default branch of the org's `.github` repo. With no

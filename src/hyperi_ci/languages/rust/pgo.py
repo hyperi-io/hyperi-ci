@@ -20,10 +20,12 @@ import shutil
 import stat
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.languages._build_common import elf_section_names
+from hyperi_ci.languages.rust import build_phase
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -90,23 +92,201 @@ def run_pgo_build(
         0 on success, non-zero on failure.
 
     """
-    env_features = extra_env or {}
-    feature_args = cargo_feature_args(
-        profile,
-        env_features.get("RUST_FEATURES", ""),
-        all_features=env_features.get("RUST_ALL_FEATURES") == "true",
+    pipeline = _prepare(
+        target, profile, binary_name, cwd, extra_env, outcome, shipped_binaries
     )
-    cargo_args = [
-        *_bin_scope_args(shipped_binaries or [binary_name]),
-        *feature_args,
-    ]
+    if pipeline is None:
+        return _run_plain_release_build(
+            target, _feature_args(profile, extra_env), cwd, extra_env
+        )
+    if isinstance(pipeline, int):
+        return pipeline
+    rc = _pgo_profile(pipeline)
+    if rc != 0:
+        return rc
+    rc = _pgo_optimize(pipeline)
+    if rc != 0:
+        return rc
+    if pipeline.bolt:
+        _bolt_stage(pipeline)
+    return 0
+
+
+def run_pgo_phase(
+    phase: str,
+    target: str,
+    profile: OptimizationProfile,
+    binary_name: str,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+    outcome: OptimizationOutcome | None = None,
+    shipped_binaries: list[str] | None = None,
+) -> int:
+    """Run one phase of :func:`run_pgo_build`, as one CI job.
+
+    ``outcome.deferred`` is set when another phase packages the binaries. A
+    profile phase that cannot run PGO builds plain and marks the build done, so
+    the later phases do nothing.
+
+    Args:
+        phase: ``pgo-profile``, ``pgo-optimize`` or ``bolt``.
+        target: As for :func:`run_pgo_build`.
+        profile: As for :func:`run_pgo_build`.
+        binary_name: As for :func:`run_pgo_build`.
+        cwd: As for :func:`run_pgo_build`.
+        extra_env: As for :func:`run_pgo_build`.
+        outcome: As for :func:`run_pgo_build`.
+        shipped_binaries: As for :func:`run_pgo_build`.
+
+    Returns:
+        0 on success, non-zero on failure.
+
+    """
+    if phase == build_phase.PROFILE:
+        pipeline = _prepare(
+            target, profile, binary_name, cwd, extra_env, outcome, shipped_binaries
+        )
+        if pipeline is None:
+            rc = _run_plain_release_build(
+                target, _feature_args(profile, extra_env), cwd, extra_env
+            )
+            if rc == 0:
+                build_phase.stash(cwd, target, build_phase.PhaseState(done=True))
+            return rc
+        if isinstance(pipeline, int):
+            return pipeline
+        rc = _pgo_profile(pipeline)
+        if rc != 0:
+            return rc
+        state = build_phase.PhaseState(mold=pipeline.mold, bolt=pipeline.bolt)
+        build_phase.stash(cwd, target, state)
+        _defer(outcome)
+        return 0
+
+    try:
+        state = build_phase.restore(cwd, target)
+    except build_phase.PhaseError as exc:
+        error(str(exc))
+        return 1
+    if state.done:
+        info(f"{target}: built in an earlier phase, nothing to do here")
+        _defer(outcome)
+        return 0
+    pipeline = _prepare(
+        target,
+        profile,
+        binary_name,
+        cwd,
+        extra_env,
+        outcome,
+        shipped_binaries,
+        bolt_planned=state.bolt,
+    )
+    if pipeline is None:
+        error("cargo-pgo is gone since the profile phase, so PGO cannot finish")
+        return 1
+    if isinstance(pipeline, int):
+        return pipeline
+    if state.mold:
+        pipeline.use_mold()
+
+    if phase == build_phase.OPTIMIZE:
+        rc = _pgo_optimize(pipeline)
+        if rc != 0:
+            return rc
+        if pipeline.bolt:
+            handover = build_phase.PhaseState(
+                mold=state.mold, bolt=True, pgo_applied=True
+            )
+            build_phase.stash(cwd, target, handover, pipeline.binaries)
+            _defer(outcome)
+        else:
+            build_phase.stash(cwd, target, build_phase.PhaseState(done=True))
+        return 0
+
+    if outcome:
+        outcome.pgo_applied = state.pgo_applied
+    if not pipeline.bolt:
+        return 0
+    # The profile phase's services ran in another job and are gone.
+    if profile.pgo_workload_setup_cmd:
+        rc = _run_workload_setup(profile.pgo_workload_setup_cmd, cwd)
+        if rc != 0:
+            error("BOLT workload setup failed -- aborting before profiling")
+            return rc
+    _bolt_stage(pipeline)
+    return 0
+
+
+def _defer(outcome: OptimizationOutcome | None) -> None:
+    if outcome:
+        outcome.deferred = True
+
+
+@dataclass(slots=True)
+class _Pipeline:
+    """One target's PGO + BOLT run, shared by the stages and the phases."""
+
+    target: str
+    profile: OptimizationProfile
+    binary_name: str
+    binaries: list[str]
+    cwd: Path
+    extra_env: dict[str, str] | None
+    outcome: OptimizationOutcome | None
+    cargo_args: list[str]
+    bolt: bool
+    build_env: dict[str, str] | None
+    mold: bool = False
+
+    def use_mold(self) -> None:
+        """Link this and every later stage with mold."""
+        # Profile counters push a large binary's text past the +/-128 MB
+        # R_AARCH64_CALL26 branch, which bfd cannot bridge; mold inserts thunks.
+        self.mold = True
+        self.build_env = {
+            **(self.build_env or {}),
+            _target_rustflags_key(self.target): "-C link-arg=-fuse-ld=mold",
+        }
+
+
+def _feature_args(
+    profile: OptimizationProfile, extra_env: dict[str, str] | None
+) -> list[str]:
+    env = extra_env or {}
+    return cargo_feature_args(
+        profile,
+        env.get("RUST_FEATURES", ""),
+        all_features=env.get("RUST_ALL_FEATURES") == "true",
+    )
+
+
+def _prepare(
+    target: str,
+    profile: OptimizationProfile,
+    binary_name: str,
+    cwd: Path,
+    extra_env: dict[str, str] | None,
+    outcome: OptimizationOutcome | None,
+    shipped_binaries: list[str] | None,
+    bolt_planned: bool | None = None,
+) -> _Pipeline | int | None:
+    """Check the toolchain and settle the build env every stage shares.
+
+    Returns:
+        The pipeline, an exit code when the toolchain cannot finish PGO, or
+        None when cargo-pgo is missing and the caller builds plain.
+
+    """
+    binaries = shipped_binaries or [binary_name]
+    cargo_args = [*_bin_scope_args(binaries), *_feature_args(profile, extra_env)]
 
     if not _ensure_cargo_pgo_installed():
         warn(
             "cargo-pgo unavailable -- falling back to plain release build "
             "(Tier 1 optimisations still apply)"
         )
-        return _run_plain_release_build(target, feature_args, cwd, extra_env)
+        return None
 
     try:
         designated_llvm_version(cwd)
@@ -143,86 +323,109 @@ def run_pgo_build(
             "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) -- "
             "skipping BOLT step"
         )
+    # A later phase follows the profile phase's choice, whose profile env it shares.
+    if bolt_planned is not None:
+        bolt = bolt and bolt_planned
     pipeline_env = {**(extra_env or {}), **_bolt_profile_env()} if bolt else extra_env
+    return _Pipeline(
+        target=target,
+        profile=profile,
+        binary_name=binary_name,
+        binaries=binaries,
+        cwd=cwd,
+        extra_env=extra_env,
+        outcome=outcome,
+        cargo_args=cargo_args,
+        bolt=bolt,
+        build_env=pipeline_env,
+    )
 
-    # Later stages link binaries at least as large, so a rescuing linker carries on.
-    build_env = pipeline_env
 
-    info(f"PGO: building instrumented binary for {target}")
-    instrument_args = ["build", "--", "--target", target, *cargo_args]
-    rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
-    if rc != 0 and target.startswith("aarch64") and shutil.which("mold"):
-        # Profile counters push a large binary's text past the +/-128 MB
-        # R_AARCH64_CALL26 branch, which bfd cannot bridge; mold inserts thunks.
+def _pgo_profile(p: _Pipeline) -> int:
+    """Build the instrumented binary and drive the workload against it."""
+    info(f"PGO: building instrumented binary for {p.target}")
+    instrument_args = ["build", "--", "--target", p.target, *p.cargo_args]
+    rc = _run_cargo_pgo(instrument_args, cwd=p.cwd, extra_env=p.build_env)
+    if rc != 0 and p.target.startswith("aarch64") and shutil.which("mold"):
         warn(
             "PGO instrumented build failed on aarch64 -- retrying once with mold, "
             "which bridges branches past the 128 MB limit"
         )
-        build_env = {
-            **(pipeline_env or {}),
-            _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
-        }
-        rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
-    if rc != 0:
-        error(f"PGO instrumented build failed for {target}")
-        return rc
+        # Later stages link binaries at least as large, so the rescue carries on.
+        p.use_mold()
+        rc = _run_cargo_pgo(instrument_args, cwd=p.cwd, extra_env=p.build_env)
+    # Before the failure return: an OOM-killed rustc is the peak the record needs.
     log_peak_memory("pgo-instrument")
+    if rc != 0:
+        error(f"PGO instrumented build failed for {p.target}")
+        return rc
 
     instrumented_bin = _instrumented_binary_path(
-        cwd, target, binary_name, variant="pgo"
+        p.cwd, p.target, p.binary_name, variant="pgo"
     )
     if not instrumented_bin.exists():
         error(f"Instrumented binary not found at {instrumented_bin}")
         return 1
 
-    if profile.pgo_workload_setup_cmd:
-        rc = _run_workload_setup(profile.pgo_workload_setup_cmd, cwd)
+    if p.profile.pgo_workload_setup_cmd:
+        rc = _run_workload_setup(p.profile.pgo_workload_setup_cmd, p.cwd)
         if rc != 0:
             error("PGO workload setup failed -- aborting before profiling")
             return rc
 
     rc = _run_workload(
-        profile.pgo_workload_cmd or "",
-        profile.pgo_duration_secs,
+        p.profile.pgo_workload_cmd or "",
+        p.profile.pgo_duration_secs,
         instrumented_bin,
-        cwd=cwd,
+        cwd=p.cwd,
     )
+    log_peak_memory("pgo-workload")
     if rc != 0:
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
-    log_peak_memory("pgo-workload")
+    return 0
 
+
+def _pgo_optimize(p: _Pipeline) -> int:
+    """Compile the binaries against the merged profile."""
     # With BOLT on, this compile is also the one BOLT rewrites, so it links
     # through lld with relocations kept and no second compile is needed.
-    optimize_env = {**(build_env or {}), **_PROFILE_USE_ENV}
-    if bolt:
-        optimize_env.update(_direct_bolt_link_env(target, extra_env))
-    info(f"PGO: building optimised binary for {target}")
+    optimize_env = {**(p.build_env or {}), **_PROFILE_USE_ENV}
+    if p.bolt:
+        optimize_env.update(_direct_bolt_link_env(p.target, p.extra_env))
+    info(f"PGO: building optimised binary for {p.target}")
     rc = _run_cargo_pgo(
-        ["optimize", "--", "--target", target, *cargo_args],
-        cwd=cwd,
+        ["optimize", "--", "--target", p.target, *p.cargo_args],
+        cwd=p.cwd,
         extra_env=optimize_env,
     )
-    if rc != 0:
-        error(f"PGO optimised build failed for {target}")
-        return rc
     log_peak_memory("pgo-optimize")
-    if outcome:
-        outcome.pgo_applied = True
+    if rc != 0:
+        error(f"PGO optimised build failed for {p.target}")
+        return rc
+    if p.outcome:
+        p.outcome.pgo_applied = True
+    return 0
 
-    if bolt and not _direct_bolt(
-        target, shipped_binaries or [binary_name], binary_name, profile, cwd, outcome
+
+def _bolt_stage(p: _Pipeline) -> None:
+    """BOLT the PGO binaries, falling back to cargo-pgo's BOLT builds."""
+    if not _direct_bolt(
+        p.target, p.binaries, p.binary_name, p.profile, p.cwd, p.outcome
     ):
         warn("BOLT on the PGO binary failed -- falling back to cargo-pgo's BOLT builds")
         rc = _run_bolt(
-            target, cargo_args, binary_name, profile, cwd, build_env, outcome
+            p.target,
+            p.cargo_args,
+            p.binary_name,
+            p.profile,
+            p.cwd,
+            p.build_env,
+            p.outcome,
         )
         if rc != 0:
             warn("BOLT step failed -- continuing with PGO-only optimised binary")
-    if bolt:
-        log_peak_memory("bolt")
-
-    return 0
+    log_peak_memory("bolt")
 
 
 def _bin_scope_args(binaries: list[str]) -> list[str]:
@@ -606,10 +809,7 @@ def _release_dir(cwd: Path, target: str) -> Path:
 
     Packaging resolves it the same way, so every step looks where it copies from.
     """
-    target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or "target")
-    if not target_dir.is_absolute():
-        target_dir = cwd / target_dir
-    return target_dir / target / "release"
+    return build_phase.target_dir(cwd) / target / "release"
 
 
 def _instrumented_binary_path(

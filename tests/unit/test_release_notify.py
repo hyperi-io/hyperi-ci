@@ -12,6 +12,7 @@ And a notification that returns non-zero would turn an already-shipped release
 red, which is worse than the missing notification it was meant to fix.
 """
 
+import json
 import shutil
 import threading
 from collections.abc import Callable, Iterator
@@ -698,3 +699,171 @@ class TestARejectedWebhookIsReportedAsAFailure:
         assert notify_slack(config, text="hi") == 0
         assert posted == []
         assert any("Slack post failed" in line for line in warned), warned
+
+
+class _AlertBridge(BaseHTTPRequestHandler):
+    """Record each POST and answer with the class's status."""
+
+    status = 200
+    seen: list[tuple[str, dict]] = []
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        type(self).seen.append((self.headers.get("Authorization", ""), payload))
+        self.send_response(type(self).status)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+_SECRET = "tok_TESTONLY_bridge"
+
+
+@pytest.mark.skipif(
+    shutil.which("curl") is None or shutil.which("git") is None,
+    reason="needs curl and git",
+)
+class TestAHotfixIsReported:
+    """A hotfix on a candidates repo reaches the run, the notes and the bridge."""
+
+    @pytest.fixture
+    def bridge(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+        for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+            monkeypatch.delenv(proxy, raising=False)
+        _AlertBridge.seen = []
+        server = HTTPServer(("127.0.0.1", 0), _AlertBridge)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://127.0.0.1:{server.server_port}/infra"
+        server.shutdown()
+        server.server_close()
+
+    def _repo(self, root: Path, *, candidates: bool, trailer: str) -> Path:
+        if candidates:
+            (root / ".hyperi-ci.yaml").write_text(
+                "release:\n  candidates: true\n", encoding="utf-8"
+            )
+        for args in (
+            ["init", "-q", "-b", "main"],
+            ["-c", "user.email=ci@example.invalid", "-c", "user.name=CI", "commit"]
+            + ["--allow-empty", "-q", "-m", f"fix: patch it\n\n{trailer}"],
+        ):
+            run_cmd(["git", *args], cwd=str(root), capture=True)
+        return root
+
+    def _run(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        root: Path,
+        bridge: str,
+        *,
+        notes: str = "Changelog",
+        token: str | None = _SECRET,
+    ) -> tuple[list[str], list[str], list[list[str]]]:
+        if token is None:
+            monkeypatch.delenv("ALERT_BRIDGE_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("ALERT_BRIDGE_TOKEN", token)
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(root / "summary.md"))
+        calls: list[list[str]] = []
+
+        def fake_api(args: list[str], *, body: dict | None = None) -> object:
+            calls.append([*args, json.dumps(body)] if body else args)
+            return {"id": 7, "body": notes} if len(args) == 1 else {"id": 7}
+
+        warned: list[str] = []
+        posted: list[str] = []
+        monkeypatch.setattr(release_notify, "_api", fake_api)
+        monkeypatch.setattr(release_notify, "warn", warned.append)
+        monkeypatch.setattr(release_notify, "success", posted.append)
+        config = CIConfig(
+            _raw={
+                "notify": {
+                    "alerts": {
+                        "url": bridge,
+                        "token_env": "ALERT_BRIDGE_TOKEN",
+                        "route": "build",
+                    }
+                }
+            }
+        )
+        rc = release_notify.notify_hotfix(
+            config, version="v1.2.3", repo="hyperi-io/x", cwd=str(root)
+        )
+        assert rc == 0
+        return warned, posted, calls
+
+    @pytest.mark.parametrize(
+        ("candidates", "trailer"),
+        [(False, "Hotfix: CVE-2026-1"), (True, "Release: true")],
+        ids=["not-opted-in", "no-trailer"],
+    )
+    def test_an_ordinary_release_reports_nothing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bridge: str,
+        candidates: bool,
+        trailer: str,
+    ) -> None:
+        root = self._repo(tmp_path, candidates=candidates, trailer=trailer)
+        warned, posted, calls = self._run(monkeypatch, root, bridge)
+        assert (warned, posted, calls, _AlertBridge.seen) == ([], [], [], [])
+        assert not (root / "summary.md").exists()
+
+    @pytest.mark.parametrize(
+        ("status", "notes", "token", "alerted", "said"),
+        [
+            pytest.param(200, "Changelog", _SECRET, True, "", id="posted"),
+            pytest.param(
+                401, "Changelog", _SECRET, False, "refused the token", id="401"
+            ),
+            pytest.param(200, "Changelog", None, False, "no alert", id="no-token"),
+            pytest.param(
+                200,
+                "<!-- hyperi-ci:hotfix -->\n**Hotfix:** CVE-2026-1",
+                _SECRET,
+                True,
+                "",
+                id="notes-already-marked",
+            ),
+        ],
+    )
+    def test_a_hotfix_is_reported(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bridge: str,
+        status: int,
+        notes: str,
+        token: str | None,
+        alerted: bool,
+        said: str,
+    ) -> None:
+        _AlertBridge.status = status
+        root = self._repo(
+            tmp_path, candidates=True, trailer="Release: true\nHotfix: CVE-2026-1"
+        )
+        warned, posted, calls = self._run(
+            monkeypatch, root, bridge, notes=notes, token=token
+        )
+        assert "CVE-2026-1" in (root / "summary.md").read_text(encoding="utf-8")
+        patches = [c for c in calls if "PATCH" in c]
+        if "hyperi-ci:hotfix" in notes:
+            assert patches == []
+        else:
+            assert patches and "**Hotfix:** CVE-2026-1" in patches[0][-1]
+        if token is None:
+            assert _AlertBridge.seen == []
+        else:
+            header, payload = _AlertBridge.seen[0]
+            assert header == f"Bearer {_SECRET}"
+            assert payload["route"] == "build"
+            assert payload["host"] == "hyperi-io/x"
+            assert payload["title"] == "Hotfix hyperi-io/x v1.2.3"
+            assert "CVE-2026-1" in payload["message"]
+        assert bool(posted) is alerted
+        if said:
+            assert any(said in line for line in warned), warned

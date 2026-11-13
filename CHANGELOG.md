@@ -3,6 +3,201 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.62](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.61...v2.14.62) (2026-11-13)
+
+### Bug Fixes
+
+* **charts:** fail in Quality when Helm has nothing to publish ([623e649](https://github.com/hyperi-io/hyperi-ci/commit/623e649f3a2705f901dfe53ab9e971ac1fef1f1d))
+* **commits:** warn on register words in subjects and titles ([6cb0fd2](https://github.com/hyperi-io/hyperi-ci/commit/6cb0fd2860136f139384a40d6558363398eb20f5))
+
+## [2.14.61](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.60...v2.14.61) (2026-11-13)
+
+### Bug Fixes
+
+* **licences:** match npm workspace keys the checker uses ([34e2280](https://github.com/hyperi-io/hyperi-ci/commit/34e2280316b1677871e0e88cee30f7533ca05036))
+* **licences:** ship notices in dist for a Python image ([3620985](https://github.com/hyperi-io/hyperi-ci/commit/3620985ce4a4633bd69da5e25f2090bdff160839))
+
+## [2.14.60](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.59...v2.14.60) (2026-11-12)
+
+### Bug Fixes
+
+* **ci:** build arm64 on the Ubuntu 26.04 runner ([23b30cd](https://github.com/hyperi-io/hyperi-ci/commit/23b30cd061ba94c39810b287daab330f598e3151))
+* **licences:** check npm workspace packages ([c5c87a5](https://github.com/hyperi-io/hyperi-ci/commit/c5c87a5ec266b71e8c71656160f65e3bc56c7018)), closes [#854](https://github.com/hyperi-io/hyperi-ci/issues/854) [#850](https://github.com/hyperi-io/hyperi-ci/issues/850)
+* **licences:** cut the gate back to one table ([e9b6a0c](https://github.com/hyperi-io/hyperi-ci/commit/e9b6a0c07d6bf7177336c7f227bef63e3d2bc256))
+* **native-deps:** install the PostgreSQL and MariaDB ODBC drivers ([b19ab68](https://github.com/hyperi-io/hyperi-ci/commit/b19ab68f6796643500a1b59c0d83b0b2de6f8078)), closes [#274](https://github.com/hyperi-io/hyperi-ci/issues/274) [#803](https://github.com/hyperi-io/hyperi-ci/issues/803)
+* **push:** keep a merge from main when pulling ([e4394af](https://github.com/hyperi-io/hyperi-ci/commit/e4394af5f4fe339839feb2adfaf155d9b852ff55))
+
+## [2.14.59](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.58...v2.14.59) (2026-11-12)
+
+### Bug Fixes
+
+* **licences:** prefer an SPDX License field over classifiers ([3bf2add](https://github.com/hyperi-io/hyperi-ci/commit/3bf2add5e335aa50e586783907bf2ff5344947f8))
+* **licences:** read ISC text and print the policy verdict ([0cb1afc](https://github.com/hyperi-io/hyperi-ci/commit/0cb1afc5962694a772770e4dea12d1bed322d78b))
+* **release:** release candidates and promote ([d775c09](https://github.com/hyperi-io/hyperi-ci/commit/d775c09a3a90dee32ec5832b3cd806d822058f97))
+* **release:** report a hotfix that skipped its candidate ([694e34f](https://github.com/hyperi-io/hyperi-ci/commit/694e34f69bed448a2638a8e862414257861e8b17))
+
+## [2.14.58](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.57...v2.14.58) (2026-11-10)
+
+### Bug Fixes
+
+* **ci:** declare the release tail's candidate input ([eadd9a1](https://github.com/hyperi-io/hyperi-ci/commit/eadd9a1dadffbe0f6dfca80bb7716116a694c03f))
+* **ci:** split Rust GA builds into three jobs ([3c82ff3](https://github.com/hyperi-io/hyperi-ci/commit/3c82ff3d81d902b0aae6d95bbc5bc9ccc856c78e))
+* **rust:** emit the contract only from the phase that packaged ([010011a](https://github.com/hyperi-io/hyperi-ci/commit/010011a65fe884a71936222f4f358b7b85ac33fa))
+
+## [2.14.57](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.56...v2.14.57) (2026-11-10)
+
+### Bug Fixes
+
+* **ci:** report a bare workflow_dispatch as a notice ([7b33e05](https://github.com/hyperi-io/hyperi-ci/commit/7b33e0593ec0d6cc0cf12c1738463c28ddbfd949)), closes [#alerts-build](https://github.com/hyperi-io/hyperi-ci/issues/alerts-build)
+* **rust:** mark the build done when the optimise phase finishes it ([f4ed682](https://github.com/hyperi-io/hyperi-ci/commit/f4ed68288867defbe116fe5f0d25da3d2a77c93b))
+* **rust:** run a PGO + BOLT build one phase per job ([7b23148](https://github.com/hyperi-io/hyperi-ci/commit/7b23148b3d1b9d9924900682dcaaafeb77c8f354))
+
+## [2.14.56](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.55...v2.14.56) (2026-11-09)
+
+### Bug Fixes
+
+* **ci:** route runners by repo visibility, one mode per run ([dbc12ad](https://github.com/hyperi-io/hyperi-ci/commit/dbc12adaa804cbb06b451e2b383fc321bf92f923))
+* **licences:** judge a bare BSD from upstream text ([ecb13d5](https://github.com/hyperi-io/hyperi-ci/commit/ecb13d55030c4980b1d6d876290dc7dc6b05b048))
+
+## [2.14.55](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.54...v2.14.55) (2026-11-09)
+
+### Bug Fixes
+
+* **check:** run a local check in a memory-capped scope ([7260d53](https://github.com/hyperi-io/hyperi-ci/commit/7260d539da3784200c050c0d3688bf361cc2e7ac))
+* **rust:** log memory stall time and OOM kills per phase ([e0a6e3d](https://github.com/hyperi-io/hyperi-ci/commit/e0a6e3d79588b6eec9bd0cdddf043000a6263937))
+
+## [2.14.54](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.53...v2.14.54) (2026-11-09)
+
+### Bug Fixes
+
+* **rust:** log test-compile and test-run memory peaks, and swap peak ([25efe0d](https://github.com/hyperi-io/hyperi-ci/commit/25efe0d6e79e4968119c4292b0821e99bf5ebd05))
+
+## [2.14.53](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.52...v2.14.53) (2026-11-09)
+
+### Bug Fixes
+
+* **licences:** allow CDLA-Permissive-2.0 with the permissive group ([4946549](https://github.com/hyperi-io/hyperi-ci/commit/494654928990808b1a23bdb3e519b89574cc14f4))
+* **rust:** plan 4 GiB per cargo job on free runners ([c0cf920](https://github.com/hyperi-io/hyperi-ci/commit/c0cf9203c4a99b3a7664034aeb47c463535be1ef))
+
+## [2.14.52](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.51...v2.14.52) (2026-11-09)
+
+### Bug Fixes
+
+* **ci:** add swap on free runners before cargo runs ([1e5ef9b](https://github.com/hyperi-io/hyperi-ci/commit/1e5ef9bf8561ec1e75b15a2595a8839b9cb3b470))
+* **ci:** fetch a pinned GitHub release asset through the API on failure ([ce0ac36](https://github.com/hyperi-io/hyperi-ci/commit/ce0ac364e42154f9634aa4bb0caaf2862ef87678))
+* **quality:** check only crates the build's targets link ([6b18532](https://github.com/hyperi-io/hyperi-ci/commit/6b18532832e14c092d2c5f44b825f5065e566046))
+* **quality:** read missing licence text from the package's repository ([f925a20](https://github.com/hyperi-io/hyperi-ci/commit/f925a20f706a9f11e89a37792fe3f7ab2f13a0b3))
+
+## [2.14.51](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.50...v2.14.51) (2026-11-09)
+
+### Bug Fixes
+
+* **quality:** judge bracketed SPDX licence expressions ([#818](https://github.com/hyperi-io/hyperi-ci/issues/818)) ([8ec07ee](https://github.com/hyperi-io/hyperi-ci/commit/8ec07ee6441402cce93ce601ec5994edc5380ec7))
+* **quality:** skip optional crates named only by weak features ([4a0b343](https://github.com/hyperi-io/hyperi-ci/commit/4a0b343b802ed84244f74cce440e4848f8aaac41)), closes [#819](https://github.com/hyperi-io/hyperi-ci/issues/819)
+
+## [2.14.50](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.49...v2.14.50) (2026-11-09)
+
+### Bug Fixes
+
+* **quality:** read a crate's legacy A/B licence as A OR B ([eadf8f4](https://github.com/hyperi-io/hyperi-ci/commit/eadf8f4cd3e94fc553efdf7b5bb55d0af6fdbf89))
+
+## [2.14.49](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.48...v2.14.49) (2026-11-08)
+
+### Bug Fixes
+
+* **ci:** send every leg to a free runner in free mode ([e37617d](https://github.com/hyperi-io/hyperi-ci/commit/e37617ded70d60c78ddaaa12a866b7a00a6e4582))
+
+## [2.14.48](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.47...v2.14.48) (2026-11-08)
+
+### Bug Fixes
+
+* **quality:** judge a bare BSD classifier from its licence file ([a9cd1a1](https://github.com/hyperi-io/hyperi-ci/commit/a9cd1a1de0129b88a6224e457d7190ef3d0943c7))
+* **quality:** let an override pass HyperI's own packages ([8104748](https://github.com/hyperi-io/hyperi-ci/commit/81047483e59deb4427fc553ad1efb1f45ab2af84))
+* **quality:** ship the GPL and LGPL texts in LGPL notices ([7f33e64](https://github.com/hyperi-io/hyperi-ci/commit/7f33e64149e29796416b5155a85e1f7ecb15beee))
+
+## [2.14.47](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.46...v2.14.47) (2026-11-05)
+
+### Bug Fixes
+
+* **quality:** record the hyperi-ci version in licenses.json ([2560a9b](https://github.com/hyperi-io/hyperi-ci/commit/2560a9ba7d875a21c40da025a17a9a083939e8e3))
+
+## [2.14.46](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.45...v2.14.46) (2026-11-05)
+
+### Bug Fixes
+
+* **quality:** list all shipped packages and map BSD aliases ([787ae17](https://github.com/hyperi-io/hyperi-ci/commit/787ae17a33a1992e38d78eec1056afcaae0f9658))
+
+## [2.14.45](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.44...v2.14.45) (2026-11-05)
+
+### Bug Fixes
+
+* **deps:** update github-actions ([#801](https://github.com/hyperi-io/hyperi-ci/issues/801)) ([bf5aa98](https://github.com/hyperi-io/hyperi-ci/commit/bf5aa98b4fbc3c0d149cee46143549ca4dee352f))
+* **quality:** generate THIRD-PARTY-NOTICES from the lock ([ed4a2bf](https://github.com/hyperi-io/hyperi-ci/commit/ed4a2bf659b4f0c7e5f92c462cf66e367e8515fa))
+* **quality:** judge copied-in source files against the licence policy ([7f91090](https://github.com/hyperi-io/hyperi-ci/commit/7f91090c1fa5340f0403238807b255df28fad694))
+* **quality:** judge npm dependency licences against the policy table ([04df8c5](https://github.com/hyperi-io/hyperi-ci/commit/04df8c527abec92ed8f57ad9deb41360c696b588))
+* **quality:** judge Python dependency licences against a policy table ([721a781](https://github.com/hyperi-io/hyperi-ci/commit/721a781b4b86977b6cbd6af7c707a1f6215c6670))
+* **quality:** judge Rust crate licences against the policy table ([7d9436d](https://github.com/hyperi-io/hyperi-ci/commit/7d9436d25ebe0bdd4bdbf0b40349069db3643495))
+
+## [2.14.44](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.43...v2.14.44) (2026-11-03)
+
+### Bug Fixes
+
+* **check:** run one local check at a time per host ([#802](https://github.com/hyperi-io/hyperi-ci/issues/802)) ([7df3755](https://github.com/hyperi-io/hyperi-ci/commit/7df37558425369ec144e63ae8b7ecfec39c118ff))
+* **workflows:** keep a repo's runner on Renovate PRs ([#800](https://github.com/hyperi-io/hyperi-ci/issues/800)) ([7a9288d](https://github.com/hyperi-io/hyperi-ci/commit/7a9288d73643fcc1012a86006b99f7ff11d46f78))
+
+## [2.14.43](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.42...v2.14.43) (2026-11-01)
+
+### Bug Fixes
+
+* **quality:** find compose files kept in a compose/ directory ([#795](https://github.com/hyperi-io/hyperi-ci/issues/795)) ([11494c7](https://github.com/hyperi-io/hyperi-ci/commit/11494c7026ba879813bb9c43d1522b314d51e382))
+* refuse a publish the declared classification forbids ([#793](https://github.com/hyperi-io/hyperi-ci/issues/793)) ([c745748](https://github.com/hyperi-io/hyperi-ci/commit/c745748ec7f18051bab9344da16ce5c40ee79d26))
+* **release-notes:** print notes with portable shell ([#798](https://github.com/hyperi-io/hyperi-ci/issues/798)) ([8d3245c](https://github.com/hyperi-io/hyperi-ci/commit/8d3245cfccb282fdf95886752ea0b0b7d235e1e8))
+* **rust:** find cargo subcommands where cargo does ([#797](https://github.com/hyperi-io/hyperi-ci/issues/797)) ([2d4f29c](https://github.com/hyperi-io/hyperi-ci/commit/2d4f29c864ea3e9a82cd6bd2ac843654e0bb9a6e))
+* **rust:** install unixODBC for crates that link odbc-sys ([#796](https://github.com/hyperi-io/hyperi-ci/issues/796)) ([3e42a85](https://github.com/hyperi-io/hyperi-ci/commit/3e42a85d902b7191b9b0030a575453a70a250982))
+* **security:** keep repo files out of the release token's reach ([#790](https://github.com/hyperi-io/hyperi-ci/issues/790)) ([3df086d](https://github.com/hyperi-io/hyperi-ci/commit/3df086de18294b53c3560379a1f1c1f81d46cfe4))
+
+## [2.14.42](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.41...v2.14.42) (2026-11-01)
+
+### Bug Fixes
+
+* **deps:** bump the static-libs pins from upstream with no cooldown ([#789](https://github.com/hyperi-io/hyperi-ci/issues/789)) ([0ab099d](https://github.com/hyperi-io/hyperi-ci/commit/0ab099d42924adf18e010d5f41f5b077153b1bb0))
+* stamp every version spelling, read Go env, keep edited notes ([#792](https://github.com/hyperi-io/hyperi-ci/issues/792)) ([b77e7f9](https://github.com/hyperi-io/hyperi-ci/commit/b77e7f99ded985d8b4ba52656a2c4fcc060fcd16))
+
+## [2.14.41](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.40...v2.14.41) (2026-11-01)
+
+### Bug Fixes
+
+* **rust:** build static librdkafka and OpenSSL for the Rust apps ([#787](https://github.com/hyperi-io/hyperi-ci/issues/787)) ([a48d2e1](https://github.com/hyperi-io/hyperi-ci/commit/a48d2e1572174f0f3839a8e516f11e575c765e52))
+* **rust:** link the static-libs release when an app opts in ([#788](https://github.com/hyperi-io/hyperi-ci/issues/788)) ([6025be3](https://github.com/hyperi-io/hyperi-ci/commit/6025be3425139a643555f2bbc837384e8a2ea9c9))
+
+## [2.14.40](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.39...v2.14.40) (2026-10-31)
+
+### Bug Fixes
+
+* **container:** refuse to tag a leg not proven native ([#785](https://github.com/hyperi-io/hyperi-ci/issues/785)) ([2871996](https://github.com/hyperi-io/hyperi-ci/commit/2871996ad3219c4639483d9d343b16db2fee69ae))
+* **test:** export the test tier and print the harness log ([#784](https://github.com/hyperi-io/hyperi-ci/issues/784)) ([83960e0](https://github.com/hyperi-io/hyperi-ci/commit/83960e0c29092511dc9f580ee0c983c646d309cb))
+
+## [2.14.39](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.38...v2.14.39) (2026-10-31)
+
+### Bug Fixes
+
+* **container:** rebuild a published image whose provenance shows emulation ([#782](https://github.com/hyperi-io/hyperi-ci/issues/782)) ([c6cf91c](https://github.com/hyperi-io/hyperi-ci/commit/c6cf91cd92b55c08cdaffa4a4acf6c9ed4ccb672))
+* harden curl fetches and the fleet sweep verdict ([#783](https://github.com/hyperi-io/hyperi-ci/issues/783)) ([0b34a46](https://github.com/hyperi-io/hyperi-ci/commit/0b34a466827cb940ed5a5f3c60e48f9353f71774))
+* **rust:** keep the build's cargo jobs in the runner-fit recommendation ([#780](https://github.com/hyperi-io/hyperi-ci/issues/780)) ([acf4575](https://github.com/hyperi-io/hyperi-ci/commit/acf457536abae94018438f45d37643522656a573))
+* **test:** let pytest -n auto honour the worker overrides and the 16 cap ([#779](https://github.com/hyperi-io/hyperi-ci/issues/779)) ([1b2daa1](https://github.com/hyperi-io/hyperi-ci/commit/1b2daa1c60d41313448e84dd9bbcc9a5643081a3))
+
+## [2.14.38](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.37...v2.14.38) (2026-10-31)
+
+### Bug Fixes
+
+* **ci:** read slow fleet sweep runs under a fresh token, and call a timeout inconclusive ([#775](https://github.com/hyperi-io/hyperi-ci/issues/775)) ([4e42fde](https://github.com/hyperi-io/hyperi-ci/commit/4e42fdeb7a380ff2c137b92f7bddba9127f9902f))
+* **container:** build each arch on its own runner and merge by digest ([#769](https://github.com/hyperi-io/hyperi-ci/issues/769)) ([12836e9](https://github.com/hyperi-io/hyperi-ci/commit/12836e9de3ec1d0f3e4f3f9bcf805fe20f4cb55d)), closes [#709](https://github.com/hyperi-io/hyperi-ci/issues/709)
+* **container:** refuse a CI image build for a platform the runner is not ([#778](https://github.com/hyperi-io/hyperi-ci/issues/778)) ([b1b2665](https://github.com/hyperi-io/hyperi-ci/commit/b1b266508e95419ab07776ceac5088f9f02bf540))
+* **init:** scaffold a nightly full-tier schedule into ci.yml ([#777](https://github.com/hyperi-io/hyperi-ci/issues/777)) ([f6dbdd2](https://github.com/hyperi-io/hyperi-ci/commit/f6dbdd24762ed370b6d064b75581471c89fd08c7))
+* **release:** block the tag when Container dies before it resolves ([#766](https://github.com/hyperi-io/hyperi-ci/issues/766)) ([75c9f65](https://github.com/hyperi-io/hyperi-ci/commit/75c9f65af463580e607cc0fc060caf9fdc3732f7)), closes [#764](https://github.com/hyperi-io/hyperi-ci/issues/764)
+* **rust:** install cargo tools from $HOME, not the project ([#774](https://github.com/hyperi-io/hyperi-ci/issues/774)) ([37a1337](https://github.com/hyperi-io/hyperi-ci/commit/37a1337a6d5cd562339d03c67b7ab59c49d74d66))
+* **tools:** pin clickhouse as a native tool ([#776](https://github.com/hyperi-io/hyperi-ci/issues/776)) ([cca23bd](https://github.com/hyperi-io/hyperi-ci/commit/cca23bddd35aa2bfbe514149bbdb66024e0e9fa4))
+
 ## [2.14.37](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.36...v2.14.37) (2026-10-31)
 
 ### Bug Fixes

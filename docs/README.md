@@ -110,6 +110,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 - [quality-gate.md](quality-gate.md) - mode resolution (blocking/warn/disabled), relaxing a security gate, missing/mispinned tools locally vs CI
 - [quality-gate-tools.md](quality-gate-tools.md) - the per-tool reference: what each tool scans, its config knobs, Container + k8s + IaC linting, the advisory checks
+- [dependency-licences.md](dependency-licences.md) - the dependency-licence gate: policy table, modes, answering an ask, the citable output
 - [quality-gate-doc-linting.md](quality-gate-doc-linting.md) - the five `lint-docs` checks, gate semantics, adoption impact
 - [quality-gate-overrides.md](quality-gate-overrides.md) - `--strict`, `HYPERCI_QUALITY_SKIP`, and `quality.ignore`
 
@@ -126,6 +127,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [languages/RUST.md](languages/rust.md) - what channel-gated optimisation buys (jemalloc + LTO, PGO, BOLT), the build-channel matrix, Tier 1, the Build job's time limit
 - [languages/rust-tier2.md](languages/rust-tier2.md) - the Tier 2 (PGO + BOLT) `.hyperi-ci.yaml` opt-in, workload script contract, skip-optimize, opt-out
 - [languages/rust-llvm.md](languages/rust-llvm.md) - how the LLVM major for linking and BOLT is chosen, installed and pinned, and how to move to a new one
+- [languages/rust-static-libs.md](languages/rust-static-libs.md) - static librdkafka, OpenSSL, zstd and zlib: the build, the pkg-config link interface, the pins and the release tag
 - [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers, release cost
 - [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons
 - [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism
@@ -143,6 +145,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   cross-compilation
 - [runtime/RUNNER-IMAGE.md](runtime/runner-image.md) - the dep-install SSOT (`install-toolchains` / `install-native-deps`), the YAML schema, `bake: false`
 - [runtime/ARC-OPERATIONS.md](runtime/arc-operations.md) - rebuild the image, redeploy the scale sets, roll a change to the fleet
+- [runtime/BUILD-TIMES.md](runtime/build-times.md) - CI times and memory peaks per DFE repo, free vs paid runners
 - [runtime/PGO-BOLT.md](runtime/pgo-bolt.md) - how to write a PGO workload script
 - [runtime/TESTENV.md](runtime/testenv.md) - Redpanda / ClickHouse compose
   patterns for integration tests inside the 4 GB CI deck
@@ -158,8 +161,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Migration & history
 
-- The JFrog registry migration record, and the artifact repos still in use,
-  live in hyperi-infra docs/JFROG.md
+- The JFrog registry migration record lives in hyperi-infra docs/JFROG.md.
+  JFrog was decommissioned on 2026-11-02, so no artifact repo is left there.
 - [migration/CODEBERG.md](migration/codeberg.md) and
   [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md) -
   Codeberg + Buildkite portability notes (aspirational)
@@ -175,10 +178,10 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ## Project facts
 
-- **Package:** [hyperi-ci](https://pypi.org/project/hyperi-ci/) (PyPI)
-- **Runtime dep:** [scalo](https://pypi.org/project/scalo/)
-  (a broken scalo would break CI for every repo)
-- **Languages:** Rust, Python, TypeScript, Go
-- **Self-hosting:** hyperi-ci runs its own CI through its own reusable workflow
-- **Used by:** dfe-engine, dfe-receiver, dfe-loader, dfe-archiver, dfe-fetcher,
-  scalo-rs, scalo-py, the dfe-transform-* canaries
+| | |
+|---|---|
+| Package | [hyperi-ci](https://pypi.org/project/hyperi-ci/) on PyPI |
+| Runtime dependency | [scalo](https://pypi.org/project/scalo/), so a broken scalo breaks CI for every repo |
+| Languages | Rust, Python, TypeScript, Go |
+| Self-hosting | hyperi-ci runs its own CI through its own reusable workflow |
+| Used by | dfe-engine, dfe-receiver, dfe-loader, dfe-archiver, dfe-fetcher, scalo-rs, scalo-py, the dfe-transform-* canaries |

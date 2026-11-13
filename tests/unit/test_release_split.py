@@ -100,7 +100,8 @@ ALLOWED_RUN_LINES = {
         r'echo "::error::Predicted \$\{predicted\} already exists [^"`;|&]*"',
         r"exit 1",
         r'echo "\$\{predicted\} already exists at HEAD [^"$`;|&]*"',
-        r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*'\)\" \]; then",
+        r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*' \| grep -E "
+        r"'\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$' \|\| true\)\" \]; then",
         rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
         rf'GH_TOKEN="\$GITHUB_TOKEN" {_INSTALL} tag-head --bump "{_VERSION}"',
@@ -277,7 +278,7 @@ class TestPublishRunsNoRepoCode:
             "Guard -- predicted tag must not already exist off-HEAD",
             "Tag (semantic-release)",
             "Tag HEAD (forced bump / explicit version)",
-            "Tag HEAD (fork, first-parent version)",
+            "Tag HEAD (fork or release candidate)",
         ):
             assert verify < names.index(after)
 
@@ -426,7 +427,8 @@ class TestContainerRunsNoRepoCode:
 
     @pytest.fixture
     def steps(self) -> list[dict[str, Any]]:
-        return _jobs()["container"]["steps"]
+        # The per-arch leg builds the repo's Dockerfile with packages:write.
+        return _jobs()["container-build"]["steps"]
 
     @staticmethod
     def _index(steps: list[dict[str, Any]], prefix: str) -> list[int]:
@@ -510,11 +512,17 @@ class TestContainerRunsNoRepoCode:
             if "secrets.GITHUB_TOKEN" in yaml.safe_dump(s)
             or "github.token" in yaml.safe_dump(s)
         ]
-        # The branch guard reads one ref with it, after the GHCR login has
+        assert holders == ["Init submodules", "GHCR login"]
+
+    def test_the_merge_job_runs_no_repo_code(self) -> None:
+        """It holds packages:write and names the release, so it never builds."""
+        steps = _jobs()["container"]["steps"]
+        names = [s.get("name") for s in steps]
+        for absent in ("Init submodules", "Stamp predicted version", "Place dist/"):
+            assert absent not in names
+        # The branch guard reads one ref with the token, after the GHCR login has
         # already written the same token to the docker config on disk.
         guard = "Guard -- the branch has not moved past this release"
-        assert holders == ["Init submodules", "GHCR login", guard]
-        names = [s.get("name") for s in steps]
         assert names.index("GHCR login") < names.index(guard)
 
 

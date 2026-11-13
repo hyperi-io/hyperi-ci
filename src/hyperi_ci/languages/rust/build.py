@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from hyperi_ci import static_libs
 from hyperi_ci.common import (
     announce,
     error,
@@ -43,7 +44,7 @@ from hyperi_ci.languages._build_common import (
 from hyperi_ci.languages._build_common import (
     human_size as _human_size,
 )
-from hyperi_ci.languages.rust import runner_fit
+from hyperi_ci.languages.rust import build_phase, runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -161,9 +162,16 @@ def _check_glibc(binary: Path, glibc_max: tuple[int, int] | None) -> bool:
 
 
 def _verify_binary(
-    binary: Path, target: str, glibc_max: tuple[int, int] | None = None
+    binary: Path,
+    target: str,
+    glibc_max: tuple[int, int] | None = None,
+    static_only: tuple[str, ...] = (),
 ) -> bool:
-    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it."""
+    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it.
+
+    A dynamic dependency named by a ``static_only`` prefix fails the check, as
+    that library was meant to be linked in.
+    """
     errors = 0
     info("    --- Post-build verification ---")
 
@@ -213,10 +221,18 @@ def _verify_binary(
             info(f"    OK: Dynamic deps ({len(deps)}): {' '.join(deps)}")
         else:
             info("    INFO: Statically linked (no dynamic deps)")
+        if static_only and (leaked := [d for d in deps if d.startswith(static_only)]):
+            error(
+                f"    Still needs {' '.join(leaked)} at runtime, though "
+                "build.rust.static_libs links it in"
+            )
+            errors += 1
         if not _check_glibc(binary, glibc_max):
             errors += 1
-    elif glibc_max is not None:
-        error("    readelf is not on PATH, so build.rust.glibc_max cannot be checked")
+    elif glibc_max is not None or static_only:
+        error(
+            "    readelf is not on PATH, so the binary's dynamic deps cannot be checked"
+        )
         errors += 1
 
     for flag in ("--version", "--help"):
@@ -468,6 +484,7 @@ def _package_binaries(
     binary_names: list[str],
     version: str,
     glibc_max: tuple[int, int] | None = None,
+    static_only: tuple[str, ...] = (),
 ) -> int:
     """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
@@ -504,7 +521,7 @@ def _package_binaries(
                 f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
             )
 
-            if not _verify_binary(output_path, target, glibc_max):
+            if not _verify_binary(output_path, target, glibc_max, static_only):
                 error(f"Post-build verification failed for {output_path}")
                 return 1
 
@@ -517,6 +534,20 @@ def _package_binaries(
 
     _generate_checksums(output_dir)
 
+    return 0
+
+
+def _write_notices(config: CIConfig) -> int:
+    """Ship THIRD-PARTY-NOTICES in dist/: the binaries carry every crate they link."""
+    from hyperi_ci.languages.rust import licenses
+    from hyperi_ci.quality.dep_licenses import fresh_notices
+
+    notices = fresh_notices(licenses.run_gate, config)
+    if notices is None:
+        error("THIRD-PARTY-NOTICES not written: cargo could not list the crates")
+        return 1
+    shutil.copyfile(notices, Path("dist") / "THIRD-PARTY-NOTICES")
+    _generate_checksums(Path("dist"))
     return 0
 
 
@@ -557,10 +588,12 @@ def _build_for_target(
     extra_env: dict[str, str] | None = None,
     profile: OptimizationProfile | None = None,
     outcome: OptimizationOutcome | None = None,
+    phase: str = "",
 ) -> int:
     """Build one host-arch target triple, through the PGO pipeline when asked.
 
     Both paths carry the declared features, the allocator and the LTO override.
+    ``phase`` runs one PGO phase instead of the whole pipeline.
     """
     if profile:
         profile_env = profile.env_overrides()
@@ -574,19 +607,31 @@ def _build_for_target(
             )
         else:
             # The workload profiles the first binary; each step builds all shipped ones.
-            from hyperi_ci.languages.rust.pgo import run_pgo_build
+            from hyperi_ci.languages.rust.pgo import run_pgo_build, run_pgo_phase
 
+            pgo_env = {
+                **(extra_env or {}),
+                "RUST_FEATURES": features,
+                "RUST_ALL_FEATURES": "true" if all_features else "false",
+            }
+            if phase:
+                return run_pgo_phase(
+                    phase,
+                    target=target,
+                    profile=profile,
+                    binary_name=binary_names[0],
+                    shipped_binaries=binary_names,
+                    cwd=Path.cwd(),
+                    extra_env=pgo_env,
+                    outcome=outcome,
+                )
             return run_pgo_build(
                 target=target,
                 profile=profile,
                 binary_name=binary_names[0],
                 shipped_binaries=binary_names,
                 cwd=Path.cwd(),
-                extra_env={
-                    **(extra_env or {}),
-                    "RUST_FEATURES": features,
-                    "RUST_ALL_FEATURES": "true" if all_features else "false",
-                },
+                extra_env=pgo_env,
                 outcome=outcome,
             )
 
@@ -616,7 +661,7 @@ def _host_targets(targets: list[str], native: str) -> list[str] | None:
         error(
             f"Build target {names} is not this runner's arch ({native}). hyperi-ci "
             "does not cross-compile: run the leg on a runner of that arch "
-            "(GH_RUNNER_ARM64 for aarch64-unknown-linux-gnu)."
+            "(ubuntu-26.04-arm for aarch64-unknown-linux-gnu)."
         )
         return None
     warn(
@@ -686,6 +731,19 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
     if host_targets is None:
         return 1
     targets = host_targets
+
+    try:
+        phase = build_phase.build_phase()
+        if phase in (build_phase.OPTIMIZE, build_phase.BOLT):
+            states = [build_phase.read_state(Path.cwd(), t) for t in targets]
+            if all(state.done for state in states):
+                success(f"{phase}: the build finished in an earlier phase")
+                return 0
+    except build_phase.PhaseError as exc:
+        error(str(exc))
+        return 1
+    if phase:
+        info(f"Build phase: {phase}")
 
     # A library gets no profile: consumers recompile it from source.
     binary_names_for_profile = _detect_binary_names()
@@ -757,9 +815,18 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
 
     # A skipped Tier 2 stage fails the release rather than shipping it green.
     strict = truthy(config.get("build.rust.optimize.strict", True))
+    static = truthy(config.get("build.rust.static_libs", False))
     bolt_targets: list[str] = []
+    finished: list[str] = []
     for target in targets:
         with group(f"Build: {target}"):
+            target_env = extra
+            if static:
+                prefix = static_libs.fetch(target)
+                if prefix is None:
+                    error(f"build.rust.static_libs is on and {target} has no prefix")
+                    return 1
+                target_env = {**extra, **static_libs.link_env(prefix)}
             profile = None
             outcome = None
             if base_profile:
@@ -771,11 +838,21 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 log_profile(profile)
                 outcome = OptimizationOutcome(allocator=profile.allocator)
             rc = _build_for_target(
-                target, features, all_features, extra, profile=profile, outcome=outcome
+                target,
+                features,
+                all_features,
+                target_env,
+                profile=profile,
+                outcome=outcome,
+                phase=phase,
             )
             if rc != 0:
                 error(f"Build failed for target: {target}")
                 return rc
+            if outcome and outcome.deferred:
+                success(f"{target}: {phase} done, a later phase packages it")
+                continue
+            finished.append(target)
             if tier2 and outcome:
                 log_outcome(outcome)
             if profile and outcome and profile.channel == "release" and strict:
@@ -792,6 +869,8 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
                 bolt_targets.append(target)
             success(f"Built: {target}")
 
+    if not finished:
+        return 0
     with group("Binary packaging"):
         binary_names = _detect_binary_names()
         if not binary_names:
@@ -799,16 +878,25 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         else:
             version = _detect_version()
             rc = _package_binaries(
-                targets,
+                finished,
                 binary_names,
                 version,
                 _parse_glibc_max(config.get("build.rust.glibc_max")),
+                static_libs.STATIC_ONLY if static else (),
             )
             if rc != 0:
                 return rc
             rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
             if rc != 0:
                 return rc
+            rc = _write_notices(config)
+            if rc != 0:
+                return rc
+
+    # A profile phase that built plain finished the build: the later phases skip.
+    if phase == build_phase.PROFILE:
+        for target in finished:
+            build_phase.stash(Path.cwd(), target, build_phase.PhaseState(done=True))
 
     success("Build complete")
     return 0

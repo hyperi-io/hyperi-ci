@@ -62,8 +62,16 @@ class TestDiscovery:
         _write(tmp_path / "docker-compose.yml", _STACK)
         _write(tmp_path / "compose.yaml", _STACK)
         _write(tmp_path / "templates" / "redpanda.compose.yaml", _STACK)
+        _write(tmp_path / "deploy" / "compose" / "app.yaml", _STACK)
+        _write(tmp_path / "deploy" / "compose" / "values.yaml", _NOT_COMPOSE)
+        _write(tmp_path / "deploy" / "compose" / "nested" / "x.yaml", _STACK)
         found = {p.name for p in discover_compose_files(tmp_path)}
-        assert found == {"docker-compose.yml", "compose.yaml", "redpanda.compose.yaml"}
+        assert found == {
+            "docker-compose.yml",
+            "compose.yaml",
+            "redpanda.compose.yaml",
+            "app.yaml",
+        }
 
     def test_yaml_without_services_is_not_compose(self, tmp_path: Path) -> None:
         _write(tmp_path / "docker-compose.yml", _NOT_COMPOSE)

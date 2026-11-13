@@ -236,6 +236,86 @@ def cgroup_v2_peak(
     return int(raw) if raw and raw.isdigit() else None
 
 
+def cgroup_v2_swap_peak(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> int | None:
+    """Return the most swap this process's cgroup has used, in bytes.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The peak, or None where ``memory.swap.peak`` is missing or unreadable.
+
+    """
+    path = cgroup_v2_peak_file(root, proc_self_cgroup).with_name("memory.swap.peak")
+    raw = _read_text(path)
+    return int(raw) if raw and raw.isdigit() else None
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryStall:
+    """Time this cgroup's tasks have spent waiting on memory, from PSI.
+
+    ``memory.peak`` counts page cache, so a build near the limit reads as full
+    whether or not it was short. Stall time is what the shortage cost.
+
+    Attributes:
+        some_seconds: Time at least one task was stalled on memory.
+        full_seconds: Time every runnable task was stalled at once.
+        oom_kills: Processes the kernel killed for memory, from ``memory.events``.
+
+    """
+
+    some_seconds: float
+    full_seconds: float
+    oom_kills: int
+
+
+def _psi_total_seconds(text: str, kind: str) -> float | None:
+    for line in text.splitlines():
+        fields = line.split()
+        if fields and fields[0] == kind:
+            for field in fields[1:]:
+                key, _, value = field.partition("=")
+                if key == "total" and value.isdigit():
+                    return int(value) / 1_000_000
+    return None
+
+
+def cgroup_v2_memory_stall(
+    root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
+) -> MemoryStall | None:
+    """Return the memory stall time and OOM kills of this process's cgroup so far.
+
+    Both counters run from the cgroup's start, as ``memory.peak`` does.
+
+    Args:
+        root: The unified hierarchy mount.
+        proc_self_cgroup: The file naming this process's cgroup.
+
+    Returns:
+        The totals, or None where ``memory.pressure`` is missing or unreadable,
+        as on a kernel booted without PSI.
+
+    """
+    directory = cgroup_v2_peak_file(root, proc_self_cgroup).parent
+    text = _read_text(directory / "memory.pressure")
+    if not text:
+        return None
+    some = _psi_total_seconds(text, "some")
+    full = _psi_total_seconds(text, "full")
+    if some is None or full is None:
+        return None
+    kills = 0
+    for line in (_read_text(directory / "memory.events") or "").splitlines():
+        key, _, value = line.partition(" ")
+        if key == "oom_kill" and value.strip().isdigit():
+            kills = int(value)
+    return MemoryStall(some, full, kills)
+
+
 def available_memory(
     *,
     cgroup_root: Path = CGROUP_ROOT,

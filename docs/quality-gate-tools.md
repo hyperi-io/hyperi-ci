@@ -36,6 +36,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, vulture | Python | Python handler |
+| dep-licences (pip-licenses, cargo metadata, license-checker-rseidelsohn) | Python, Rust and npm shipped dependencies against the licence policy, see [dependency-licences.md](dependency-licences.md) | `languages/{python,rust,typescript}/licenses.py` |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
 | eslint, oxlint, prettier, Oxfmt, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
 | gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
@@ -242,14 +243,14 @@ jobs:
 
 ## How lint-iac runs
 
-- **lint-iac never writes into the tree it lints.** `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.
-- **kubeconform runs `-strict`**, which fails an unknown field and a duplicate key. `quality.kubeconform.strict` set to `false`, `no` or `0` turns it off. Schemas come from the k8s defaults, the datreeio CRDs-catalog and `quality.kubeconform.schema_locations`, cached under `~/.cache/hyperi-ci` per kubeconform pin for at most 7 days.
-- **A chart renders twice and the outputs must be byte-equal.** `randAlphaNum`, `genCA` and `now` fail it, because every ArgoCD sync then reports drift. Helm test hooks are left out of the comparison. `quality.render_stable` relaxes this gate without touching kubeconform. `iac.helm.values` (repo-relative files) and `iac.helm.set` (`key: value`) apply to every render.
-- **A kustomization owns only what it references** (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
-- **A root module** is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
-- **ansible-lint** runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`. The lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
-- **An assembled chart carries its own Checkov skips.** `hyperi-ci chart assemble` writes the Checkov ids in the scalo-service library's `lint-skip.yaml` to the chart's `.hyperi-ci.yaml` as `quality.checkov.skip`, with each reason as a comment. `hyperi-ci lint-iac <chart>` applies them, and no run over the repo sees them.
-- **Hidden and git-ignored directories are skipped** by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
+- lint-iac never writes into the tree it lints. `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.
+- kubeconform runs `-strict`, which fails an unknown field and a duplicate key. `quality.kubeconform.strict` set to `false`, `no` or `0` turns it off. Schemas come from the k8s defaults, the datreeio CRDs-catalog and `quality.kubeconform.schema_locations`, cached under `~/.cache/hyperi-ci` per kubeconform pin for at most 7 days.
+- A chart renders twice and the outputs must be byte-equal. `randAlphaNum`, `genCA` and `now` fail it, because every ArgoCD sync then reports drift. Helm test hooks are left out of the comparison. `quality.render_stable` relaxes this gate without touching kubeconform. `iac.helm.values` (repo-relative files) and `iac.helm.set` (`key: value`) apply to every render.
+- A kustomization owns only what it references (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
+- A root module is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
+- ansible-lint runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`. The lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
+- An assembled chart carries its own Checkov skips. `hyperi-ci chart assemble` writes the Checkov ids in the scalo-service library's `lint-skip.yaml` to the chart's `.hyperi-ci.yaml` as `quality.checkov.skip`, with each reason as a comment. `hyperi-ci lint-iac <chart>` applies them, and no run over the repo sees them.
+- Hidden and git-ignored directories are skipped by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
 
 Guardrails:
 
@@ -267,10 +268,10 @@ Two hygiene nudges run in the quality stage. Neither can fail a build.
 
 **Repo-hygiene advisory (`alint`).** The external `alint` linter checks repo hygiene: a missing `.gitignore` / `.editorconfig`, tracked build artefacts, an absent lockfile. hyperi-ci ships a default config, `src/hyperi_ci/config/alint/hyperi.alint.yml` (alint's bundled baseline for our four languages, fact-gated), and passes it with `alint check -c`. A repo's own `.alint.yml` wins. Driver: `src/hyperi_ci/quality/repo_advisor.py`.
 
-- **Primary language only.** alint's root-only manifest and lockfile rules (`go-mod-exists`, `node-package-json-exists`, ...) are off for every ecosystem except the repo's resolved language. The bundled `has_<lang>` facts match nested monorepo packages, so a TS monorepo with `packages/*/go.mod` got a red `go-mod-exists` (issue #75). Per-file rules (Trojan-Source, hygiene) stay on for every ecosystem.
-- **Rust libraries.** A Rust-primary repo with no bin target in any member also gets `rust-cargo-lock-exists` off, since committing a library's `Cargo.lock` is the maintainer's call (<https://blog.rust-lang.org/2023/08/29/committing-lockfiles/>). A feature-gated bin still counts as an app.
-- **One layer file.** The overrides are a generated single-file layer that `extends:` the shipped default. alint 0.13's repeatable `-c` honours only the first file, and 0.14 rejects a second outright. The layer carries `allow_out_of_root: true`, because it and the default both live outside the linted repo.
-- **`quality.alint`**: `auto` runs if installed, else info-skips; `enabled` warns if missing; `disabled` turns it off. Locally a missing alint info-skips with an install hint. In CI it is fetched as the pinned prebuilt binary (`tools.alint` in `src/hyperi_ci/config/versions.yaml`, static musl, run by path with no sudo).
+- alint's root-only manifest and lockfile rules (`go-mod-exists`, `node-package-json-exists`, ...) are off for every ecosystem except the repo's resolved language. The bundled `has_<lang>` facts match nested monorepo packages, so a TS monorepo with `packages/*/go.mod` got a red `go-mod-exists` (issue #75). Per-file rules (Trojan-Source, hygiene) stay on for every ecosystem.
+- A Rust-primary repo with no bin target in any member also gets `rust-cargo-lock-exists` off, since committing a library's `Cargo.lock` is the maintainer's call (<https://blog.rust-lang.org/2023/08/29/committing-lockfiles/>). A feature-gated bin still counts as an app.
+- The overrides are one generated layer file that `extends:` the shipped default. alint 0.13's repeatable `-c` honours only the first file, and 0.14 rejects a second outright. The layer carries `allow_out_of_root: true`, because it and the default both live outside the linted repo.
+- `quality.alint` takes `auto` (run if installed, else info-skip), `enabled` (warn if missing) or `disabled`. Locally a missing alint info-skips with an install hint. In CI it is fetched as the pinned prebuilt binary (`tools.alint` in `src/hyperi_ci/config/versions.yaml`, static musl, run by path with no sudo).
 
 ## See also
 

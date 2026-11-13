@@ -30,6 +30,21 @@ _LOCAL_CPU_DIVISOR = 2
 # A spike in the 1-minute load must not drop a 32-core box to one worker.
 _LOCAL_CPU_FLOOR_DIVISOR = 8
 
+WORKERS_ENV = "HYPERCI_TEST_WORKERS"
+
+# Past 16 workers collection cost cancels the gain: hyperi-ci's own 2598-test
+# suite takes 23.6s at 8, 23.4s at 16 and 23.8s at 32. An explicit number
+# overrides it.
+MAX_AUTO_WORKERS = 16
+
+
+def parse_workers(raw: str) -> int | None:
+    """Return ``raw`` as a worker count, 0 for serial, None when not a number."""
+    try:
+        return max(0, int(raw.strip()))
+    except ValueError:
+        return None
+
 
 def usable_mb(value: object) -> int | None:
     """Return ``value`` as a per-worker MiB count, None when it is not one."""

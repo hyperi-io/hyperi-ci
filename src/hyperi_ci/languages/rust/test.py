@@ -12,6 +12,7 @@ the profile's ``default-filter`` leaves out. In a root-package workspace every
 command takes ``--workspace``, or cargo would test the root package alone.
 """
 
+import os
 import re
 import shutil
 from contextlib import nullcontext
@@ -31,6 +32,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust._manifest import (
     is_root_package_workspace,
     split_feature_sets,
@@ -167,8 +169,11 @@ def _scope_args(features: str, *, workspace: bool) -> list[str]:
 
 
 def _has_nextest() -> bool:
-    """Check if cargo-nextest is installed."""
-    return shutil.which("cargo-nextest") is not None
+    """Check whether cargo can run nextest, from PATH or ``$CARGO_HOME/bin``."""
+    if shutil.which("cargo-nextest"):
+        return True
+    cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+    return (cargo_home / "bin" / "cargo-nextest").is_file()
 
 
 def _announce_degradation() -> None:
@@ -338,10 +343,48 @@ def _run_tests(
 
     """
     kept = KeptLines(_KEEP)
-    rc, _tail = stream_cmd(cmd, on_line=kept, on_chunk=echo_chunk, env=env)
+    suffix = f" ({what})" if what else ""
+    boundary = _CompileBoundary(kept, f"test-compile{suffix}")
+    rc, _tail = stream_cmd(cmd, on_line=boundary, on_chunk=echo_chunk, env=env)
+    _mark_peak(f"test-run{suffix}")
     prefix = f"{what}: " if what else ""
     announce_tier(test_tier, f"{prefix}{tier_detail(kept.text())}")
     return rc
+
+
+# The first line a runner prints once every test binary is built: nextest's
+# "Starting N tests", or cargo test's first "Running" of a binary.
+_RUN_STARTS = re.compile(
+    r"^\s*(?:Starting \d+ tests?\b|Running (?:unittests |tests/|benches/))"
+)
+
+
+def _mark_peak(phase: str) -> None:
+    """Log the job's memory peak at a test phase boundary, never failing the run."""
+    try:
+        log_peak_memory(phase)
+    except OSError as exc:
+        warn(f"  memory peak after {phase} not read: {exc}")
+
+
+class _CompileBoundary:
+    """Pass each output line on, and log the memory peak when the tests start.
+
+    The peak at that line covers compiling the test binaries alone. The one
+    after the run covers the whole job, so a higher figure there means the
+    tests themselves set it.
+    """
+
+    def __init__(self, kept: KeptLines, phase: str) -> None:
+        self._kept = kept
+        self._phase = phase
+        self.seen = False
+
+    def __call__(self, line: str) -> None:
+        self._kept(line)
+        if not self.seen and _RUN_STARTS.match(strip_ansi(line)):
+            self.seen = True
+            _mark_peak(self._phase)
 
 
 def _workspace_report_packages(workspace: bool) -> list[str]:
