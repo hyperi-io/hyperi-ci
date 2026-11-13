@@ -79,10 +79,21 @@ class _Api:
         self.missing_tags: set[str] = set()
         # stderr for a tag read that fails without an answer.
         self.tag_error = "gh: Not Found (HTTP 404)"
+        # CHANGELOG.md on the branch tip, read by a tag dispatch. None is a 404.
+        self.tip_changelog: str | None = None
+        # GitHub's generated release notes. None answers as a failure.
+        self.notes: str | None = None
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
         endpoint = args[-1]
+        if endpoint.endswith("/releases/generate-notes"):
+            return {"body": self.notes} if self.notes is not None else None
+        if "/contents/CHANGELOG.md" in endpoint and self.notes is not None:
+            if self.tip_changelog is None:
+                return None
+            encoded = base64.encodebytes(self.tip_changelog.encode()).decode()
+            return {"sha": "changelog-sha", "content": encoded}
         if "/git/ref/tags/" in endpoint:
             tag = endpoint.rsplit("/", 1)[1]
             if tag in self.missing_tags:
@@ -419,6 +430,138 @@ class TestLocalBlob:
         self._git(tmp_path, "add", "a")
         self._git(tmp_path, "commit", "-q", "-m", "x")
         assert _local_blob(tmp_path, "spec.json") is None
+
+
+_NOTES = (
+    "## What's Changed\n* fix: the parser by @a in https://x/pull/7\n\n"
+    "**Full Changelog**: https://x/compare/v3.0.9...v3.1.0"
+)
+_TIP_CHANGELOG = "# Changelog\n\n## [3.0.9](https://x) (2026-09-01)\n\n* old\n"
+
+
+class TestATagDispatch:
+    """A promoted candidate commits VERSION and its entry onto main's own copy."""
+
+    @pytest.fixture
+    def tagged(self, tmp_path: Path) -> Path:
+        """A checkout of the candidate's commit: VERSION and CHANGELOG at 3.0.9."""
+        git = TestLocalBlob._git
+        git(tmp_path, "init", "-q")
+        (tmp_path / "VERSION").write_text("3.0.9\n", encoding="utf-8")
+        (tmp_path / "CHANGELOG.md").write_text("# stale checkout copy\n", "utf-8")
+        git(tmp_path, "add", "VERSION", "CHANGELOG.md")
+        git(tmp_path, "commit", "-q", "-m", "x")
+        for tag in ("v3.0.8", "v3.0.9", "v3.1.0-rc.1", "v3.2.0"):
+            git(tmp_path, "tag", tag)
+        return tmp_path
+
+    @pytest.fixture
+    def tip(self, api: _Api) -> _Api:
+        api.tip_version = "3.0.9\n"
+        api.tip_changelog = _TIP_CHANGELOG
+        api.notes = _NOTES
+        return api
+
+    @staticmethod
+    def _tree(api: _Api) -> set[str]:
+        trees = api.bodies_for("/git/trees")
+        return {e["path"] for e in trees[0]["tree"]} if trees else set()
+
+    def test_the_entry_lands_on_the_branch_copy(self, tip: _Api, tagged: Path) -> None:
+        assert (
+            commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+            == 0
+        )
+        assert self._tree(tip) == {"VERSION", "CHANGELOG.md"}
+        assert (tagged / "VERSION").read_text(encoding="utf-8") == "3.1.0\n"
+        text = (tagged / "CHANGELOG.md").read_text(encoding="utf-8")
+        head, entry, rest = text.partition("## [3.1.0]")
+        assert head == "# Changelog\n\n"
+        assert entry
+        assert rest.startswith(
+            "(https://github.com/hyperi-io/hyperi-ci/compare/v3.0.9...v3.1.0)"
+        )
+        assert "### What's Changed\n* fix: the parser" in rest
+        assert "Full Changelog" not in rest
+        assert "stale checkout copy" not in text
+        assert rest.endswith(_TIP_CHANGELOG.removeprefix("# Changelog\n\n"))
+
+    def test_the_notes_start_at_the_last_final_release(
+        self, tip: _Api, tagged: Path
+    ) -> None:
+        commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+        asked = tip.bodies_for("/releases/generate-notes")
+        assert asked == [{"tag_name": "v3.1.0", "previous_tag_name": "v3.0.9"}]
+
+    @pytest.mark.parametrize(
+        ("tip_changelog", "notes", "tree"),
+        [
+            pytest.param(
+                "## [3.1.0](https://x) (2026-09-16)\n", _NOTES, {"VERSION"}, id="listed"
+            ),
+            pytest.param(None, _NOTES, {"VERSION"}, id="no-changelog-on-branch"),
+            pytest.param(_TIP_CHANGELOG, None, {"VERSION"}, id="no-release-notes"),
+            pytest.param(
+                "# Changelog\n", _NOTES, {"VERSION", "CHANGELOG.md"}, id="no-entries"
+            ),
+        ],
+    )
+    def test_the_changelog_is_only_written_when_it_gains_the_entry(
+        self,
+        tip: _Api,
+        tagged: Path,
+        tip_changelog: str | None,
+        notes: str | None,
+        tree: set[str],
+    ) -> None:
+        tip.tip_changelog = tip_changelog
+        tip.notes = notes
+        commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+        assert self._tree(tip) == tree
+
+    def test_an_older_tag_commits_nothing(self, tip: _Api, tagged: Path) -> None:
+        tip.tip_version = "3.2.0\n"
+        tip.tip_changelog = "## [3.2.0](https://x) (2026-10-01)\n"
+        assert (
+            commit_release_artefacts(version="3.0.8", project_dir=tagged, from_tag=True)
+            == 0
+        )
+        assert tip.bodies_for("/git/trees") == []
+
+    def test_an_untracked_version_is_not_committed(
+        self, tip: _Api, tagged: Path
+    ) -> None:
+        TestLocalBlob._git(tagged, "rm", "-q", "--cached", "VERSION")
+        TestLocalBlob._git(tagged, "commit", "-q", "-m", "untrack")
+        commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+        assert self._tree(tip) == {"CHANGELOG.md"}
+
+    def test_a_prerelease_tag_commits_nothing(self, tip: _Api, tagged: Path) -> None:
+        assert (
+            commit_release_artefacts(
+                version="3.1.0-rc.1", project_dir=tagged, from_tag=True
+            )
+            == 0
+        )
+        assert tip.calls == []
+
+    def test_the_supplement_is_left_alone(self, tip: _Api, tagged: Path) -> None:
+        (tagged / SUPPLEMENT).parent.mkdir(parents=True)
+        (tagged / SUPPLEMENT).write_text("notes\n", encoding="utf-8")
+        commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+        assert SUPPLEMENT not in self._tree(tip)
+
+    def test_the_cli_reads_the_tail_env(
+        self, tip: _Api, tagged: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from hyperi_ci.cli import app
+
+        monkeypatch.setenv("HYPERCI_RELEASE_FROM_TAG", "true")
+        result = CliRunner().invoke(app, ["release-commit", "-C", str(tagged), "3.1.0"])
+        assert result.exit_code == 0
+        assert self._tree(tip) == {"VERSION", "CHANGELOG.md"}
 
 
 class TestNoOps:

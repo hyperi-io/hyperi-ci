@@ -984,8 +984,16 @@ class TestR2SettingsComeFromOrgConfig:
         )
         assert org.r2_public_url == "https://downloads.hyperi.io"
 
+    @pytest.mark.parametrize(
+        ("channel", "path"),
+        [("release", "v2.0.0/"), ("rc", "rc/v2.0.0/"), ("beta", "beta/v2.0.0/")],
+    )
     def test_org_values_reach_the_upload_commands(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        channel: str,
+        path: str,
     ) -> None:
         from hyperi_ci.config import OrgConfig
         from hyperi_ci.release import binaries
@@ -1015,9 +1023,19 @@ class TestR2SettingsComeFromOrgConfig:
             ),
         )
 
-        assert binaries._publish_r2_binaries() == 0
+        published: list[str] = []
+        monkeypatch.setattr(binaries, "success", published.append)
+
+        assert binaries._publish_r2_binaries(channel=channel) == 0
         endpoints = {cmd[cmd.index("--endpoint-url") + 1] for cmd in sent}
         assert endpoints == {"https://acct123.r2.cloudflarestorage.com"}
         copies = [cmd for cmd in sent if cmd[2] == "cp"]
         assert copies
         assert all(cmd[4].startswith("s3://other-bucket/") for cmd in copies)
+        prefix = f"s3://other-bucket/{tmp_path.name}/{path}"
+        assert any(cmd[4].startswith(prefix) for cmd in copies)
+        # The logged URL is where the upload landed.
+        assert published == [
+            f"Published 1 artifact(s) to R2 -- "
+            f"https://dl.example.test/{tmp_path.name}/{path}"
+        ]

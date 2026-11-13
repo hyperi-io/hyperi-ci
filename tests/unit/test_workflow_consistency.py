@@ -493,10 +493,12 @@ class TestFromHeadThreading:
         )
         assert commit["run"].endswith('"$RELEASE_VERSION"')
         assert commit["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
-        # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
-        # committed onto main would move the branch backwards (issue #350).
-        assert "inputs.tag == ''" in str(commit["if"]), (
-            "release-commit must skip a retroactive tag dispatch"
+        # A tag dispatch checks out the tagged commit, so its own CHANGELOG.md
+        # would move main backwards (issue #350). --from-tag builds on main's copy.
+        assert commit["env"]["HYPERCI_RELEASE_FROM_TAG"] == "${{ inputs.tag != '' }}"
+        # release-commit refuses an rc on main, and the refusal files an issue.
+        assert "inputs.candidate != 'true'" in str(commit["if"]), (
+            "release-commit must skip a release candidate"
         )
         assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"

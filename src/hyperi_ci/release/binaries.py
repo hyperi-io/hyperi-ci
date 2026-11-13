@@ -13,7 +13,6 @@ that packages binaries into ``dist/``.
 import filecmp
 import json
 import os
-import re
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -36,17 +35,10 @@ from hyperi_ci.config import CIConfig, load_org_config
 from hyperi_ci.native_deps import ensure_aws_cli
 from hyperi_ci.release.charts import release_notes as chart_release_notes
 from hyperi_ci.release_branches import effective_release_channel
-from hyperi_ci.stamp import repo_paths
+from hyperi_ci.stamp import CHANGELOG_ENTRY_HEADING, CHANGELOG_FILE, repo_paths
 from hyperi_ci.tools import missing_tool_notice
 
 VALID_CHANNELS = ("alpha", "beta", "release")
-
-CHANGELOG_FILE = "CHANGELOG.md"
-
-# A rendered release heading: `## [1.2.3](compare-url) (date)` for a patch,
-# `# [1.3.0](...)` for a minor or major. A `### Bug Fixes` sub-heading inside
-# an entry does not match, so the next match is the next release.
-_ENTRY_HEADING = re.compile(r"^#{1,3}\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?")
 
 
 def _resolve_gh_release_flags(channel: str) -> list[str]:
@@ -138,7 +130,7 @@ def _top_changelog_entry(version: str, changelog: str) -> str | None:
     lines = changelog.splitlines()
     start: int | None = None
     for index, line in enumerate(lines):
-        match = _ENTRY_HEADING.match(line)
+        match = CHANGELOG_ENTRY_HEADING.match(line)
         if match is None:
             continue
         if start is None:
@@ -470,9 +462,9 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     endpoint = org.r2_endpoint
     project_name = Path.cwd().name
     version = resolve_release_version() or "unknown"
-    public_url = f"{org.r2_public_url}/{project_name}/v{version}/"
-
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
+    key_prefix = versioned_prefix.removeprefix(f"s3://{org.r2_bucket}/")
+    public_url = f"{org.r2_public_url}/{key_prefix}"
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
     with _classic_s3_config() as aws_config:
