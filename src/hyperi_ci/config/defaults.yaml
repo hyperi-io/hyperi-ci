@@ -150,6 +150,7 @@ quality:
   mermaid_parse: warn        # Every fenced mermaid block, against mermaid's own grammar
   markdownlint: warn         # Mechanical markdown syntax (markdownlint-cli2)
   docs_touched: warn         # Source changed and no doc did. NEVER gates, in any mode
+  doc_register: warn         # A REGISTER word (register-words.yaml) on any markdown line
 
   alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
                              # NON-BLOCKING). auto = run if installed else info-skip;

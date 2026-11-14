@@ -32,6 +32,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | lychee | internal doc links + anchors, offline | dispatch + `lint-docs` (`quality/doc_links.py`) |
 | mermaid-parse | fenced mermaid blocks, real grammar | dispatch + `lint-docs` (`quality/mermaid_parse.py`) |
 | markdownlint-cli2 | mechanical markdown syntax | dispatch + `lint-docs` (`quality/markdownlint.py`) |
+| doc-register | a REGISTER word on any prose line of any markdown file. `<!-- prose-disable-line register -->` quotes one on purpose | dispatch + `lint-docs` (`quality/doc_register.py`) |
 | docs-touched | source changed, no doc did (NEVER gates) | dispatch + `lint-docs` (`quality/docs_touched.py`) |
 | ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |

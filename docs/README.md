@@ -22,7 +22,7 @@ sides fit, [flow.md](flow.md) for how a push becomes a release, and
 | `hyperi-ci check` locally | the same quality+test path CI runs - ~95% confidence pre-push | "works locally, fails in CI" |
 
 The CLI owns the work; the workflows are runner glue around it. That keeps the
-cost of switching CI vendors (GitHub -> Buildkite, one day) bounded to the glue.
+cost of switching CI services (GitHub -> Buildkite, one day) bounded to the glue.
 
 ---
 

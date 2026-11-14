@@ -51,6 +51,8 @@ dependencies = [
     "typer>=0.27",
     "jsonschema>=4.26.0",
     "tomlkit>=0.15.2",
+    # lint-docs reads markdown prose through it.
+    "markdown-it-py>=4.2.0",
 ]
 
 [project.scripts]

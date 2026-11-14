@@ -8,7 +8,7 @@ Codeberg (<https://codeberg.org>) is a non-profit host in Germany running Forgej
 
 | Question | Answer |
 |---|---|
-| Can Codeberg host the source? | Yes, trivially. |
+| Can Codeberg host the source? | Yes. |
 | Can it replace the rest of the GitHub surface? | Partially, with significant rework. |
 | Effort to migrate hyperi-ci + the DFE fleet? | Multi-quarter, multi-engineer. |
 | Hard blockers today? | GitHub Apps, fleet-wide `gh` CLI usage, SSO and audit log. |

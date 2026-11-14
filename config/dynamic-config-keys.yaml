@@ -88,6 +88,7 @@ keys:
   quality.doc_links: src/hyperi_ci/quality/doc_links.py
   quality.mermaid_parse: src/hyperi_ci/quality/mermaid_parse.py
   quality.markdownlint: src/hyperi_ci/quality/markdownlint.py
+  quality.doc_register: src/hyperi_ci/quality/doc_register.py
   # quality.docs_touched is NOT here: it reads its key as a literal, because
   # `--strict` must not be able to promote a nudge into a gate.
 

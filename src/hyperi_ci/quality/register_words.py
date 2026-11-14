@@ -1,13 +1,14 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/quality/register_words.py
-# Purpose:   Find REGISTER words in a commit subject or PR title
+# Purpose:   Find REGISTER words in a commit subject, PR title or markdown line
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Find REGISTER words in a commit subject or PR title.
+"""Find REGISTER words in a commit subject, PR title or markdown line.
 
-The word list is the packaged ``config/register-words.yaml``. A hit is a
-warning, never a failure.
+The word list is the packaged ``config/register-words.yaml``. In a commit
+subject or PR title a hit is a warning, never a failure. lint-docs applies the
+same list to markdown.
 """
 
 import re
@@ -18,6 +19,9 @@ from pathlib import Path
 import yaml
 
 _TABLE_PATH = Path(__file__).resolve().parents[1] / "config" / "register-words.yaml"
+
+# The rule id a docs finding carries, and a prose-disable comment names.
+RULE = "register"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +54,26 @@ def words() -> list[dict[str, str]]:
     return [asdict(word) for word, _ in _table()]
 
 
+# Mentions, not use: a code span, a token holding a path separator, and a
+# leading conventional-commit type and scope.
+_NOT_PROSE = (
+    re.compile(r"(`+).*?\1"),
+    re.compile(r"\S*/\S*"),
+    re.compile(r"^\s*[a-z]+(?:\([^)]*\))?!?:\s"),
+)
+
+
+def prose(line: str) -> str:
+    """Return ``line`` with what no REGISTER row judges blanked out."""
+    for pattern in _NOT_PROSE:
+        line = pattern.sub(" ", line)
+    return line
+
+
 def hits(line: str) -> list[RegisterWord]:
-    """Return the REGISTER words ``line`` carries, in table order."""
-    return [word for word, regex in _table() if regex.search(line)]
+    """Return the REGISTER words the prose of ``line`` carries, in table order."""
+    text = prose(line)
+    return [word for word, regex in _table() if regex.search(text)]
 
 
 def describe(line: str) -> list[str]:

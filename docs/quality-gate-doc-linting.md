@@ -107,7 +107,7 @@ No, by design - the failure surface is deliberately narrow:
   CI - a gitops repo has to opt in by calling the verb.
 - **The one gate that auto-runs (hadolint) fails on ERROR severity only.** Routine
   Dockerfile noise (DL3008 unpinned apt, DL4006 pipefail, base-image pinning) is
-  warning-tier and is surfaced, not failed. Only a genuine defect - chiefly a
+  warning-tier and is surfaced, not failed. Only a real defect - chiefly a
   broken `RUN` shell caught by embedded ShellCheck - fails the build.
 - **A missing tool never breaks the local loop.** `hyperi-ci check` warn-skips a
   linter that is not installed; in CI hadolint auto-installs, and if that install

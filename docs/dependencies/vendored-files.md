@@ -1,4 +1,4 @@
-# Vendored files
+# Mirrored files
 
 Some files have one owner and a copy elsewhere: scalo-py ships the contract schema scalo-rs owns, so it validates offline. `hyperi-ci vendor` keeps the copy honest. One way, at a pinned ref, no cross-repo write token.
 

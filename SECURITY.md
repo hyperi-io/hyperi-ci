@@ -44,7 +44,7 @@ and appreciate responsible disclosure.
 
 ## Out of Scope
 
-The following are generally out of scope:
+Out of scope, as a rule:
 
 - Social engineering or phishing attacks
 - Denial of service (DoS/DDoS) attacks

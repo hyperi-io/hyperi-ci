@@ -304,6 +304,7 @@ name = "hyperi-ci"
 source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
+    { name = "markdown-it-py" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "scalo" },
@@ -324,6 +325,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "markdown-it-py", specifier = ">=4.2.0" },
     { name = "packaging", specifier = ">=26.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scalo", specifier = ">=2.30.3" },

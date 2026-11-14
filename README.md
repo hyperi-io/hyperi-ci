@@ -72,7 +72,7 @@ git config core.hooksPath .githooks     # Activate commit validation hook
 This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
 and `.githooks/commit-msg`. Commit and push. No `.releaserc` is scaffolded -
 version bumps follow semantic-release's own default rules (a repo commits a
-`.releaserc.json` only for a genuine exception).
+`.releaserc.json` only for an exception).
 
 ## Daily Workflow
 
@@ -400,8 +400,8 @@ release:
 | TypeScript | eslint, oxlint, prettier, Oxfmt, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go _(beta)_ | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
 
-> **Go support is beta** — functional but not battle-tested to the same
-> degree as Rust, Python, and TypeScript. Verify results carefully on
+> **Go support is beta** — it works, but it runs on fewer real pipelines
+> than Rust, Python, and TypeScript. Verify results carefully on
 > production pipelines.
 
 Per-language version stamping (release runs only):

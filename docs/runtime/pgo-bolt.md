@@ -57,7 +57,7 @@ Which Build jobs a Rust run gets:
 
 - `skip-optimize` drops PGO and BOLT for one run: [`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.
 - `optimize-tier: release` runs them on a run that publishes nothing: *Testing it in CI without a release* below.
-- A prerelease off a branch proves a workload end to end without spending a stable version: [`prereleases.md`](../prereleases.md).
+- A prerelease off a branch proves a workload through profile, optimise and BOLT without spending a stable version: [`prereleases.md`](../prereleases.md).
 
 ### aarch64: a BOLTed binary is not safe on Cortex-A53
 

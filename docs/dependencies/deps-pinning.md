@@ -108,7 +108,7 @@ thought to look past `pyproject.toml`. The enumeration is the fix.
 | `--kind python\|rust\|node\|container\|ci\|...` | narrow a polyglot repo to one ecosystem | |
 
 Surfaces are DATA: `src/hyperi_ci/config/dep-surfaces.yaml`. The file patterns
-are vendored from Renovate's own `managerFilePatterns` defaults, so what we
+are copied from Renovate's own `managerFilePatterns` defaults, so what we
 match is what Renovate matches; each entry records its `renovate_manager:`
 slug, or `null` plus a `gap:` note where no manager exists.
 

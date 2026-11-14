@@ -38,6 +38,9 @@ quality:
     # dependency is supplied at assembly, so helm cannot render it standalone.
     - tests/unit/data/scalo-service
 
+  # Reads zero across this repo's markdown, so it holds there.
+  doc_register: blocking
+
   # Gates that run as their own CI JOB, repeated here so a local
   # `hyperi-ci check` green actually predicts a CI green. Both are blocking in
   # ci.yml and neither had any local path, so touching versions.yaml or a

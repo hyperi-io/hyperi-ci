@@ -13,7 +13,8 @@ docs-only repo. The checks, in cost order:
 2. doc-links - lychee over internal links and anchors, offline.
 3. mermaid-parse - mermaid's own grammar over every fenced block.
 4. markdownlint - markdown syntax.
-5. docs-touched - the source-changed, docs-did-not nudge, which never gates.
+5. doc-register - a REGISTER word on any prose line.
+6. docs-touched - the source-changed, docs-did-not nudge, which never gates.
 
 Every check defaults to ``warn``, and a repo promotes one once it reads zero.
 doc-paths leaves link destinations to lychee unless doc-paths is stricter.
@@ -26,6 +27,7 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import (
     doc_links,
     doc_paths,
+    doc_register,
     docs_touched,
     markdownlint,
     mermaid_parse,
@@ -65,7 +67,10 @@ def run(
     with group("markdown syntax (markdownlint)"):
         lint_rc = markdownlint.run(files, config, root=root, sarif_path=sarif_path)
 
+    with group("register words"):
+        register_rc = doc_register.run(files, config, root=root, sarif_path=sarif_path)
+
     with group("docs-untouched nudge"):
         docs_touched.run(config, root=root, sarif_path=sarif_path)
 
-    return paths_rc or links_rc or mermaid_rc or lint_rc
+    return paths_rc or links_rc or mermaid_rc or lint_rc or register_rc

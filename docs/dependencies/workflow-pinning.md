@@ -40,13 +40,13 @@ mutable git ref** (there, "tags reachable from HEAD"; here, "`@main` siblings").
 ## The trilemma - pick two
 
 You can have any **two** of: keep semantic-release, a frozen (tamper-proof)
-graph, a seamless dev loop.
+graph, a live dev loop (a composite edit takes effect on `main` at once).
 
 ```mermaid
 flowchart TB
     KSR["keep<br/>semantic-release"]
     FG["frozen<br/>graph"]
-    SDL["seamless<br/>dev loop"]
+    SDL["live<br/>dev loop"]
     GO["<b>Gate-only</b> ✓ chosen<br/>keep-SR + dev-loop"]
     V2["@v2 major tag<br/>keep-SR + ~frozen"]
     AD["A-decouple<br/>frozen + dev-loop<br/>(✗ bespoke oracle)"]
@@ -57,15 +57,15 @@ flowchart TB
     style AD fill:#fee2e2,color:#000
 ```
 
-| Option | keep semantic-release | frozen graph | seamless dev loop | cost |
+| Option | keep semantic-release | frozen graph | live dev loop | cost |
 |---|---|---|---|---|
 | **Gate-only** yes | yes | no | yes | none beyond a source-side gate (+ branch protection when it matters) |
 | `@v2` major tag | yes | ~ band | no | composite edits **inert on `main` until `v2` advances** |
 | Freeze-on-main | yes | yes | no | re-adds committed-back `@semantic-release/git` (orphaning) + inert edits |
 | A-decouple | no **bespoke oracle** | yes | yes | bespoke oracle + tagger + freezer replacing semantic-release's version+tag |
 
-A-decouple is the only option giving a frozen graph *and* a seamless dev loop -
-but only by replacing a battle-tested tool with custom code.
+A-decouple is the only option giving a frozen graph *and* a live dev loop -
+but only by replacing semantic-release, which the whole fleet already runs, with custom code.
 
 ## Decision
 
@@ -209,7 +209,7 @@ profile keys on the `ci: hyperi-ci` custom property and this repo declares
   (`src/hyperi_ci/release/`, `next-version`, `freeze-internals`) - never reached
   PyPI, so no consumer impact.
 - **Kept:** semantic-release as the oracle + tagger, `@main` internals, the
-  seamless dev loop, and the gate (hardened with the removed-file check).
+  live dev loop, and the gate (hardened with the removed-file check).
 - **Retained, unrelated:** `@semantic-release/github` - hyperi-ci now creates GH
   Releases again (its deletion had been a migration bug, not part of this
   decision).

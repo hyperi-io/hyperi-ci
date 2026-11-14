@@ -10,8 +10,8 @@
 #   pattern      Python regex, compiled case-insensitive
 #   replacement  what to write instead
 #
-# hyperi-ai imports this list through hyperi_ci.quality.register_words.words() and
-# pins hyperi-ci exactly, so a change reaches it only after a release and a pin bump.
+# hits() drops code spans, paths and a commit type-and-scope prefix first, so no row carries exemptions.
+# hyperi-ai reads this list through register_words.words() at its pinned hyperi-ci version.
 
 words:
   - term: 'substrate'
@@ -182,9 +182,6 @@ words:
   - term: 'facilitate'
     pattern: '\bfacilitat(?:e|es|ed|ing|ion)\b'
     replacement: 'say the mechanism'
-  # Lowercase only, so a product name keeps its capital and passes. The tool
-  # sense passes too: `cargo vendor`, `go mod vendor`, `hyperi-ci vendor`, a
-  # vendor/ path, a (vendor) scope and anything in backticks.
   - term: 'vendor'
-    pattern: '(?<!cargo )(?<!go mod )(?<!hyperi-ci )(?<![`(/])\b(?-i:vendor(?:s|ing|ed)?)\b(?![/`):])'
+    pattern: '\bvendor(?:s|ing|ed)?\b'
     replacement: 'name the product or the supplier: the firewall''s own log line, a supplier changes a format'

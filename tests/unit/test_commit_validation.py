@@ -81,14 +81,17 @@ def test_check_commit_prints_the_register_words() -> None:
         pytest.param("docs: name the vendors", ["vendor"], id="vendors"),
         pytest.param("fix: drop the vendored copy", ["vendor"], id="vendored"),
         pytest.param("fix: stop vendoring scalo", ["vendor"], id="vendoring"),
-        pytest.param("fix: read Vendor Hub exports", [], id="vendor-product-name"),
-        pytest.param("fix: run cargo vendor offline", [], id="cargo-vendor"),
-        pytest.param("fix: go mod vendor in the build", [], id="go-mod-vendor"),
-        pytest.param("fix: hyperi-ci vendor check refs", [], id="hyperi-ci-vendor"),
-        pytest.param("fix: skip vendor/ in the scan", [], id="vendor-dir"),
+        pytest.param("fix: run `cargo vendor` offline", [], id="vendor-code-span"),
+        pytest.param(
+            "fix: run cargo vendor offline", ["vendor"], id="vendor-bare-command"
+        ),
+        pytest.param("fix: skip vendor/ in the scan", [], id="vendor-path"),
         pytest.param("fix(vendor): pin the ref", [], id="vendor-scope"),
-        pytest.param("fix: read the `vendor:` block", [], id="vendor-code-span"),
         pytest.param("fix: a vendorless build", [], id="vendor-word-boundary"),
+        pytest.param("fix: a `robust` flag", [], id="any-row-code-span"),
+        pytest.param("fix: read src/robust/x.py", [], id="any-row-path"),
+        pytest.param("fix(seam): drop it", [], id="any-row-scope"),
+        pytest.param("fix(x): drop the seam", ["seam"], id="scope-then-prose"),
     ],
 )
 def test_register_hits(line: str, terms: list[str]) -> None:

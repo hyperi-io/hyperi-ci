@@ -76,8 +76,8 @@ messages. Do not manually update version numbers.
 
 ## Developer Certificate of Origin
 
-This project uses the Developer Certificate of Origin (DCO) to ensure that
-contributors have the right to submit their contributions.
+This project uses the Developer Certificate of Origin (DCO): each contributor
+certifies they have the right to submit their contribution.
 
 By making a contribution to this project, you certify that:
 
