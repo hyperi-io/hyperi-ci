@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.66](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.65...v2.14.66) (2026-11-14)
+
+### Bug Fixes
+
+* **commits:** warn on vendor wording ([dea4454](https://github.com/hyperi-io/hyperi-ci/commit/dea4454a9da123bc21f1ca754498d0f495550f2f))
+
 ## [2.14.65](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.64...v2.14.65) (2026-11-14)
 
 ### Bug Fixes
