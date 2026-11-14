@@ -104,6 +104,7 @@ ALLOWED_RUN_LINES = {
         r"'\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$' \|\| true\)\" \]; then",
         rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
+        rf'GH_TOKEN="\$GITHUB_TOKEN" {_INSTALL} tag-head --bump "{_VERSION}"',
         # helm dependency build, package and push render no template and run no hook.
         rf"{_INSTALL} publish-charts",
         # The global binary with the central config only: no npx, no repo config.
