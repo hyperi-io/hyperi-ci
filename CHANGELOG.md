@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.65](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.64...v2.14.65) (2026-11-14)
+
+### Bug Fixes
+
+* **quality:** log the pinned version each gate tool runs ([dadf1f1](https://github.com/hyperi-io/hyperi-ci/commit/dadf1f1b6d1dfd73be32aad3956ec16f95b5c603))
+
 ## [2.14.64](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.63...v2.14.64) (2026-11-14)
 
 ### Bug Fixes
