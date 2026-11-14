@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.64](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.63...v2.14.64) (2026-11-14)
+
+### Bug Fixes
+
+* **deps:** bump drifted pins (versions-audit) ([#711](https://github.com/hyperi-io/hyperi-ci/issues/711)) ([fc7c49c](https://github.com/hyperi-io/hyperi-ci/commit/fc7c49c057ee60165dbae1ed716adaffe77d78f1))
+* **release:** give semantic-release one token variable ([636eba9](https://github.com/hyperi-io/hyperi-ci/commit/636eba91e27537cef0d3aa3c882790abbfa45648)), closes [#738](https://github.com/hyperi-io/hyperi-ci/issues/738)
+
 ## [2.14.63](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.62...v2.14.63) (2026-11-13)
 
 ### Bug Fixes
