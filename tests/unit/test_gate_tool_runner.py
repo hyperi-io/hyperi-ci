@@ -413,6 +413,27 @@ def _vulture(mode: str) -> bool:
     )
 
 
+class TestThePinnedVersionIsLogged:
+    """A pin bump can turn a consumer red, so the log names the version that ran."""
+
+    @pytest.mark.parametrize(
+        ("via", "spec", "logged"),
+        [
+            ("uv-with", "ty==0.0.95", "  ty: running ty==0.0.95"),
+            ("uvx", "ty==0.0.95", "  ty: running ty==0.0.95"),
+            ("uv-with", "ty", None),
+            ("path", "ty==0.0.95", None),
+        ],
+    )
+    def test_only_a_pinned_uv_run_names_its_spec(
+        self, log: _Log, on_path: None, via: Via, spec: str, logged: str | None
+    ) -> None:
+        log.returns(0)
+        assert run_gate_tool("ty", ["ty", "check"], "blocking", via=via, spec=spec)
+        running = [m for m in log.said("info") if "running" in m]
+        assert running == ([logged] if logged else [])
+
+
 class TestAToolThatNeverStarted:
     """uv's own failure to start a tool is neither a pass nor a finding."""
 
