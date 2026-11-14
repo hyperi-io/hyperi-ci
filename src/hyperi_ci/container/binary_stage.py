@@ -15,7 +15,9 @@ alone.
 
 The rewrite also appends ``COPY LICENSE /licenses/LICENSE`` (the Red Hat
 certification path) when the context root has a licence file, so the image
-carries the text its ``org.opencontainers.image.licenses`` label names.
+carries the text its ``org.opencontainers.image.licenses`` label names, and
+``COPY dist/THIRD-PARTY-NOTICES /licenses/THIRD-PARTY-NOTICES`` when the Build
+stage wrote the notices and the Dockerfile does not already copy them.
 """
 
 import fnmatch
@@ -28,6 +30,8 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 
 LICENCE_DEST = "/licenses/LICENSE"
+NOTICES_NAME = "THIRD-PARTY-NOTICES"
+NOTICES_DEST = f"/licenses/{NOTICES_NAME}"
 
 # Checked in order; the first present wins.
 _LICENCE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt")
@@ -62,8 +66,10 @@ def stage_binary_dockerfile(
     Each ``COPY <name> <dst>`` with a ``dist/<name>-linux-<arch>`` artefact
     becomes ``COPY dist/<name>-linux-${TARGETARCH} <dst>``, with ``ARG
     TARGETARCH`` added to its stage. A licence file in ``context`` adds a
-    ``COPY <file> /licenses/LICENSE`` to the final stage. The temp file is
-    written in the cwd so buildx resolves it against the build context.
+    ``COPY <file> /licenses/LICENSE`` to the final stage, and
+    ``dist/THIRD-PARTY-NOTICES`` adds its own COPY unless the Dockerfile names
+    the file already. The temp file is written in the cwd so buildx resolves it
+    against the build context.
 
     Args:
         dockerfile_path: Path to the project's Dockerfile.
@@ -80,7 +86,8 @@ def stage_binary_dockerfile(
 
     rewrites = _find_binary_copy_rewrites(original, dist)
     licence = find_licence_file(context or Path("."))
-    if not rewrites and licence is None:
+    notices = (dist / NOTICES_NAME).is_file() and NOTICES_NAME not in original
+    if not rewrites and licence is None and not notices:
         return dockerfile_path
 
     rewritten = original
@@ -96,6 +103,11 @@ def stage_binary_dockerfile(
     if licence is not None:
         rewritten = _append_copy(rewritten, licence, LICENCE_DEST)
         info(f"Container: copying {licence} into the image at {LICENCE_DEST}")
+    if notices:
+        rewritten = _append_copy(
+            rewritten, f"{dist.as_posix()}/{NOTICES_NAME}", NOTICES_DEST
+        )
+        info(f"Container: copying {NOTICES_NAME} into the image at {NOTICES_DEST}")
 
     with tempfile.NamedTemporaryFile(
         mode="w",

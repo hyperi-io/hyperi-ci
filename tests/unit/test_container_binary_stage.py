@@ -384,6 +384,36 @@ class TestLicenceCopy:
         assert find_licence_file(cwd_tmp) == "second.md"
 
 
+@pytest.mark.parametrize(
+    ("notices", "dockerfile", "copied"),
+    [
+        pytest.param(True, "FROM scratch\n", True, id="build-wrote-it"),
+        pytest.param(False, "FROM scratch\n", False, id="no-notices"),
+        pytest.param(
+            True,
+            "FROM scratch\nCOPY dist/THIRD-PARTY-NOTICES /app/\n",
+            False,
+            id="dockerfile-copies-it-already",
+        ),
+    ],
+)
+def test_notices_copy(
+    cwd_tmp: Path, notices: bool, dockerfile: str, copied: bool
+) -> None:
+    if notices:
+        (cwd_tmp / "dist").mkdir()
+        (cwd_tmp / "dist" / "THIRD-PARTY-NOTICES").write_text("n\n", encoding="utf-8")
+    df = _write_dockerfile(cwd_tmp, dockerfile)
+    result = stage_binary_dockerfile(df, context=cwd_tmp)
+    line = "COPY dist/THIRD-PARTY-NOTICES /licenses/THIRD-PARTY-NOTICES"
+    if not copied:
+        assert result == df
+        return
+    rewritten = result.read_text(encoding="utf-8")
+    result.unlink()
+    assert rewritten.splitlines()[-1] == line
+
+
 class TestDockerignoreMatch:
     """A root-level file against Docker's .dockerignore rules."""
 
