@@ -2565,20 +2565,11 @@ def check_commit_cmd(
         bool,
         typer.Option("--list", help="List all accepted commit types"),
     ] = False,
-    list_register: Annotated[
-        bool,
-        typer.Option(
-            "--register-words",
-            help="Print the REGISTER word list as JSON: term, pattern, replacement",
-        ),
-    ] = False,
 ) -> None:
     """Validate a commit message against conventional commit rules.
 
-    Used by the .githooks/commit-msg hook. Reads a file or stdin. A REGISTER
-    word in the subject is a warning on stderr, never a failure.
+    Used by the .githooks/commit-msg hook. Reads a file or stdin.
     """
-    from hyperi_ci.quality import register_words
     from hyperi_ci.quality.commit_validation import (
         format_rejection,
         format_type_list,
@@ -2587,9 +2578,6 @@ def check_commit_cmd(
 
     if list_types:
         typer.echo(format_type_list())
-        raise typer.Exit(0)
-    if list_register:
-        typer.echo(json.dumps(register_words.words(), indent=2))
         raise typer.Exit(0)
 
     if message_file:
@@ -2611,8 +2599,6 @@ def check_commit_cmd(
         )
         raise typer.Exit(1)
 
-    for finding in register_words.describe(msg.split("\n")[0]):
-        typer.echo(f"warning: {finding}", err=True)
     result = validate_message(msg)
     if result.valid:
         raise typer.Exit(0)
