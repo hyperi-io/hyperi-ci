@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.67](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.66...v2.14.67) (2026-11-14)
+
+### Bug Fixes
+
+* **commits:** stop checking register words in CI ([61f5524](https://github.com/hyperi-io/hyperi-ci/commit/61f5524bcf84f9a7736aba0acf50aa4d10470937))
+
 ## [2.14.66](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.65...v2.14.66) (2026-11-14)
 
 ### Bug Fixes
