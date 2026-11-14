@@ -54,7 +54,7 @@ def test_check_commit_prints_the_register_words() -> None:
     result = CliRunner().invoke(app, ["check-commit", "--register-words"])
     assert result.exit_code == 0
     words = json.loads(result.output)
-    assert len(words) == 56
+    assert len(words) == 57
     assert all(set(w) == {"term", "pattern", "replacement"} for w in words)
     robust = {
         "term": "robust",
@@ -77,6 +77,18 @@ def test_check_commit_prints_the_register_words() -> None:
             "fix: simply a seamless seam", ["simply", "seamless", "seam"], id="several"
         ),
         pytest.param("", [], id="empty"),
+        pytest.param("fix: parse vendor message bodies", ["vendor"], id="vendor"),
+        pytest.param("docs: name the vendors", ["vendor"], id="vendors"),
+        pytest.param("fix: drop the vendored copy", ["vendor"], id="vendored"),
+        pytest.param("fix: stop vendoring scalo", ["vendor"], id="vendoring"),
+        pytest.param("fix: read Vendor Hub exports", [], id="vendor-product-name"),
+        pytest.param("fix: run cargo vendor offline", [], id="cargo-vendor"),
+        pytest.param("fix: go mod vendor in the build", [], id="go-mod-vendor"),
+        pytest.param("fix: hyperi-ci vendor check refs", [], id="hyperi-ci-vendor"),
+        pytest.param("fix: skip vendor/ in the scan", [], id="vendor-dir"),
+        pytest.param("fix(vendor): pin the ref", [], id="vendor-scope"),
+        pytest.param("fix: read the `vendor:` block", [], id="vendor-code-span"),
+        pytest.param("fix: a vendorless build", [], id="vendor-word-boundary"),
     ],
 )
 def test_register_hits(line: str, terms: list[str]) -> None:
