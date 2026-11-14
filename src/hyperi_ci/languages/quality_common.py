@@ -599,6 +599,8 @@ def run_gate_tool(
     if resolved == cmd and not shutil.which(cmd[0]):
         return not missing_tool(cmd[0], mode, purpose=f"the {tool_name} gate")
 
+    if spec and "==" in spec and resolved != cmd:
+        info(f"  {tool_name}: running {spec}")
     if pinned:
         warn_on_pin_drift(pinned)
     if retry_unreachable:
