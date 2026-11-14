@@ -25,8 +25,8 @@ suite version covers a stack that pins many app versions, cut by hand, such as
 | `rc` | no | yes |
 | `release` / `ga` | yes | yes |
 
-The hyperi-ci channels are `VALID_CHANNELS` in
-`src/hyperi_ci/release/binaries.py`. The suite ladder is `tags.maturity.ladder`
+The hyperi-ci channels are `alpha`, `beta` and `release`: `release` is GA and any other value ships as a prerelease
+(`_resolve_gh_release_flags` in `src/hyperi_ci/release/binaries.py`). The suite ladder is `tags.maturity.ladder`
 in dfe-infra's `suite.yaml`, written `alpha -> beta -> rc -> ga`.
 
 `rc` is a suite maturity only and never appears in a per-repo version. semantic-release's default prerelease branch names are `alpha` and `beta`, with no `rc`, so a per-repo prerelease is spelled `beta`.

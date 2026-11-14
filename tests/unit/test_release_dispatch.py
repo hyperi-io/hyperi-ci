@@ -20,7 +20,7 @@ import pytest
 import typer
 
 import hyperi_ci.release as release_pkg
-from hyperi_ci import common, push
+from hyperi_ci import push
 from hyperi_ci.cli import _release_impl
 from hyperi_ci.gh import ApiResult as GhApiResult
 from hyperi_ci.release import dispatch as d
@@ -30,29 +30,13 @@ def _ok() -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
 
-class TestResolveLatestTag:
-    """`release latest` must not dispatch a release for a prerelease tag."""
-
-    def _tags(self, monkeypatch: pytest.MonkeyPatch, listing: str) -> None:
-        monkeypatch.setattr(
-            common,
-            "run_cmd",
-            lambda cmd, **k: subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=listing, stderr=""
-            ),
-        )
-
-    def test_a_release_wins_over_a_higher_prerelease(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._tags(monkeypatch, "v1.1.2-beta.1\nv1.1.1\n")
-        assert d.resolve_latest_tag() == "v1.1.1"
-
-    def test_a_prerelease_only_repo_resolves_to_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._tags(monkeypatch, "v1.1.2-beta.1\n")
-        assert d.resolve_latest_tag() is None
+# The prerelease filtering is version_source.latest_tag_version's, tested there.
+@pytest.mark.parametrize(("latest", "tag"), [("1.1.1", "v1.1.1"), (None, None)])
+def test_resolve_latest_tag(
+    monkeypatch: pytest.MonkeyPatch, latest: str | None, tag: str | None
+) -> None:
+    monkeypatch.setattr(d, "latest_tag_version", lambda: latest)
+    assert d.resolve_latest_tag() == tag
 
 
 class TestDispatchFromHead:

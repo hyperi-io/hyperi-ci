@@ -26,6 +26,8 @@ Config (``.hyperi-ci.yaml``):
 import tempfile
 from pathlib import Path
 
+import yaml
+
 from hyperi_ci.common import is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
@@ -88,29 +90,23 @@ def _override_layer(language: str | None, project_dir: Path) -> str | None:
     if lang not in LANGUAGE_MARKERS:
         return None
     primary_group = _ALINT_GROUP.get(lang)
-    # YAML single quotes keep Windows backslashes verbatim; a quote is doubled.
-    default = str(_DEFAULT_CONFIG).replace("'", "''")
-    lines = [
-        "version: 1",
-        "",
-        # The layer and the default it extends are both outside the repo, which
-        # alint 0.14 refuses without this.
-        "allow_out_of_root: true",
-        "",
-        "extends:",
-        f"  - '{default}'",
-        "",
-        "rules:",
-    ]
     off: list[str] = []
     for group, rules in _ROOT_ONLY_RULES.items():
         if group != primary_group:
             off.extend(rules)
     if primary_group == "rust" and rust_is_library(project_dir):
         off.extend(_RUST_LIBRARY_OFF_RULES)
-    for rule_id in off:
-        lines += [f"  - id: {rule_id}", "    level: off"]
-    return "\n".join(lines) + "\n"
+    return yaml.safe_dump(
+        {
+            "version": 1,
+            # The layer and the default it extends are both outside the repo,
+            # which alint 0.14 refuses without this.
+            "allow_out_of_root": True,
+            "extends": [str(_DEFAULT_CONFIG)],
+            "rules": [{"id": rule_id, "level": "off"} for rule_id in off],
+        },
+        sort_keys=False,
+    )
 
 
 def run(

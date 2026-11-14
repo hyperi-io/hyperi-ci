@@ -12,6 +12,7 @@ and total RAM, as :mod:`hyperi_ci.cpu` does for CPUs.
 """
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,6 +70,17 @@ def own_cgroup_path(proc_self_cgroup: Path) -> str:
     return "/"
 
 
+def cgroup_levels(root: Path, own_path: str) -> Iterator[Path]:
+    """Yield the cgroup directory at ``own_path`` under ``root``, then each parent up to ``root``."""
+    relative = own_path.strip("/")
+    directory = root / relative if relative else root
+    while True:
+        yield directory
+        if directory == root or root not in directory.parents:
+            return
+        directory = directory.parent
+
+
 def cgroup_v2_limit(
     root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
 ) -> MemoryLimit | None:
@@ -86,17 +98,12 @@ def cgroup_v2_limit(
         The smallest limit found, or None when no level sets one.
 
     """
-    relative = own_cgroup_path(proc_self_cgroup).strip("/")
-    directory = root / relative if relative else root
     found: list[MemoryLimit] = []
-    while True:
+    for directory in cgroup_levels(root, own_cgroup_path(proc_self_cgroup)):
         path = directory / "memory.max"
         raw = _read_text(path)
         if raw and raw != _V2_NO_LIMIT and raw.isdigit() and int(raw) > 0:
             found.append(MemoryLimit(int(raw), f"cgroup v2 {path}"))
-        if directory == root or root not in directory.parents:
-            break
-        directory = directory.parent
     return min(found, key=lambda m: m.limit_bytes) if found else None
 
 
@@ -120,6 +127,15 @@ def cgroup_v1_limit(root: Path = CGROUP_ROOT) -> MemoryLimit | None:
     return MemoryLimit(value, f"cgroup v1 {path}")
 
 
+def _meminfo_limit(meminfo: Path, field: str) -> MemoryLimit | None:
+    """Return the ``field`` line of a meminfo file, in bytes, or None when it is absent."""
+    for line in (_read_text(meminfo) or "").splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] == f"{field}:" and fields[1].isdigit():
+            return MemoryLimit(int(fields[1]) * 1024, f"{field} in {meminfo}")
+    return None
+
+
 def total_ram(meminfo: Path = MEMINFO) -> MemoryLimit | None:
     """Physical RAM, from ``/proc/meminfo`` on Linux and ``sysconf`` elsewhere.
 
@@ -130,10 +146,8 @@ def total_ram(meminfo: Path = MEMINFO) -> MemoryLimit | None:
         Total RAM, or None on a platform that reports neither.
 
     """
-    for line in (_read_text(meminfo) or "").splitlines():
-        fields = line.split()
-        if len(fields) >= 2 and fields[0] == "MemTotal:" and fields[1].isdigit():
-            return MemoryLimit(int(fields[1]) * 1024, f"MemTotal in {meminfo}")
+    if (known := _meminfo_limit(meminfo, "MemTotal")) is not None:
+        return known
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
@@ -155,11 +169,7 @@ def mem_available(meminfo: Path = MEMINFO) -> MemoryLimit | None:
         field, as on macOS.
 
     """
-    for line in (_read_text(meminfo) or "").splitlines():
-        fields = line.split()
-        if len(fields) >= 2 and fields[0] == "MemAvailable:" and fields[1].isdigit():
-            return MemoryLimit(int(fields[1]) * 1024, f"MemAvailable in {meminfo}")
-    return None
+    return _meminfo_limit(meminfo, "MemAvailable")
 
 
 def cgroup_v2_headroom(
@@ -176,10 +186,8 @@ def cgroup_v2_headroom(
         limit.
 
     """
-    relative = own_cgroup_path(proc_self_cgroup).strip("/")
-    directory = root / relative if relative else root
     found: list[MemoryLimit] = []
-    while True:
+    for directory in cgroup_levels(root, own_cgroup_path(proc_self_cgroup)):
         limit = _read_text(directory / "memory.max")
         current = _read_text(directory / "memory.current")
         if (
@@ -191,9 +199,6 @@ def cgroup_v2_headroom(
         ):
             headroom = max(0, int(limit) - int(current))
             found.append(MemoryLimit(headroom, f"cgroup v2 headroom in {directory}"))
-        if directory == root or root not in directory.parents:
-            break
-        directory = directory.parent
     return min(found, key=lambda m: m.limit_bytes) if found else None
 
 
@@ -210,9 +215,8 @@ def cgroup_v2_peak_file(
         The path, which may not exist.
 
     """
-    relative = own_cgroup_path(proc_self_cgroup).strip("/")
-    directory = root / relative if relative else root
-    return directory / "memory.peak"
+    leaf = next(cgroup_levels(root, own_cgroup_path(proc_self_cgroup)))
+    return leaf / "memory.peak"
 
 
 def cgroup_v2_peak(

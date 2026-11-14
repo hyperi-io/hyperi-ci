@@ -34,7 +34,6 @@ Push modes, resolved by :mod:`hyperi_ci.release_mode`:
 import json
 import os
 import re
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,7 +75,6 @@ from hyperi_ci.container.labels import (
     labels_to_index_annotation_args,
     oci_created,
 )
-from hyperi_ci.container.registry import resolve_registry_bases
 from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.release_mode import (
     DEV,
@@ -119,19 +117,9 @@ def _checkout_sha() -> str:
     A tag dispatch runs on the default branch, so ``GITHUB_SHA`` names that
     branch's tip while the checkout, and the image, is the tag.
     """
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = run_cmd(["git", "rev-parse", "HEAD"], capture=True, check=False)
     head = result.stdout.strip() if result.returncode == 0 else ""
     return head or os.environ.get("GITHUB_SHA") or "unknown"
-
-
-def _read_sha() -> str:
-    return _checkout_sha()[:8]
 
 
 def _section(config: CIConfig) -> dict:
@@ -379,54 +367,34 @@ def run(config: CIConfig, *, language: str = "") -> int:
         _log_builder_cgroups()
 
     org = load_org_config()
-    registry_bases = resolve_registry_bases(org=org)
+    # Every container publishes to GHCR. Docker Hub is only logged in to for
+    # base-image pulls.
+    registry_base = f"{org.ghcr_registry}/{org.ghcr_org}"
 
     push_mode = resolve_push_mode(dev_push=_dev_push_opt_in(_section(config)))
     info(f"Container build from {dockerfile_name} ({push_mode})")
 
     title = "Build" if mode is None else mode.capitalize()
     with group(f"Container {title} ({dockerfile_name})"):
-        return _build_custom(
+        dockerfile = Path(dockerfile_name)
+        if not dockerfile.exists():
+            error(f"Dockerfile not found: {dockerfile}")
+            return 1
+
+        # Rust and Go always count as binary-backed; other languages only when
+        # the Dockerfile copies dist/ from the build context.
+        binary_backed = language in _BINARY_LANGUAGES or bool(
+            _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
+        )
+        return _dispatch_build(
+            dockerfile_path=dockerfile,
             config=config,
             org=org,
-            registry_bases=registry_bases,
+            registry_base=registry_base,
             push_mode=push_mode,
-            dockerfile_name=dockerfile_name,
-            language=language,
+            binary_backed=binary_backed,
             mode=mode,
         )
-
-
-def _build_custom(
-    *,
-    config: CIConfig,
-    org: OrgConfig,
-    registry_bases: list[str],
-    push_mode: str,
-    dockerfile_name: str,
-    language: str = "",
-    mode: str | None = None,
-) -> int:
-    dockerfile = Path(dockerfile_name)
-    if not dockerfile.exists():
-        error(f"Dockerfile not found: {dockerfile}")
-        return 1
-
-    # Rust and Go always count as binary-backed; other languages only when the
-    # Dockerfile copies dist/ from the build context.
-    binary_backed = language in _BINARY_LANGUAGES or bool(
-        _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
-    )
-
-    return _dispatch_build(
-        dockerfile_path=dockerfile,
-        config=config,
-        org=org,
-        registry_bases=registry_bases,
-        push_mode=push_mode,
-        binary_backed=binary_backed,
-        mode=mode,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +417,7 @@ def _image_spec(
     *,
     config: CIConfig,
     org: OrgConfig,
-    registry_bases: list[str],
+    registry_base: str,
     push_mode: str,
     created: str | None = None,
 ) -> _ImageSpec | None:
@@ -461,7 +429,7 @@ def _image_spec(
     except ReleaseVersionError as exc:
         error(f"Container: {exc}")
         return None
-    sha = _read_sha()
+    sha = _checkout_sha()[:8]
     # `release.channel` states where STABLE artefacts go; a prerelease version
     # ships on the channel its own label names (issue #144).
     channel = effective_release_channel(config.setting("release.channel"), version)
@@ -474,7 +442,7 @@ def _image_spec(
     )
 
     tags = resolve_tags(
-        registry_bases=registry_bases,
+        registry_base=registry_base,
         image_name=image_name,
         version=version,
         sha=sha,
@@ -530,7 +498,7 @@ def _image_spec(
 
     return _ImageSpec(
         image_name=image_name,
-        repo=f"{registry_bases[0]}/{image_name}" if registry_bases else "",
+        repo=f"{registry_base}/{image_name}",
         revision=revision,
         tags=tags,
         labels=labels,
@@ -553,7 +521,6 @@ def _select_platforms(
     """
     if spec.push_mode == RELEASE:
         return platforms
-    configured_platforms = list(platforms)
     if binary_backed:
         kept = _filter_platforms_to_available_binaries(
             platforms=platforms,
@@ -561,7 +528,7 @@ def _select_platforms(
         )
         if not kept:
             error(
-                f"Container build configured for {configured_platforms} "
+                f"Container build configured for {platforms} "
                 f"but no matching dist/{spec.image_name}-linux-<arch> binaries "
                 f"present. Build stage failed to produce artefacts OR the "
                 f"Container job can't see them (check "
@@ -571,7 +538,7 @@ def _select_platforms(
             return None
         return kept
     kept = _template_platforms(platforms)
-    if kept != configured_platforms:
+    if kept != platforms:
         info(
             f"  Container: source-built {spec.push_mode} build constrained "
             f"to {kept} (multi-arch only on release)"
@@ -751,7 +718,7 @@ def _dispatch_build(
     dockerfile_path: Path,
     config: CIConfig,
     org: OrgConfig,
-    registry_bases: list[str],
+    registry_base: str,
     push_mode: str,
     binary_backed: bool = True,
     mode: str | None = None,
@@ -761,9 +728,6 @@ def _dispatch_build(
     digest_env = os.environ.get("HYPERCI_CONTAINER_DIGEST_DIR", "").strip()
     digest_dir = Path(digest_env) if digest_env else None
 
-    if mode in (LEG, MERGE) and len(registry_bases) != 1:
-        error(f"{mode} mode pushes to one registry, not {registry_bases}")
-        return 1
     if mode == LEG:
         needed = {
             "HYPERCI_CONTAINER_PLATFORM": leg_platform,
@@ -792,7 +756,7 @@ def _dispatch_build(
     spec = _image_spec(
         config=config,
         org=org,
-        registry_bases=registry_bases,
+        registry_base=registry_base,
         push_mode=push_mode,
         created=created if mode in (LEG, MERGE) else None,
     )

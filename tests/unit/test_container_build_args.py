@@ -118,7 +118,7 @@ def _dispatch(
         dockerfile_path=Path("Dockerfile"),
         config=CIConfig(_raw={"release": {"container": {"build_args": build_args}}}),
         org=OrgConfig(),
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         push_mode="release",
     )
     return rc, seen

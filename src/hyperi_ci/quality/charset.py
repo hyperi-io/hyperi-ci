@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
+from hyperi_ci.common import error, get_exclude_dirs, info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -268,18 +268,9 @@ def run(
     roots: list[Path] | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Report banned typography.
+    """Report banned typography under ``roots`` (default ``src/``, ``scripts/``, ``.github/``).
 
-    Args:
-        config: Merged CI configuration.
-        roots: Directories to scan; defaults to ``src/``, ``scripts/`` and
-            ``.github/``.
-        sarif_path: Where to write SARIF, when the caller collects it.
-
-    Returns:
-        0 unless a blocking mode found something, or the exclusion config is
-        malformed.
-
+    Returns 0 unless a blocking mode found something or the exclusion config is malformed.
     """
     mode = resolve_tool_mode("charset", config, default="warn")
     if mode == "disabled":
@@ -314,10 +305,4 @@ def run(
 
     fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success(f"  {_TOOL}: no banned typography")
-        return 0
-    if mode == "blocking":
-        return 1
-    warn(f"  {_TOOL}: {len(found)} line(s) carry banned typography -- advisory")
-    return 0
+    return fdg.verdict(_TOOL, len(found), mode, "no banned typography")

@@ -83,7 +83,7 @@ class TestMissingStripTool:
         _binary(release, "app")
         monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))
 
-        assert build._package_binaries([_NATIVE], ["app"], "v1.0.0") == 1
+        assert build._package_binaries([_NATIVE], ["app"]) == 1
 
     def test_a_failed_strip_is_reported_too(self, tmp_path, monkeypatch) -> None:
         reports = _Reports(monkeypatch, ci=True)

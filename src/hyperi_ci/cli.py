@@ -6,25 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """CLI entry point for HyperI CI.
 
-Usage:
-    hyperi-ci run <stage>               Run a CI stage (setup, quality, test, build, publish)
-    hyperi-ci check                     Pre-push checks (quality + test; --full adds build, --strict fails on warnings)
-    hyperi-ci push                      Push with pre-checks (replaces bare git push)
-    hyperi-ci init                      Initialise project (config, Makefile, workflow)
-    hyperi-ci detect                    Detect project language
-    hyperi-ci config                    Show merged configuration
-    hyperi-ci trigger                   Trigger a GitHub Actions workflow run
-    hyperi-ci watch [RUN_ID] [-w NAME]  Watch a GitHub Actions run to completion
-    hyperi-ci logs [RUN_ID] [-w NAME]   Fetch and filter GitHub Actions run logs
-    hyperi-ci release [<tag>]           Release/retry HEAD, or re-release a tag
-    hyperi-ci update                    Update to the channel's release
-    hyperi-ci autoupdate                Show/set self-update channel + freeze
-    hyperi-ci check-commit              Validate commit message format
-    hyperi-ci labels [--check|--json]   Expected issue labels, drift, or the manifest
-    hyperi-ci labels --stale [--json]   Horizon labels past their release limit
-    hyperi-ci runner report REPO...     Runner-fit records of each repo's latest Rust Build
-    hyperi-ci --version                 Show version
-
 Conventions (all commands):
     -V, --version      Show version and exit (global only)
     -C, --project-dir  Project root directory
@@ -59,6 +40,70 @@ app = typer.Typer(
     help="HyperI CI -- polyglot CI/CD tool",
     no_args_is_help=True,
 )
+
+ProjectDirOpt = Annotated[
+    str | None,
+    typer.Option("--project-dir", "-C", help="Project root directory"),
+]
+RunIdArg = Annotated[
+    str | None,
+    typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
+]
+WorkflowOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--workflow",
+        "-w",
+        help=(
+            "Workflow name to pin on (e.g. 'Test'). Defaults to the "
+            "name this project's .github/workflows/ci.yml declares; "
+            "an ambiguous choice is refused, never guessed."
+        ),
+    ),
+]
+RepoOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--repo",
+        "-R",
+        help="Target repo as owner/name. Defaults to the cwd's git remote.",
+    ),
+]
+PrOpt = Annotated[
+    int | None,
+    typer.Option("--pr", help="Pin to this pull request's head commit."),
+]
+BranchOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--branch",
+        help="Pin to the newest commit on this branch that has runs.",
+    ),
+]
+CommitOpt = Annotated[
+    str | None,
+    typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+]
+ReleaseTagArg = Annotated[
+    str | None,
+    typer.Argument(help="Existing tag to re-release (e.g. v1.3.0 or 'latest')"),
+]
+ListTagsOpt = Annotated[
+    bool,
+    typer.Option("--list", help="List unreleased version tags"),
+]
+DispatchDryRunOpt = Annotated[
+    bool,
+    typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
+]
+TargetVersionArg = Annotated[
+    str | None,
+    typer.Argument(help="Specific version to install (default: latest)"),
+]
+PreOpt = Annotated[
+    bool,
+    typer.Option("--pre", help="Include pre-releases when resolving latest"),
+]
 
 
 def _source_checkout() -> str | None:
@@ -168,10 +213,7 @@ def _apply_test_tier(tier: SuiteTier | None) -> None:
 @app.command()
 def run(
     stage: Annotated[str, typer.Argument(help="Stage to run")],
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     tier: Annotated[
         SuiteTier | None,
         typer.Option("--tier", help=_TIER_HELP),
@@ -194,10 +236,7 @@ def run(
 
 @app.command()
 def check(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     full: Annotated[
         bool,
         typer.Option("--full", help="Include build stage (native target only)"),
@@ -272,7 +311,6 @@ def _lint_iac(
     directory: str, sarif: str | None, dimensions: tuple[str, ...] | None = None
 ) -> int:
     """Load the directory's config and run lint-iac over it."""
-    from hyperi_ci.config import load_config
     from hyperi_ci.quality import lint_iac
 
     root = Path(directory)
@@ -380,7 +418,6 @@ def lint_docs_cmd(
     inside ``hyperi-ci run quality``; this verb is for a docs repo that has no
     language pipeline to hang them off.
     """
-    from hyperi_ci.config import load_config
     from hyperi_ci.quality import lint_docs
 
     root = Path(directory)
@@ -439,8 +476,6 @@ def deps(
     Exit codes: ``drift`` exits 1 when it finds drift, so it can gate a script.
     Everything else is a report and exits 0.
     """
-    import json as _json
-
     from hyperi_ci import deps as _deps
     from hyperi_ci.deps import render
 
@@ -449,21 +484,19 @@ def deps(
     if action == "scan":
         payload = _deps.report(root, kind=kind or "")
         typer.echo(
-            _json.dumps(payload, indent=2) if as_json else render.report(payload, full)
+            json.dumps(payload, indent=2) if as_json else render.report(payload, full)
         )
         raise typer.Exit(0)
     if action == "drift":
         result = _deps.drift(root)
         typer.echo(
-            _json.dumps(result, indent=2)
-            if as_json
-            else render.drift_only(result, full)
+            json.dumps(result, indent=2) if as_json else render.drift_only(result, full)
         )
         raise typer.Exit(1 if result["drift"] else 0)
     if action == "gaps":
         result = _deps.gaps(root, _deps.scan(root))
         typer.echo(
-            _json.dumps(result, indent=2) if as_json else render.gaps_only(result)
+            json.dumps(result, indent=2) if as_json else render.gaps_only(result)
         )
         raise typer.Exit(0)
     if action == "show":
@@ -471,7 +504,7 @@ def deps(
             typer.echo("deps show: needs a surface id", err=True)
             raise typer.Exit(2)
         detail = _deps.show(root, surface)
-        typer.echo(_json.dumps(detail, indent=2) if as_json else render.show(detail))
+        typer.echo(json.dumps(detail, indent=2) if as_json else render.show(detail))
         raise typer.Exit(1 if "error" in detail else 0)
 
     typer.echo(f"deps: unknown action {action!r}", err=True)
@@ -568,10 +601,7 @@ def push(
             "--force", "-f", help="Skip pre-push checks (does NOT force-push)"
         ),
     ] = False,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Push with pre-checks. Replaces bare ``git push``.
 
@@ -625,10 +655,7 @@ def push(
 
 @app.command()
 def init(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     language: Annotated[
         str | None,
         typer.Option("--language", "-l", help="Override detected language"),
@@ -683,10 +710,7 @@ def init(
 
 @app.command()
 def detect(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Detect project language."""
     dir_path = Path(project_dir) if project_dir else None
@@ -704,10 +728,7 @@ def stamp_version_cmd(
         str,
         typer.Argument(help="Release version to stamp (with or without leading v)"),
     ],
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     no_stamp_cmd: Annotated[
         bool,
         typer.Option(
@@ -737,10 +758,7 @@ def stamp_version_cmd(
 
 @app.command()
 def describe(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     check: Annotated[
         bool,
         typer.Option("--check", help="Report drift against the GitHub repo blurb"),
@@ -797,10 +815,7 @@ def describe(
 
 @app.command()
 def labels(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     check: Annotated[
         bool,
         typer.Option(
@@ -1017,10 +1032,7 @@ def audit_callers(
         str | None,
         typer.Option("--repo", help="Audit one repo (owner/name), reading main"),
     ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Report consumers whose ci.yml has fallen behind the dispatch contract.
 
@@ -1234,10 +1246,7 @@ def release_notify_cmd(
         str,
         typer.Option("--run-url", help="Link to the run, for an issue"),
     ] = "",
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Announce a release, or record that one failed.
 
@@ -1280,10 +1289,7 @@ def release_notify_cmd(
 
 @app.command()
 def preflight(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Verify publish credentials before anything is built.
 
@@ -1310,10 +1316,7 @@ def release_commit_cmd(
         str,
         typer.Option("--branch", help="Branch to update"),
     ] = "main",
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Report what would be committed"),
@@ -1371,10 +1374,7 @@ def release_prepare_cmd(
             ),
         ),
     ] = "all",
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Stamp the release and run everything in it that executes repo code.
 
@@ -1399,10 +1399,7 @@ def release_prepare_cmd(
 
 @app.command(name="release-verify")
 def release_verify_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Check the prepared release against this run before anything is tagged.
 
@@ -1461,10 +1458,7 @@ def publish_charts_cmd(
         bool,
         typer.Option("--dry-run", "-n", help="Package the charts, push nothing"),
     ] = False,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Package Helm charts and push them to an OCI registry.
 
@@ -1535,10 +1529,7 @@ def chart_assemble_cmd(
         str | None,
         typer.Option("--version", help="Chart version. Default: the release version"),
     ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Assemble a thin chart on scalo-service from release.helm.contract.
 
@@ -1649,10 +1640,7 @@ app.add_typer(vendor_app, name="vendor")
 
 @vendor_app.command(name="sync")
 def vendor_sync_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Fetch every vendor: file at its pinned ref and rewrite the lock file."""
     from hyperi_ci.vendor import run_sync
@@ -1663,10 +1651,7 @@ def vendor_sync_cmd(
 
 @vendor_app.command(name="check")
 def vendor_check_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Fail when a vendored file was edited by hand or its pin moved unsynced."""
     from hyperi_ci.vendor import run
@@ -1693,10 +1678,7 @@ def licenses_judge_cmd(
         bool,
         typer.Option("--json", help="Print the answer as JSON"),
     ] = False,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Print the verdict this repo's licence policy gives an override naming LICENCE."""
     from hyperi_ci.quality.dep_licenses import (
@@ -1734,10 +1716,7 @@ def licenses_outbound_cmd(
         bool,
         typer.Option("--json", help="Print the answer as JSON"),
     ] = False,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Print the licence this repo's declared classification ships under."""
     from hyperi_ci import licenses
@@ -1774,10 +1753,7 @@ def licenses_migrate_cmd(
         bool,
         typer.Option("--apply", help="Write the changes. Without it, list them"),
     ] = False,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Bring this repo to the licence its declared classification ships under.
 
@@ -1832,10 +1808,7 @@ def licenses_notices_cmd(
         Path | None,
         typer.Option("--output", "-o", help="Copy THIRD-PARTY-NOTICES here"),
     ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Write THIRD-PARTY-NOTICES for the dependencies this repo ships.
 
@@ -1845,7 +1818,6 @@ def licenses_notices_cmd(
     import contextlib
     import shutil
 
-    from hyperi_ci.detect import detect_language
     from hyperi_ci.languages.python import licenses as python_licences
     from hyperi_ci.languages.rust import licenses as rust_licences
     from hyperi_ci.languages.typescript import licenses as npm_licences
@@ -1876,10 +1848,7 @@ def licenses_notices_cmd(
 
 @app.command(name="seed-version")
 def seed_version_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     show_source: Annotated[
         bool,
         typer.Option("--source", help="Also print where the version came from"),
@@ -1902,10 +1871,7 @@ def seed_version_cmd(
 
 @app.command(name="seed-tag")
 def seed_tag_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Report what would be tagged, create nothing"),
@@ -1955,10 +1921,7 @@ def _apply_org_classification(cfg: CIConfig, project_dir: Path | None) -> None:
 
 @app.command()
 def config(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     as_json: Annotated[
         bool,
         typer.Option("--json", help="Output as JSON instead of YAML"),
@@ -2030,10 +1993,7 @@ def trigger(
             help=("Target repo as owner/name. Defaults to the cwd's git remote."),
         ),
     ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Trigger a GitHub Actions workflow run.
 
@@ -2069,22 +2029,8 @@ def trigger(
 
 @app.command()
 def watch(
-    run_id: Annotated[
-        str | None,
-        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
-    ] = None,
-    workflow: Annotated[
-        str | None,
-        typer.Option(
-            "--workflow",
-            "-w",
-            help=(
-                "Workflow name to pin on (e.g. 'Test'). Defaults to the "
-                "name this project's .github/workflows/ci.yml declares; "
-                "an ambiguous choice is refused, never guessed."
-            ),
-        ),
-    ] = None,
+    run_id: RunIdArg = None,
+    workflow: WorkflowOpt = None,
     timeout: Annotated[
         int,
         typer.Option(
@@ -2122,21 +2068,9 @@ def watch(
             ),
         ),
     ] = None,
-    branch: Annotated[
-        str | None,
-        typer.Option(
-            "--branch",
-            help="Pin to the newest commit on this branch that has runs.",
-        ),
-    ] = None,
-    commit: Annotated[
-        str | None,
-        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
-    ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    branch: BranchOpt = None,
+    commit: CommitOpt = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Watch a GitHub Actions run to completion.
 
@@ -2166,10 +2100,7 @@ def watch(
 
 @app.command()
 def rerun(
-    run_id: Annotated[
-        str | None,
-        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
-    ] = None,
+    run_id: RunIdArg = None,
     workflow: Annotated[
         str | None,
         typer.Option(
@@ -2185,33 +2116,11 @@ def rerun(
         bool,
         typer.Option("--all", help="Re-run every job, not just the failed ones"),
     ] = False,
-    repo: Annotated[
-        str | None,
-        typer.Option(
-            "--repo",
-            "-R",
-            help="Target repo as owner/name. Defaults to the cwd's git remote.",
-        ),
-    ] = None,
-    pr: Annotated[
-        int | None,
-        typer.Option("--pr", help="Pin to this pull request's head commit."),
-    ] = None,
-    branch: Annotated[
-        str | None,
-        typer.Option(
-            "--branch",
-            help="Pin to the newest commit on this branch that has runs.",
-        ),
-    ] = None,
-    commit: Annotated[
-        str | None,
-        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
-    ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    repo: RepoOpt = None,
+    pr: PrOpt = None,
+    branch: BranchOpt = None,
+    commit: CommitOpt = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Re-run a GitHub Actions run, failed jobs only by default.
 
@@ -2238,22 +2147,8 @@ def rerun(
 
 @app.command()
 def logs(
-    run_id: Annotated[
-        str | None,
-        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
-    ] = None,
-    workflow: Annotated[
-        str | None,
-        typer.Option(
-            "--workflow",
-            "-w",
-            help=(
-                "Workflow name to pin on (e.g. 'Test'). Defaults to the "
-                "name this project's .github/workflows/ci.yml declares; "
-                "an ambiguous choice is refused, never guessed."
-            ),
-        ),
-    ] = None,
+    run_id: RunIdArg = None,
+    workflow: WorkflowOpt = None,
     job: Annotated[
         str | None,
         typer.Option("--job", "-j", help="Filter by job name (substring)"),
@@ -2274,33 +2169,11 @@ def logs(
         bool,
         typer.Option("--failed", help="Show only failed job logs"),
     ] = False,
-    repo: Annotated[
-        str | None,
-        typer.Option(
-            "--repo",
-            "-R",
-            help="Target repo as owner/name. Defaults to the cwd's git remote.",
-        ),
-    ] = None,
-    pr: Annotated[
-        int | None,
-        typer.Option("--pr", help="Pin to this pull request's head commit."),
-    ] = None,
-    branch: Annotated[
-        str | None,
-        typer.Option(
-            "--branch",
-            help="Pin to the newest commit on this branch that has runs.",
-        ),
-    ] = None,
-    commit: Annotated[
-        str | None,
-        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
-    ] = None,
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    repo: RepoOpt = None,
+    pr: PrOpt = None,
+    branch: BranchOpt = None,
+    commit: CommitOpt = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Fetch and filter GitHub Actions run logs.
 
@@ -2332,6 +2205,30 @@ def logs(
     raise typer.Exit(rc)
 
 
+def _install_each(
+    names: list[str],
+    category: str,
+    project_dir: Path | None,
+    dry_run: bool,
+    all_mode: bool,
+) -> None:
+    """Install (or, under --dry-run, list) each name, stopping on the first failure."""
+    from hyperi_ci.native_deps import install_native_deps as _install
+    from hyperi_ci.native_deps import print_needed
+
+    for name in names:
+        if dry_run:
+            print_needed(
+                name, project_dir=project_dir, category=category, all_mode=all_mode
+            )
+            continue
+        rc = _install(
+            name, project_dir=project_dir, category=category, all_mode=all_mode
+        )
+        if rc != 0:
+            raise typer.Exit(rc)
+
+
 @app.command(name="install-native-deps")
 def install_native_deps(
     language: Annotated[
@@ -2341,10 +2238,7 @@ def install_native_deps(
             "Defaults to 'all' = every language.",
         ),
     ] = "all",
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -2369,10 +2263,7 @@ def install_native_deps(
         hyperi-ci install-native-deps rust         # CI-time: Rust if triggered
 
     """
-    from hyperi_ci.native_deps import _NATIVE_DEPS_DIR, print_needed
-    from hyperi_ci.native_deps import install_native_deps as _install
-
-    dir_path = Path(project_dir) if project_dir else None
+    from hyperi_ci.native_deps import _NATIVE_DEPS_DIR
 
     # `all` fans out to every language YAML in config/native-deps/.
     if language == "all":
@@ -2380,13 +2271,8 @@ def install_native_deps(
     else:
         languages = [language]
 
-    for lang in languages:
-        if dry_run:
-            print_needed(lang, project_dir=dir_path, all_mode=all_mode)
-            continue
-        rc = _install(lang, project_dir=dir_path, all_mode=all_mode)
-        if rc != 0:
-            raise typer.Exit(rc)
+    dir_path = Path(project_dir) if project_dir else None
+    _install_each(languages, "native-deps", dir_path, dry_run, all_mode)
 
 
 @app.command(name="install-toolchains")
@@ -2397,10 +2283,7 @@ def install_toolchains(
             help="Toolchain family (llvm, gcc). Defaults to 'all' = every family.",
         ),
     ] = "all",
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -2431,10 +2314,7 @@ def install_toolchains(
         hyperi-ci install-toolchains llvm         # CI-time: LLVM if triggered
 
     """
-    from hyperi_ci.native_deps import _TOOLCHAINS_DIR, print_needed
-    from hyperi_ci.native_deps import install_native_deps as _install
-
-    dir_path = Path(project_dir) if project_dir else None
+    from hyperi_ci.native_deps import _TOOLCHAINS_DIR
 
     # `all` fans out to every toolchain YAML in config/toolchains/.
     if family == "all":
@@ -2442,17 +2322,8 @@ def install_toolchains(
     else:
         families = [family]
 
-    for fam in families:
-        if dry_run:
-            print_needed(
-                fam, project_dir=dir_path, category="toolchains", all_mode=all_mode
-            )
-            continue
-        rc = _install(
-            fam, project_dir=dir_path, category="toolchains", all_mode=all_mode
-        )
-        if rc != 0:
-            raise typer.Exit(rc)
+    dir_path = Path(project_dir) if project_dir else None
+    _install_each(families, "toolchains", dir_path, dry_run, all_mode)
 
 
 @app.command(name="install-all")
@@ -2542,10 +2413,7 @@ def install_deps_cmd(
         str,
         typer.Argument(help="Language (e.g. typescript)"),
     ],
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
+    project_dir: ProjectDirOpt = None,
 ) -> None:
     """Install project dependencies for a language."""
     from hyperi_ci.install_deps import install_deps
@@ -2641,8 +2509,6 @@ def gate_check_cmd() -> None:
     environment, because only the workflow knows what the runner decided.
     CI-only; a no-op locally.
     """
-    import os
-
     from hyperi_ci.common import error, info, is_ci, success
     from hyperi_ci.gate_result import evaluate
 
@@ -2727,10 +2593,7 @@ def _release_impl(
 
 @app.command()
 def release(
-    tag: Annotated[
-        str | None,
-        typer.Argument(help="Existing tag to re-release (e.g. v1.3.0 or 'latest')"),
-    ] = None,
+    tag: ReleaseTagArg = None,
     bump: Annotated[
         str | None,
         typer.Option(
@@ -2747,14 +2610,8 @@ def release(
             "directly -- use to step past a taken/orphaned tag (issue #37).",
         ),
     ] = None,
-    list_tags: Annotated[
-        bool,
-        typer.Option("--list", help="List unreleased version tags"),
-    ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
-    ] = False,
+    list_tags: ListTagsOpt = False,
+    dry_run: DispatchDryRunOpt = False,
 ) -> None:
     """Release or retry a release -- the CI creates the tag (issue #35).
 
@@ -2783,10 +2640,7 @@ def release(
 
 @app.command()
 def publish(
-    tag: Annotated[
-        str | None,
-        typer.Argument(help="Existing tag to re-release (e.g. v1.3.0 or 'latest')"),
-    ] = None,
+    tag: ReleaseTagArg = None,
     bump: Annotated[
         str | None,
         typer.Option("--bump", help="Forced bump: patch | minor."),
@@ -2795,14 +2649,8 @@ def publish(
         str | None,
         typer.Option("--version", help="Release HEAD at an exact X.Y.Z version."),
     ] = None,
-    list_tags: Annotated[
-        bool,
-        typer.Option("--list", help="List unreleased version tags"),
-    ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
-    ] = False,
+    list_tags: ListTagsOpt = False,
+    dry_run: DispatchDryRunOpt = False,
 ) -> None:
     """Run ``release`` under its deprecated name, with every option included."""
     from hyperi_ci.common import warn
@@ -2861,14 +2709,8 @@ def tag_head_cmd(
 
 @app.command()
 def update(
-    target_version: Annotated[
-        str | None,
-        typer.Argument(help="Specific version to install (default: latest)"),
-    ] = None,
-    pre: Annotated[
-        bool,
-        typer.Option("--pre", help="Include pre-releases when resolving latest"),
-    ] = False,
+    target_version: TargetVersionArg = None,
+    pre: PreOpt = False,
 ) -> None:
     """Update hyperi-ci to its channel's release (or a specific version).
 
@@ -2884,14 +2726,8 @@ def update(
 
 @app.command(hidden=True)
 def upgrade(
-    target_version: Annotated[
-        str | None,
-        typer.Argument(help="Specific version to install (default: latest)"),
-    ] = None,
-    pre: Annotated[
-        bool,
-        typer.Option("--pre", help="Include pre-releases when resolving latest"),
-    ] = False,
+    target_version: TargetVersionArg = None,
+    pre: PreOpt = False,
 ) -> None:
     """Update hyperi-ci -- the deprecated spelling of `update`.
 

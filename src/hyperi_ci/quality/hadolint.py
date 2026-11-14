@@ -12,7 +12,6 @@ error-severity findings fail ``blocking`` mode: the routine warning-tier noise
 (DL3008 apt pins, DL4006 pipefail) is surfaced but never fatal.
 """
 
-import json
 from pathlib import Path
 
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
@@ -35,11 +34,8 @@ def _rule_url(code: str) -> str:
 
 def _parse(stdout: str) -> list[fdg.Finding]:
     """Parse hadolint's ``--format json`` array into findings; ``[]`` if malformed."""
-    try:
-        raw = json.loads(stdout or "[]")
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(raw, list):
+    raw = fdg.load_json(stdout, list)
+    if raw is None:
         return []
     out: list[fdg.Finding] = []
     for item in raw:

@@ -8,14 +8,13 @@
 
 import re
 import shutil
-import subprocess
 import tomllib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import tomli_w
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.repo_path import RepoPathError, confine
 
@@ -75,26 +74,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
-    strategy = (extra_env or {}).get("BUILD_STRATEGY", "native")
-    info(f"Building Python package (strategy: {strategy})...")
-    return _build_native(config)
-
-
-def _build_native(config: CIConfig) -> int:
-    """Build wheel and sdist using uv."""
+    info("Building Python package...")
     pyproject = Path("pyproject.toml")
-    if pyproject.exists():
-        ctx = _inject_sdist_excludes(pyproject)
-    else:
-        from contextlib import nullcontext
-
-        ctx = nullcontext()
+    ctx = _inject_sdist_excludes(pyproject) if pyproject.exists() else nullcontext()
 
     with ctx:
-        result = subprocess.run(
-            ["uv", "build"],
-            capture_output=False,
-        )
+        result = run_cmd(["uv", "build"], check=False)
 
     if result.returncode != 0:
         error("Python build failed")

@@ -10,10 +10,9 @@ Detects npm, yarn or pnpm from package.json or lock files and runs its install
 command with the lockfile enforced.
 """
 
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info
+from hyperi_ci.common import error, info, run_cmd
 
 from ._common import detect_package_manager, ensure_pm_available, yarn_frozen_flag
 
@@ -38,17 +37,18 @@ def run(project_dir: Path | None = None) -> int:
         return 1
 
     if pm == "npm":
-        if (root / "package-lock.json").exists():
-            cmd = ["npm", "ci"]
-        else:
-            cmd = ["npm", "install"]
+        cmd = (
+            ["npm", "ci"]
+            if (root / "package-lock.json").exists()
+            else ["npm", "install"]
+        )
     elif pm == "pnpm":
         cmd = ["pnpm", "install", "--frozen-lockfile"]
     else:
         flag = yarn_frozen_flag(root)
         cmd = ["yarn", "install", flag]
 
-    result = subprocess.run(cmd, cwd=root)
+    result = run_cmd(cmd, check=False, cwd=root)
     if result.returncode != 0:
         error(f"{pm} install failed")
         return result.returncode

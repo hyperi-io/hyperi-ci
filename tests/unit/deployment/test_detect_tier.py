@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.deployment.detect import Tier, detect_tier, resolve_tier
+from hyperi_ci.deployment.detect import Tier, resolve_tier
 
 # Every Tier 1/2 fixture needs a POSITIVE producer signal alongside the
 # marker dep -- a binary target for Rust, a console script for Python.
@@ -24,6 +24,10 @@ _PY_SCRIPT = '[project.scripts]\nx = "x.main:main"\n'
 # the contract emission and writes nothing. Helpers keep the fixtures
 # honest about the real dependency shape.
 _FEATURES = '{ version = "2.9", features = ["cli-service", "deployment"] }'
+
+
+def detect_tier(repo_root: Path) -> Tier:
+    return resolve_tier(repo_root).tier
 
 
 def _rust_dep(dep: str = "scalo") -> str:
@@ -276,7 +280,6 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
-        assert decision.demoted
         assert "[project.scripts]" in decision.reason
 
     def test_rust_library_consumer_is_none(self, tmp_path: Path) -> None:
@@ -287,7 +290,6 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
-        assert decision.demoted
 
     def test_rust_implicit_main_rs_is_a_producer(self, tmp_path: Path) -> None:
         # No [[bin]] table -- cargo discovers src/main.rs implicitly.
@@ -344,7 +346,6 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
-        assert decision.demoted
         assert "deployment" in decision.reason
 
     def test_rust_default_features_only_is_none(self, tmp_path: Path) -> None:
@@ -483,7 +484,6 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
-        assert decision.demoted
 
     def test_both_deps_neither_a_producer_is_none(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text(
@@ -496,23 +496,6 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
-        assert decision.demoted
-
-    def test_require_producer_false_takes_the_dep_alone(self, tmp_path: Path) -> None:
-        # The marker dep alone selects the tier, for a producer whose shape
-        # detection can't see.
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "culvert"\ndependencies = ["scalo>=2.28"]\n',
-            encoding="utf-8",
-        )
-        assert resolve_tier(tmp_path, require_producer=False).tier == Tier.PYTHON
-
-    def test_no_marker_dep_is_not_demoted(self, tmp_path: Path) -> None:
-        # `demoted` marks "has the dep, lacks the producer" specifically,
-        # not a plain repo with neither.
-        decision = resolve_tier(tmp_path)
-        assert decision.tier == Tier.NONE
-        assert not decision.demoted
 
 
 class TestTierEnum:

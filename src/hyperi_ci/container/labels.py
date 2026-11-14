@@ -25,7 +25,6 @@ def build_oci_labels(
     description: str = "",
     licenses: str = "BUSL-1.1",
     optimized: bool = True,
-    extra_labels: dict[str, str] | None = None,
     created: str | None = None,
 ) -> dict[str, str]:
     """Build a dict of OCI-standard image labels.
@@ -41,7 +40,6 @@ def build_oci_labels(
                    ``io.hyperi.optimized=false``, so an image cut for a fast
                    deploy-and-test loop can be told apart from a full release
                    without benchmarking it.
-        extra_labels: Additional labels merged into the result.
         created: The ``org.opencontainers.image.created`` value. None stamps
                  the current time. Per-arch builds of one image pass the
                  same value so every image carries one timestamp.
@@ -66,9 +64,6 @@ def build_oci_labels(
         "io.hyperi.optimized": "true" if optimized else "false",
     }
 
-    if extra_labels:
-        labels.update(extra_labels)
-
     return labels
 
 
@@ -83,11 +78,9 @@ def labels_to_build_args(labels: dict[str, str]) -> list[str]:
         sorted by key.
 
     """
-    args: list[str] = []
-    for key in sorted(labels):
-        args.append("--label")
-        args.append(f"{key}={labels[key]}")
-    return args
+    return [
+        arg for key in sorted(labels) for arg in ("--label", f"{key}={labels[key]}")
+    ]
 
 
 def labels_to_index_annotation_args(labels: dict[str, str]) -> list[str]:

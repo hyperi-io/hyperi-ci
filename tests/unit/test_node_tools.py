@@ -280,7 +280,8 @@ class TestCallers:
         monkeypatch.setattr(
             node_tools, "install", lambda: pytest.fail("installed needlessly")
         )
-        assert mermaid_parse._module_dirs(tmp_path) == [tmp_path / "node_modules"]
+        env = mermaid_parse._node_env(tmp_path)
+        assert env["HYPERCI_NODE_MODULES"] == str(tmp_path / "node_modules")
 
 
 class TestRealInstall:

@@ -17,9 +17,6 @@ from pathlib import Path
 from hyperi_ci.deployment.manifest import (
     dep_features,
     effective_dep_features,
-    extract_bin_names,
-    extract_package_name,
-    extract_workspace_members,
     manifest_self_name,
     produces_rust_binary,
     python_entry_point,
@@ -180,42 +177,17 @@ class TestResolveWorkspaceMembers:
         assert resolve_workspace_members(tmp_path, text) == []
 
 
-class TestExtractNames:
-    """Name extraction has to survive real-world manifest formatting."""
-
-    def test_package_name(self) -> None:
-        assert extract_package_name('[package]\nname = "dfe-loader"\n') == "dfe-loader"
-
-    def test_package_name_with_inline_comment(self) -> None:
-        # `.strip('"')` alone leaves the comment glued on, which yields a
-        # binary name that resolves to nothing.
-        text = '[package]\nname = "dfe-loader"  # the app itself\n'
-        assert extract_package_name(text) == "dfe-loader"
-
-    def test_package_name_single_quoted(self) -> None:
-        assert extract_package_name("[package]\nname = 'demo'\n") == "demo"
-
-    def test_no_package_table(self) -> None:
-        assert extract_package_name('[workspace]\nmembers = ["a"]\n') is None
-
-    def test_bin_names_in_order(self) -> None:
-        text = (
-            '[[bin]]\nname = "pgo-driver"\npath = "src/bin/pgo.rs"\n'
-            '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n'
-        )
-        assert extract_bin_names(text) == ["pgo-driver", "dfe-receiver"]
-
-    def test_bin_name_with_inline_comment(self) -> None:
-        text = '[[bin]]\nname = "demo"  # main entry\n'
-        assert extract_bin_names(text) == ["demo"]
-
-    def test_self_name_ignores_other_sections(self) -> None:
+class TestManifestSelfName:
+    def test_ignores_other_sections(self) -> None:
         text = '[features.weird]\nname = "scalo"\n'
         assert manifest_self_name(text) is None
 
-    def test_workspace_members_multiline(self) -> None:
-        text = '[workspace]\nmembers = [\n    "a",\n    "b",\n]\n'
-        assert extract_workspace_members(text) == ["a", "b"]
+    def test_package_with_inline_comment(self) -> None:
+        text = '[package]\nname = "dfe-loader"  # the app itself\n'
+        assert manifest_self_name(text) == "dfe-loader"
+
+    def test_invalid_toml_reads_as_no_name(self) -> None:
+        assert manifest_self_name("[package\nname = ") is None
 
 
 class TestRustBinaryName:

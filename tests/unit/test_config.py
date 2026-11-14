@@ -16,10 +16,10 @@ from hyperi_ci.config import (
     VALID_PROJECT_STATUSES,
     CIConfig,
     ConfigError,
-    _merge_deep,
     _parse_env_value,
     load_config,
 )
+from hyperi_ci.vocabulary import merge_deep
 
 
 class TestMergeDeep:
@@ -28,19 +28,19 @@ class TestMergeDeep:
     def test_simple_override(self) -> None:
         base = {"a": 1, "b": 2}
         override = {"b": 3}
-        assert _merge_deep(base, override) == {"a": 1, "b": 3}
+        assert merge_deep(base, override) == {"a": 1, "b": 3}
 
     def test_nested_merge(self) -> None:
         base = {"quality": {"python": {"ruff": "blocking"}}}
         override = {"quality": {"python": {"ty": "warn"}}}
-        result = _merge_deep(base, override)
+        result = merge_deep(base, override)
         assert result["quality"]["python"]["ruff"] == "blocking"
         assert result["quality"]["python"]["ty"] == "warn"
 
     def test_override_replaces_non_dict(self) -> None:
         base = {"a": [1, 2]}
         override = {"a": [3, 4]}
-        assert _merge_deep(base, override) == {"a": [3, 4]}
+        assert merge_deep(base, override) == {"a": [3, 4]}
 
 
 class TestParseEnvValue:
@@ -180,6 +180,7 @@ class TestSectionShape:
             monkeypatch.delenv(name)
         warnings: list[str] = []
         monkeypatch.setattr(common, "warn", warnings.append)
+        monkeypatch.setattr(cfg_module, "warn", warnings.append)
         return warnings
 
     @staticmethod

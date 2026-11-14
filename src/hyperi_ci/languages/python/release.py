@@ -13,8 +13,9 @@ the command line is readable by any process on the runner.
 
 import os
 
-from hyperi_ci.common import error, group, info, run_cmd, success, warn
+from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import run_destinations
 
 
 def _publish_pypi() -> int:
@@ -62,15 +63,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     info(f"Publishing Python package to: {', '.join(destinations)}")
 
-    for dest in destinations:
-        if dest == "pypi":
-            with group("Publish: PyPI"):
-                rc = _publish_pypi()
-                if rc != 0:
-                    return rc
-
-        else:
-            error(f"Unknown Python publish destination: {dest}")
-            return 1
-
-    return 0
+    return run_destinations(
+        destinations, {"pypi": ("Publish: PyPI", _publish_pypi)}, "Python"
+    )

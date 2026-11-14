@@ -102,7 +102,7 @@ class TestResolveOnlyEnv:
         def _no_build(**_):  # pragma: no cover - must not run
             raise AssertionError("resolve-only must not build")
 
-        monkeypatch.setattr(stage_module, "_build_custom", _no_build)
+        monkeypatch.setattr(stage_module, "_dispatch_build", _no_build)
         rc = run(CIConfig(language="rust", _raw={}), language="rust")
         assert rc == 0
         assert "build=false" in out.read_text()
@@ -123,7 +123,7 @@ class TestResolveOnlyEnv:
         def _no_build(**_):  # pragma: no cover - must not run
             raise AssertionError("resolve-only must not build")
 
-        monkeypatch.setattr(stage_module, "_build_custom", _no_build)
+        monkeypatch.setattr(stage_module, "_dispatch_build", _no_build)
         rc = run(CIConfig(language="rust", _raw={}), language="rust")
         assert rc == 0
         assert "build=true" in out.read_text()
@@ -647,7 +647,8 @@ def seams(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Seams:
         return 0
 
     def registry_write(cmd: list[str], **_kwargs) -> subprocess.CompletedProcess:
-        seen.writes.append(cmd)
+        if cmd[0] != "git":
+            seen.writes.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(stage_module, "build_and_push", build_and_push)
@@ -666,7 +667,7 @@ def _mode(push_mode: str, mode: str | None, **raw) -> int:
         dockerfile_path=Path("Dockerfile"),
         config=CIConfig(_raw={"release": {"container": raw}} if raw else {}),
         org=OrgConfig(),
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         push_mode=push_mode,
         binary_backed=False,
         mode=mode,

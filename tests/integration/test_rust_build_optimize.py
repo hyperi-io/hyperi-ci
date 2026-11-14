@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from hyperi_ci.languages.rust import optimize
 from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
     resolve_optimization_profile,
@@ -334,7 +335,11 @@ class TestValidateFallback:
     Cargo.toml, validate_profile falls back to system and the subsequent
     build succeeds without jemalloc."""
 
-    def test_missing_feature_falls_back_and_builds(self, tmp_path) -> None:
+    def test_missing_feature_falls_back_and_builds(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warned: list[str] = []
+        monkeypatch.setattr(optimize, "warn", warned.append)
         # Fixture with NO jemalloc feature declared
         _write_fixture_crate(
             tmp_path,
@@ -354,7 +359,7 @@ class TestValidateFallback:
             target=_native_target(),
         )
         assert validated.allocator == "system"
-        assert any("jemalloc" in w for w in validated.warnings)
+        assert any("jemalloc" in w for w in warned)
 
         # Build with the fallback profile -- should succeed
         result = _run_cargo_build(tmp_path, validated)

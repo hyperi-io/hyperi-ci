@@ -127,60 +127,28 @@ class TestInlineCodePaths:
         assert [f.rule for f in found] == ["docs/path-missing"]
         assert found[0].level == "warning"
 
-    def test_a_kind_the_directory_has_never_held_is_another_repo(
-        self, tmp_path: Path
-    ) -> None:
-        # src/ holds Python, never Rust, so `src/main.rs` describes a consumer.
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # src/ holds Python, never Rust, so `src/main.rs` describes a consumer.
+            pytest.param("Your binary is `src/main.rs`.", id="another-repo-kind"),
+            pytest.param("See `config/defaults.yaml`.", id="existing"),
+            pytest.param("Probe `/healthz` and `/metrics`, run `/deps`.", id="routes"),
+            pytest.param("Output lands in `target/` and `dist/`.", id="bare-dir"),
+            pytest.param("Send `application/json`.", id="mime-type"),
+            pytest.param(
+                "Edit `config/<name>.yaml` and `config/*.yaml`.", id="placeholder"
+            ),
+            pytest.param("Run it:\n\n```bash\ncat `config/org.yaml`\n```", id="fenced"),
+            pytest.param(
+                "See `config/org.yaml` <!-- doc-paths: ignore -->.", id="ignored"
+            ),
+        ],
+    )
+    def test_not_a_claim(self, tmp_path: Path, text: str) -> None:
         root = _repo(tmp_path)
         doc = root / "docs" / "a.md"
-        doc.write_text("Your binary is `src/main.rs`.\n", encoding="utf-8")
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_an_existing_path_is_silent(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text("See `config/defaults.yaml`.\n", encoding="utf-8")
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_routes_and_slash_commands_are_not_paths(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text(
-            "Probe `/healthz`, `/readyz` and `/metrics`; run `/deps`.\n",
-            encoding="utf-8",
-        )
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_a_bare_directory_name_is_not_a_path(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text(
-            "Build output lands in `target/` and `dist/`.\n", encoding="utf-8"
-        )
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_a_mime_type_is_not_a_path(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text("Send `application/json`.\n", encoding="utf-8")
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_a_template_placeholder_is_not_a_path(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text(
-            "Edit `config/<name>.yaml` and `config/*.yaml`.\n", encoding="utf-8"
-        )
-        assert doc_paths.scan_code_paths(doc, root) == []
-
-    def test_paths_inside_a_fenced_block_are_samples_not_claims(
-        self, tmp_path: Path
-    ) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text(
-            "Run it:\n\n```bash\ncat `config/org.yaml`\n```\n", encoding="utf-8"
-        )
+        doc.write_text(f"{text}\n", encoding="utf-8")
         assert doc_paths.scan_code_paths(doc, root) == []
 
     def test_a_repeated_token_is_reported_once_per_doc(self, tmp_path: Path) -> None:
@@ -194,14 +162,6 @@ class TestInlineCodePaths:
 
 class TestIgnoreMarker:
     """`<!-- doc-paths: ignore -->` suppresses the warnings on its own line."""
-
-    def test_a_marked_bad_path_is_not_reported(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "a.md"
-        doc.write_text(
-            "See `config/org.yaml` <!-- doc-paths: ignore -->.\n", encoding="utf-8"
-        )
-        assert doc_paths.scan_code_paths(doc, root) == []
 
     def test_an_unmarked_bad_path_on_another_line_still_reports(
         self, tmp_path: Path
@@ -278,10 +238,10 @@ class TestIgnoreMarker:
             "And [x](docs/gone.md) <!-- doc-paths: ignore -->.\n",
             encoding="utf-8",
         )
-        counter = doc_paths._Suppressed()
+        counter: list[str] = []
         assert doc_paths.scan_links(doc, root, suppressed=counter) == []
         assert doc_paths.scan_code_paths(doc, root, suppressed=counter) == []
-        assert counter.count == 2
+        assert len(counter) == 2
 
     def test_run_reports_zero_findings_and_logs_the_suppressed_count(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -306,9 +266,9 @@ class TestIgnoreMarker:
             "See `config/defaults.yaml` <!-- doc-paths: ignore -->.\n",
             encoding="utf-8",
         )
-        counter = doc_paths._Suppressed()
+        counter: list[str] = []
         assert doc_paths.scan_code_paths(doc, root, suppressed=counter) == []
-        assert counter.count == 0
+        assert counter == []
 
 
 class TestLooksLikeAFile:

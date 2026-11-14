@@ -50,8 +50,6 @@ _MAX_SUMMARY_ROWS = 1000
 # GitHub's per-step limit for error and warning; notice is capped to match.
 _ANNOTATION_CAP = 10
 
-_GH_COMMAND = {"error": "error", "warning": "warning", "notice": "notice"}
-
 # SARIF spells `notice` as `note`.
 _SARIF_LEVEL = {"error": "error", "warning": "warning", "notice": "note"}
 
@@ -65,6 +63,7 @@ _LEVEL_ALIASES = {
     "style": "notice",
     "note": "notice",
     "notice": "notice",
+    "none": "notice",
 }
 
 
@@ -126,11 +125,7 @@ def surfaced_count() -> int:
 
 def reset_annotation_budget() -> None:
     """Restore the step-global annotation budget to full."""
-    _BUDGET.remaining = {
-        "error": _ANNOTATION_CAP,
-        "warning": _ANNOTATION_CAP,
-        "notice": _ANNOTATION_CAP,
-    }
+    _BUDGET.remaining = _AnnotationBudget().remaining
 
 
 def _prop_val(value: str) -> str:
@@ -145,7 +140,6 @@ def _prop_val(value: str) -> str:
 
 def _annotation_line(f: Finding) -> str:
     """Render one GitHub workflow-command annotation line for ``f``."""
-    cmd = _GH_COMMAND[f.level]
     rule = _prop_val(f.rule)
     props = (
         [f"title=hyperi-ci {_prop_val(f.tool)}: {rule}"]
@@ -156,7 +150,7 @@ def _annotation_line(f: Finding) -> str:
         props.insert(0, f"file={_prop_val(f.path)}")
         if f.line is not None:
             props.append(f"line={f.line}")
-    return f"::{cmd} {','.join(props)}::{escape_command_data(f.message)}"
+    return f"::{f.level} {','.join(props)}::{escape_command_data(f.message)}"
 
 
 def emit_annotations(findings: list[Finding]) -> int:
@@ -270,25 +264,24 @@ def write_sarif(tool: str, findings: list[Finding], path: str | Path) -> None:
         warn(f"  could not write SARIF for {tool}: {exc}")
 
 
+def load_json[T](text: str, kind: type[T]) -> T | None:
+    """Return ``text`` parsed as JSON when it is a ``kind``, else ``None``."""
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return doc if isinstance(doc, kind) else None
+
+
 def parse_sarif(text: str, tool: str) -> list[Finding]:
     """Parse a tool's SARIF 2.1.0 output into :class:`Finding` objects.
 
     ``tool`` labels the findings, because driver names vary. Malformed or
     empty SARIF returns ``[]``.
     """
-    try:
-        doc = json.loads(text)
-    except json.JSONDecodeError:
+    doc = load_json(text, dict)
+    if doc is None:
         return []
-    if not isinstance(doc, dict):
-        return []
-    # SARIF folds `note`/`none` down here; unknown -> normalise_level's default.
-    sarif_to_level = {
-        "error": "error",
-        "warning": "warning",
-        "note": "notice",
-        "none": "notice",
-    }
     out: list[Finding] = []
     for run in doc.get("runs", []) or []:
         rule_urls: dict[str, str] = {}
@@ -299,8 +292,7 @@ def parse_sarif(text: str, tool: str) -> list[Finding]:
                 rule_urls[rid] = rule["helpUri"]
         for res in run.get("results", []) or []:
             rule_id = res.get("ruleId") or ""
-            level = sarif_to_level.get(str(res.get("level", "")).lower(), "")
-            level = level or normalise_level(str(res.get("level", "warning")))
+            level = normalise_level(res.get("level", "warning"))
             message = ((res.get("message") or {}).get("text")) or ""
             path, line = "", None
             locs = res.get("locations") or []

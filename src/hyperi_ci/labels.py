@@ -80,7 +80,6 @@ SET_BY = ("anyone", "release-owner", "hand")
 PROGRAM_HORIZONS = ("next-patch", "next-minor", "next-major")
 
 _AREA_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_PROGRAM_NAME = _AREA_NAME
 _COLOR = re.compile(r"^[0-9a-fA-F]{6}$")
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _VERSION = re.compile(
@@ -386,7 +385,7 @@ def _programs(raw: Mapping[str, Any], gate: tuple[Label, ...]) -> Mapping[str, P
     programs: dict[str, Program] = {}
     for name, entry in entries.items():
         where = f"programs.{name}"
-        if not isinstance(name, str) or not _PROGRAM_NAME.match(name):
+        if not isinstance(name, str) or not _AREA_NAME.match(name):
             raise ManifestError(f"{where}: a program name is a lower-case slug")
         if not isinstance(entry, Mapping):
             raise ManifestError(f"{where}: must be a mapping")

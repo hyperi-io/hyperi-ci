@@ -88,26 +88,28 @@ class TestPollInterval:
 class TestResumeCommand:
     """Copy-pasteable resume hint shown in timeout messages."""
 
-    def test_with_timeout(self) -> None:
-        assert _resume_command("12345", 3600) == "hyperi-ci watch 12345 --timeout 3600"
-
-    def test_with_zero_timeout(self) -> None:
-        assert _resume_command("12345", 0) == "hyperi-ci watch 12345 --timeout 0"
-
-    def test_with_repo(self) -> None:
-        # When watching a run in a different repo than the cwd, the
-        # resume hint must include --repo so the user can copy-paste
-        # without re-deriving the repo from somewhere.
-        assert (
-            _resume_command("12345", 3600, repo="hyperi-io/dfe-loader")
-            == "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 3600"
-        )
-
-    def test_with_repo_and_zero_timeout(self) -> None:
-        assert (
-            _resume_command("12345", 0, repo="hyperi-io/dfe-loader")
-            == "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 0"
-        )
+    @pytest.mark.parametrize(
+        ("timeout", "repo", "expected"),
+        [
+            (3600, None, "hyperi-ci watch 12345 --timeout 3600"),
+            (0, None, "hyperi-ci watch 12345 --timeout 0"),
+            # A run in another repo than the cwd needs --repo to be pasteable.
+            (
+                3600,
+                "hyperi-io/dfe-loader",
+                "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 3600",
+            ),
+            (
+                0,
+                "hyperi-io/dfe-loader",
+                "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 0",
+            ),
+        ],
+    )
+    def test_resume_command(
+        self, timeout: int, repo: str | None, expected: str
+    ) -> None:
+        assert _resume_command("12345", timeout, repo=repo) == expected
 
 
 class TestGetRunStatusRepo:
@@ -671,7 +673,7 @@ class TestWatchRunPinning:
             patch("hyperi_ci.watch.require_gh", return_value=True),
             patch("hyperi_ci.runs.list_runs", return_value=[_listed_run(31, "CI")]),
             patch("hyperi_ci.watch._get_run_status") as mock_status,
-            patch("hyperi_ci.watch.error") as mock_error,
+            patch("hyperi_ci.runs.error") as mock_error,
         ):
             rc = watch_run(repo="hyperi-io/dfe-loader", timeout=0, interval=1)
         assert rc == 1

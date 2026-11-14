@@ -28,7 +28,6 @@ from hyperi_ci.common import (
     optimize_tier,
     release_unoptimized,
     run_cmd,
-    sanitize_ref_name,
     skip_optimize,
     success,
     truthy,
@@ -37,12 +36,8 @@ from hyperi_ci.common import (
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages._build_common import (
     elf_section_names,
-)
-from hyperi_ci.languages._build_common import (
-    generate_checksums as _generate_checksums,
-)
-from hyperi_ci.languages._build_common import (
-    human_size as _human_size,
+    generate_checksums,
+    human_size,
 )
 from hyperi_ci.languages.rust import build_phase, runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
@@ -94,9 +89,6 @@ def _get_native_target() -> str:
 _ELF_MACHINE_MAP = {
     "x86_64": "Advanced Micro Devices X86-64",
     "aarch64": "AArch64",
-    "i686": "Intel 80386",
-    "armv7": "ARM",
-    "riscv64": "RISC-V",
 }
 
 
@@ -184,7 +176,7 @@ def _verify_binary(
         error(f"    Binary too small ({size} bytes) -- likely corrupt")
         errors += 1
     else:
-        info(f"    OK: Size {_human_size(size)}")
+        info(f"    OK: Size {human_size(size)}")
 
     if shutil.which("file"):
         result = run_cmd(["file", str(binary)], check=False, capture=True)
@@ -302,14 +294,14 @@ def _strip_binary(binary: Path, target: str) -> bool:
     if result.returncode != 0:
         return _ships_unstripped(binary, f"{strip_cmd} exited {result.returncode}")
     size_after = binary.stat().st_size
-    saved = _human_size(size_before - size_after)
+    saved = human_size(size_before - size_after)
     info(
-        f"    Stripped: {_human_size(size_before)} -> {_human_size(size_after)} (saved {saved})"
+        f"    Stripped: {human_size(size_before)} -> {human_size(size_after)} (saved {saved})"
     )
     return True
 
 
-def _resolve_build_channel(config: CIConfig) -> str:
+def _resolve_build_channel() -> str:
     """Resolve the build channel that gates optimisation tiers.
 
     Order: `HYPERCI_CHANNEL`, then `optimize-tier: release` (issue #257), then
@@ -440,32 +432,6 @@ def stamp_manifest(version: str, root: Path) -> None:
     info(f"Stamped Cargo.toml: {version}")
 
 
-def _detect_version() -> str:
-    """Return the version from VERSION, then the env, then Cargo.toml, else "dev".
-
-    GITHUB_REF_NAME is excluded: in the publish job it is the branch, not the tag.
-    """
-    version_file = Path("VERSION")
-    if version_file.exists():
-        val = version_file.read_text(encoding="utf-8").strip()
-        if val:
-            return f"v{val}" if not val.startswith("v") else val
-
-    for var in ("RUST_VERSION", "CI_COMMIT_TAG"):
-        val = os.environ.get(var, "")
-        if val:
-            return sanitize_ref_name(val)
-
-    meta = cargo_metadata()
-    if meta is not None:
-        for package in meta.get("packages", []):
-            version = package.get("version", "")
-            if version:
-                return f"v{version}"
-
-    return "dev"
-
-
 def windows_targets(targets: list[str]) -> list[str]:
     """Return the Windows triples in ``targets``, which the build does not support."""
     return [t for t in targets if "-windows" in t]
@@ -482,7 +448,6 @@ def _target_to_os_arch(target: str) -> str:
 def _package_binaries(
     targets: list[str],
     binary_names: list[str],
-    version: str,
     glibc_max: tuple[int, int] | None = None,
     static_only: tuple[str, ...] = (),
 ) -> int:
@@ -496,7 +461,6 @@ def _package_binaries(
     built_count = 0
 
     info(f"Packaging binaries: {' '.join(binary_names)}")
-    info(f"Version: {version}")
 
     for target in targets:
         os_arch = _target_to_os_arch(target)
@@ -518,7 +482,7 @@ def _package_binaries(
                 return 1
 
             info(
-                f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
+                f"  Created: {output_path.name} ({human_size(output_path.stat().st_size)})"
             )
 
             if not _verify_binary(output_path, target, glibc_max, static_only):
@@ -530,9 +494,9 @@ def _package_binaries(
     info(f"Built {built_count} binary(ies) to {output_dir}/")
     for f in sorted(output_dir.iterdir()):
         if f.is_file() and f.suffix != ".sha256":
-            info(f"  {f.name} ({_human_size(f.stat().st_size)})")
+            info(f"  {f.name} ({human_size(f.stat().st_size)})")
 
-    _generate_checksums(output_dir)
+    generate_checksums(output_dir)
 
     return 0
 
@@ -547,7 +511,7 @@ def _write_notices(config: CIConfig) -> int:
         error("THIRD-PARTY-NOTICES not written: cargo could not list the crates")
         return 1
     shutil.copyfile(notices, Path("dist") / "THIRD-PARTY-NOTICES")
-    _generate_checksums(Path("dist"))
+    generate_checksums(Path("dist"))
     return 0
 
 
@@ -758,7 +722,7 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
             )
             announce(refusal, "hyperi-ci optimize-tier refused", level="error")
             return 1
-        channel = _resolve_build_channel(config)
+        channel = _resolve_build_channel()
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)
         consented = release_unoptimized()
@@ -798,20 +762,16 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
             announce(on_clock, "hyperi-ci PGO workload compiles on the clock")
         cargo_features = _detect_cargo_features()
 
-    tier2 = bool(
-        base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
-    )
-    runner_fit.set_optimization(
-        "+".join(
-            name
-            for name, on in (
-                ("pgo", base_profile and base_profile.pgo_enabled),
-                ("bolt", base_profile and base_profile.bolt_enabled),
-            )
-            if on
+    stages = [
+        name
+        for name, on in (
+            ("pgo", base_profile and base_profile.pgo_enabled),
+            ("bolt", base_profile and base_profile.bolt_enabled),
         )
-        or "none"
-    )
+        if on
+    ]
+    tier2 = bool(stages)
+    runner_fit.set_optimization("+".join(stages) or "none")
 
     # A skipped Tier 2 stage fails the release rather than shipping it green.
     strict = truthy(config.get("build.rust.optimize.strict", True))
@@ -876,11 +836,9 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         if not binary_names:
             info("Library-only crate -- skipping binary packaging")
         else:
-            version = _detect_version()
             rc = _package_binaries(
                 finished,
                 binary_names,
-                version,
                 _parse_glibc_max(config.get("build.rust.glibc_max")),
                 static_libs.STATIC_ONLY if static else (),
             )

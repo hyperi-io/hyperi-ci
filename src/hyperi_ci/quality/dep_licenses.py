@@ -363,8 +363,8 @@ def judge(
 def judge_override(licence: str, mode: Mode, policy: Policy) -> dict[str, Any]:
     """Return the table's answer for an override that names ``licence``.
 
-    ``policy`` is the digest a licenses.json report carries, so a caller can
-    tie the answer to the report it overrides. ``override_only`` marks a
+    The answer carries the policy digest, so a caller can tie it to the
+    licenses.json report it overrides. ``override_only`` marks a
     first-party id, ok only because an override named it.
     """
     spdx, verdict, obligations, rule = judge(licence, mode, policy, override=True)

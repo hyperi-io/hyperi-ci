@@ -46,22 +46,6 @@ def test_a_given_created_is_stamped_as_is() -> None:
     assert labels["org.opencontainers.image.created"] == "2026-10-31T01:02:03Z"
 
 
-def test_build_oci_labels_with_extras() -> None:
-    extra = {"com.example.team": "platform", "com.example.env": "prod"}
-    labels = build_oci_labels(
-        repo="hyperi-io/my-app",
-        revision="def5678",
-        version="2.0.0",
-        title="My App",
-        extra_labels=extra,
-    )
-
-    assert labels["com.example.team"] == "platform"
-    assert labels["com.example.env"] == "prod"
-    # Standard labels still present
-    assert labels["org.opencontainers.image.version"] == "2.0.0"
-
-
 def test_build_oci_labels_uses_supplied_licence() -> None:
     labels = build_oci_labels(
         repo="hyperi-io/scalo",

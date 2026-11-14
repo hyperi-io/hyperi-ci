@@ -21,12 +21,11 @@ predict-version composite loads it by path where hyperi-ci is not installed.
 """
 
 import re
-import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
 from hyperi_ci.classification import resolve_checkout
-from hyperi_ci.commit_range import git_log, last_version_tag
+from hyperi_ci.commit_range import git_log, git_out, last_version_tag
 from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, default_type_bump
 from hyperi_ci.version_source import seed_version
 
@@ -202,7 +201,7 @@ def fork_commit_bumps(root: Path, since_tag: str) -> list[tuple[str, str, str]]:
 
 def _first_release(root: Path, type_bump: dict[str, str]) -> tuple[str, str]:
     """Version a fork with no tag on its first-parent chain."""
-    if _git(["tag", "--list", "v[0-9]*"], root):
+    if git_out(["tag", "--list", "v[0-9]*"], root):
         raise ForkVersionError(
             "v* tags exist but none is on HEAD's first-parent history: either "
             "orphaned by a past history rewrite (issue #37) or brought in only "
@@ -241,7 +240,7 @@ def _first_parent_commits(revisions: str, root: Path) -> list[_Commit]:
     if rc != 0:
         raise ForkVersionError(f"git log --first-parent {revisions} exited {rc}.")
     merges = set(
-        _git(["rev-list", "--first-parent", "--merges", revisions], root).split()
+        git_out(["rev-list", "--first-parent", "--merges", revisions], root).split()
     )
     return [_Commit(sha, message, sha in merges) for sha, message in commits]
 
@@ -275,29 +274,15 @@ def _highest_bump(commits: list[_Commit], type_bump: dict[str, str]) -> tuple[st
 
 def _refuse_taken_tag(version: str, root: Path) -> None:
     """Raise when ``v<version>`` already names a commit other than HEAD."""
-    existing = _git(
+    existing = git_out(
         ["rev-parse", "-q", "--verify", f"refs/tags/v{version}^{{commit}}"], root
     )
     if not existing:
         return
-    head = _git(["rev-parse", "HEAD^{commit}"], root)
+    head = git_out(["rev-parse", "HEAD^{commit}"], root)
     if existing != head:
         raise ForkVersionError(
             f"Predicted v{version} already exists at {existing} (HEAD is {head}) "
             "-- refusing to re-release it (issue #37). Ship past it with "
             "'hyperi-ci publish --version X.Y.Z' (or --bump patch)."
         )
-
-
-def _git(args: list[str], root: Path) -> str:
-    """Run git in ``root`` and return its stripped stdout, empty on failure."""
-    result = subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=root,
-        check=False,
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""

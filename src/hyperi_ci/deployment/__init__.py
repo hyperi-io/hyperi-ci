@@ -10,7 +10,3 @@ A scalo app emits its Dockerfile, chart and contract itself through
 ``<app> generate-artefacts``. This package only reads manifests to say
 whether a repo is such a producer, and which binary or entry point it runs.
 """
-
-from hyperi_ci.deployment.detect import Tier, TierDecision, detect_tier, resolve_tier
-
-__all__ = ["Tier", "TierDecision", "detect_tier", "resolve_tier"]

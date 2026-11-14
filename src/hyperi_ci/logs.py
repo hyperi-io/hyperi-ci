@@ -28,7 +28,7 @@ import zipfile
 from pathlib import Path
 
 from hyperi_ci.common import error, info, warn
-from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
+from hyperi_ci.gh import describe_run, gh_run, require_gh
 
 
 def _job_key(name: str) -> str:
@@ -350,21 +350,18 @@ def fetch_logs(
     if not run_id:
         from hyperi_ci import runs as run_lookup
 
-        try:
-            run = run_lookup.resolve(
-                workflow=workflow,
-                branch=branch,
-                commit=commit,
-                pr=pr,
-                repo=repo,
-                project_dir=project_dir,
-                command="logs",
-            )
-        except RunSelectionError as exc:
-            error(str(exc))
+        pinned = run_lookup.pinned_run_id(
+            "logs",
+            workflow=workflow,
+            branch=branch,
+            commit=commit,
+            pr=pr,
+            repo=repo,
+            project_dir=project_dir,
+        )
+        if pinned is None:
             return 1
-        run_id = str(run["databaseId"])
-        info(f"Pinned to run {describe_run(run)}")
+        run_id = pinned
 
     info(f"Fetching logs for run {run_id}")
 

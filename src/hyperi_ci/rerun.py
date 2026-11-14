@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, success
-from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
+from hyperi_ci.gh import gh_run, require_gh
 
 
 def rerun_run(
@@ -55,21 +55,18 @@ def rerun_run(
     if not run_id:
         from hyperi_ci import runs as run_lookup
 
-        try:
-            run = run_lookup.resolve(
-                workflow=workflow,
-                branch=branch,
-                commit=commit,
-                pr=pr,
-                repo=repo,
-                project_dir=project_dir,
-                command="rerun",
-            )
-        except RunSelectionError as exc:
-            error(str(exc))
+        pinned = run_lookup.pinned_run_id(
+            "rerun",
+            workflow=workflow,
+            branch=branch,
+            commit=commit,
+            pr=pr,
+            repo=repo,
+            project_dir=project_dir,
+        )
+        if pinned is None:
             return 1
-        run_id = str(run["databaseId"])
-        info(f"Pinned to run {describe_run(run)}")
+        run_id = pinned
 
     cmd = ["run", "rerun", run_id]
     if failed_only:

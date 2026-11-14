@@ -148,21 +148,23 @@ def _ruff_ignore_flag(
     return [f"--extend-ignore={','.join(ids)}"]
 
 
-def _build_ruff_security_cmd(
+def _build_ruff_select_cmd(
+    select: str,
     sources: list[str],
     excludes: list[str],
     ignores: list[IgnoreEntry],
     repo_ignores: list[str] | None = None,
 ) -> list[str]:
-    """Build the ruff S (flake8-bandit) pass over production code.
+    """Build a ruff pass over production code for one rule family (S or D).
 
-    ``--select S`` replaces the repo's rule selection and drops its ruff
+    ``--select`` replaces the repo's rule selection and drops its ruff
     ``ignore`` list, so ``repo_ignores`` hands that list back. ``per-file-ignores``,
     ``# noqa`` and ``quality.ignore`` entries for ruff apply as well. Concise
     output keeps one finding per line, so the warn tier's line cap shows
     findings rather than one code frame.
 
     Args:
+        select: Rule prefix to select: ``S`` (flake8-bandit) or ``D`` (docstrings).
         sources: Source directories to scan, from ``get_python_source_paths``.
         excludes: Handler excludes, added to the repo's own ruff excludes.
         ignores: ``quality.ignore`` entries for the ``ruff`` slug.
@@ -173,21 +175,7 @@ def _build_ruff_security_cmd(
 
     """
     return (
-        ["ruff", "check", "--select", "S", "--output-format=concise", *sources]
-        + _build_exclude_args("ruff", excludes)
-        + _ruff_ignore_flag(ignores, repo_ignores)
-    )
-
-
-def _build_ruff_docstring_cmd(
-    sources: list[str],
-    excludes: list[str],
-    ignores: list[IgnoreEntry],
-    repo_ignores: list[str] | None = None,
-) -> list[str]:
-    """Build the ruff D (docstring) pass, with the same ignore handling as the S pass."""
-    return (
-        ["ruff", "check", "--select", "D", "--output-format=concise", *sources]
+        ["ruff", "check", "--select", select, "--output-format=concise", *sources]
         + _build_exclude_args("ruff", excludes)
         + _ruff_ignore_flag(ignores, repo_ignores)
     )
@@ -377,20 +365,16 @@ def _ruff_format_takes_extend_exclude() -> bool:
     names the mismatch.
     """
     try:
-        result = subprocess.run(
+        result = run_cmd(
             resolve_tool_cmd(["ruff", "--version"], via="uv"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            check=False,
+            capture=True,
         )
     except OSError:
         return True
-    if result.returncode != 0:
-        return True
 
     parts = result.stdout.split()
-    if len(parts) < 2:
+    if result.returncode != 0 or len(parts) < 2:
         return True
     try:
         return Version(parts[1]) >= _RUFF_FORMAT_EXTEND_EXCLUDE_MIN
@@ -442,7 +426,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Production pass: test dirs excluded, full rules.
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     ruff_user_ignores = for_tool(ignores, "ruff")
-    if not run_gate_tool(
+    had_failure |= not run_gate_tool(
         "ruff check (src)",
         ["ruff", "check", "."]
         + output_fmt
@@ -450,21 +434,19 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         + _ruff_ignore_flag(ruff_user_ignores),
         mode,
         via="uv",
-    ):
-        had_failure = True
+    )
 
     # Test pass: relaxed rules, same mode.
     if test_paths and test_ignore:
         combined_ignore = test_ignore + [e.id for e in ruff_user_ignores]
         ignore_flag = [f"--extend-ignore={','.join(combined_ignore)}"]
         for tp in test_paths:
-            if not run_gate_tool(
+            had_failure |= not run_gate_tool(
                 f"ruff check ({tp})",
                 ["ruff", "check", tp] + output_fmt + ignore_flag + exclude_args,
                 mode,
                 via="uv",
-            ):
-                had_failure = True
+            )
 
     # Own mode, not ruff check's: sharing the key would force a project to relax
     # the lint gate to defer adopting the formatter.
@@ -475,60 +457,56 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             f"rejects --extend-exclude, so {', '.join(excludes)} stays in the format "
             f"check. Raise the project's ruff to honour it."
         )
-    if not run_gate_tool(
+    had_failure |= not run_gate_tool(
         "ruff format",
         _build_ruff_format_cmd(excludes, extend_exclude=format_extend_exclude),
         resolve_tool_mode("ruff_format", config, language="python"),
         via="uv",
         hint=_RUFF_FORMAT_MASK_HINT,
-    ):
-        had_failure = True
+    )
 
     # In the project's environment, so ty resolves the project's imports.
     ty_spec = f"ty=={tool_version('ty')}"
-    if not run_gate_tool(
+    had_failure |= not run_gate_tool(
         "ty",
         ["ty", "check"],
         resolve_tool_mode("ty", config, language="python"),
         via="uv-with",
         spec=ty_spec,
-    ):
-        had_failure = True
+    )
 
     sources = get_python_source_paths(config)
     repo_ruff_ignores = _repo_ruff_ignores(Path.cwd())
 
     # Own key, so it can go blocking without touching the lint gate.
-    if not _run_source_tool(
+    had_failure |= not _run_source_tool(
         "ruff security",
-        _build_ruff_security_cmd(
-            sources, excludes, ruff_user_ignores, repo_ruff_ignores
+        _build_ruff_select_cmd(
+            "S", sources, excludes, ruff_user_ignores, repo_ruff_ignores
         ),
         resolve_tool_mode("ruff_security", config, language="python"),
         sources,
         via="uv",
-    ):
-        had_failure = True
+    )
 
     mode = resolve_tool_mode("pip_audit", config, language="python")
-    if not _run_pip_audit(mode, for_tool(ignores, "pip-audit")):
-        had_failure = True
+    had_failure |= not _run_pip_audit(mode, for_tool(ignores, "pip-audit"))
 
-    if not licenses.run_gate(config):
-        had_failure = True
+    had_failure |= not licenses.run_gate(config)
 
     # Concise output is one finding per line, so the warn tier's cap counts findings.
     mode = resolve_tool_mode("ruff_docstrings", config, language="python")
-    ruff_doc_cmd = _build_ruff_docstring_cmd(
-        sources, excludes, ruff_user_ignores, repo_ruff_ignores
+    ruff_doc_cmd = _build_ruff_select_cmd(
+        "D", sources, excludes, ruff_user_ignores, repo_ruff_ignores
     )
-    if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources, via="uv"):
-        had_failure = True
+    had_failure |= not _run_source_tool(
+        "ruff docstrings", ruff_doc_cmd, mode, sources, via="uv"
+    )
 
     mode = resolve_tool_mode("vulture", config, language="python")
     vulture_cmd = ["vulture", *sources] + _build_exclude_args("vulture", excludes)
     vulture_spec = f"vulture=={tool_version('vulture')}"
-    if not _run_source_tool(
+    had_failure |= not _run_source_tool(
         "vulture",
         vulture_cmd,
         mode,
@@ -536,7 +514,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         via="uvx",
         spec=vulture_spec,
         python=_parse_python(),
-    ):
-        had_failure = True
+    )
 
     return 1 if had_failure else 0

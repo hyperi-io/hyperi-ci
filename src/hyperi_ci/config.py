@@ -20,7 +20,21 @@ from typing import Any
 import yaml
 
 from hyperi_ci import classification
-from hyperi_ci.project_config import CONFIG_FILES
+from hyperi_ci.project_config import find_config
+from hyperi_ci.vocabulary import (
+    CONFIG_NAMESPACE,
+    LEGACY_CONFIG_NAMESPACE,
+    canonical_key,
+    carry_over_removed_gates,
+    drop_removed_notices,
+    find_removed_keys,
+    fold_legacy_config,
+    key_candidates,
+    merge_deep,
+    report_carry_overs,
+    report_deprecated_config,
+    report_removed_keys,
+)
 
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
@@ -81,8 +95,6 @@ class CIConfig:
         A ``publish.*`` key resolves to its ``release.*`` equivalent, the
         namespaces having been merged.
         """
-        from hyperi_ci.vocabulary import key_candidates
-
         missing = object()
         for candidate in key_candidates(key):
             value: Any = self._raw
@@ -156,15 +168,19 @@ class CIConfig:
         ]
 
 
-def _merge_deep(base: dict, override: dict) -> dict:
-    """Deep merge override into base dict."""
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _merge_deep(result[key], value)
-        else:
-            result[key] = value
-    return result
+def warn(message: str) -> None:
+    """Log a warning. Lazy, so the pytest plugin can import config without scalo."""
+    from hyperi_ci.common import warn as log_warn
+
+    log_warn(message)
+
+
+def _read_yaml(path: Path) -> Any:
+    """Parse a YAML file. None where it is missing or empty."""
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
 def _not_a_mapping(path: str, value: Any, section: dict[str, Any]) -> str:
@@ -199,9 +215,6 @@ def _check_sections(
         A copy of ``project`` without the empty sections.
 
     """
-    from hyperi_ci.common import warn
-    from hyperi_ci.vocabulary import canonical_key
-
     checked: dict[Any, Any] = {}
     for key, value in project.items():
         path = f"{prefix}{key}"
@@ -253,14 +266,7 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     if _org_cache is not None and not reload:
         return _org_cache
 
-    org_file = _CONFIG_DIR / "org.yaml"
-    raw: dict[str, Any] = {}
-    if org_file.exists():
-        with open(org_file, encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-            if loaded:
-                raw = loaded
-
+    raw: dict[str, Any] = _read_yaml(_CONFIG_DIR / "org.yaml") or {}
     github = raw.get("github", {})
     ghcr = raw.get("ghcr", {})
     r2 = raw.get("r2", {})
@@ -288,12 +294,7 @@ def packaged_default(key: str, default: Any = None) -> Any:
     """
     global _packaged_defaults_cache
     if _packaged_defaults_cache is None:
-        defaults_file = _CONFIG_DIR / "defaults.yaml"
-        loaded: dict[str, Any] = {}
-        if defaults_file.exists():
-            with open(defaults_file, encoding="utf-8") as f:
-                loaded = yaml.safe_load(f) or {}
-        _packaged_defaults_cache = loaded
+        _packaged_defaults_cache = _read_yaml(_CONFIG_DIR / "defaults.yaml") or {}
 
     node: Any = _packaged_defaults_cache
     for part in key.split("."):
@@ -312,8 +313,6 @@ def shipped_default(key: str) -> Any:
         KeyError: defaults.yaml does not declare ``key``.
 
     """
-    from hyperi_ci.vocabulary import key_candidates
-
     missing = object()
     for candidate in key_candidates(key):
         value = packaged_default(candidate, missing)
@@ -354,53 +353,32 @@ def load_config(
     if _config_cache is not None and not reload:
         return _config_cache
 
-    config: dict[str, Any] = {}
+    config: dict[str, Any] = _read_yaml(_CONFIG_DIR / "defaults.yaml") or {}
     project_dir = project_dir or Path.cwd()
-
-    defaults_file = _CONFIG_DIR / "defaults.yaml"
-    if defaults_file.exists():
-        with open(defaults_file, encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-            if loaded:
-                config = loaded
-
-    from hyperi_ci.vocabulary import (
-        CONFIG_NAMESPACE,
-        LEGACY_CONFIG_NAMESPACE,
-        carry_over_removed_gates,
-        drop_removed_notices,
-        find_removed_keys,
-        fold_legacy_config,
-        report_carry_overs,
-        report_deprecated_config,
-        report_removed_keys,
-    )
 
     deprecated_keys: list[str] = []
     removed_keys: list[str] = []
     carried_keys: list[str] = []
-    for name in CONFIG_FILES:
-        config_file = project_dir / name
-        if config_file.exists():
-            with open(config_file, encoding="utf-8") as f:
-                loaded = yaml.safe_load(f)
-            if loaded and not isinstance(loaded, dict):
-                raise ConfigError(f"{name}: the file must be a mapping of settings")
-            if loaded:
-                problems: list[str] = []
-                checked = _check_sections(loaded, config, "", problems)
-                if problems:
-                    raise ConfigError("\n".join(f"{name}: {p}" for p in problems))
-                removed_keys = find_removed_keys(loaded)
-                # Before the merge: the shipped successor default would
-                # otherwise read as a project setting.
-                checked, carried_keys = carry_over_removed_gates(checked)
-                # Folded before the merge, or a shipped `release.x` default
-                # would outrank a project's `publish.x`.
-                folded, deprecated_keys = fold_legacy_config(checked)
-                deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
-                config = _merge_deep(config, folded)
-            break
+    config_file = find_config(project_dir)
+    if config_file is not None:
+        name = config_file.name
+        loaded = _read_yaml(config_file)
+        if loaded and not isinstance(loaded, dict):
+            raise ConfigError(f"{name}: the file must be a mapping of settings")
+        if loaded:
+            problems: list[str] = []
+            checked = _check_sections(loaded, config, "", problems)
+            if problems:
+                raise ConfigError("\n".join(f"{name}: {p}" for p in problems))
+            removed_keys = find_removed_keys(loaded)
+            # Before the merge: the shipped successor default would
+            # otherwise read as a project setting.
+            checked, carried_keys = carry_over_removed_gates(checked)
+            # Folded before the merge, or a shipped `release.x` default
+            # would outrank a project's `publish.x`.
+            folded, deprecated_keys = fold_legacy_config(checked)
+            deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
+            config = merge_deep(config, folded)
 
     for key, value in os.environ.items():
         if key.startswith("HYPERCI_"):
@@ -421,9 +399,6 @@ def load_config(
     if isinstance(project, dict):
         status = str(project.get("status") or "").strip().lower()
         if status and status not in VALID_PROJECT_STATUSES:
-            # Lazy import: avoids a cycle at module load.
-            from hyperi_ci.common import warn
-
             warn(
                 f"Unknown project.status '{status}' -- expected one of "
                 f"{', '.join(VALID_PROJECT_STATUSES)} (or unset). "
@@ -435,7 +410,6 @@ def load_config(
     declared_license = config.get("license")
     if isinstance(declared_license, str) and declared_license.strip():
         from hyperi_ci import licenses
-        from hyperi_ci.common import warn
 
         lic = declared_license.strip()
         extra = config.get("license_allow")
@@ -497,8 +471,6 @@ def _resolve_classification(
     try:
         return classification.resolve(config, project_dir)
     except (ValueError, OSError) as exc:
-        from hyperi_ci.common import warn
-
         warn(
             f"{exc} Treating this repo as '{classification.MOST_RESTRICTIVE}' "
             f"until the marker is fixed."

@@ -22,7 +22,6 @@ Every step is idempotent, so a partial failure can be re-run. Linux only, and
 a no-op elsewhere.
 """
 
-import hashlib
 import os
 import platform
 import shutil
@@ -37,7 +36,7 @@ import yaml
 from scalo import logger
 
 from hyperi_ci.common import curl_fetch, sudo_prefix
-from hyperi_ci.native_tools import _linux_arch, install_into
+from hyperi_ci.native_tools import _linux_arch, install_into, sha256_file
 from hyperi_ci.versions import (
     runtime_sha256,
     runtime_version,
@@ -121,8 +120,7 @@ def _download_verified(
     if rc != 0:
         logger.error(f"Failed to download {name} (curl exit {rc})")
         return rc
-    with dest.open("rb") as fh:
-        got = hashlib.file_digest(fh, "sha256").hexdigest()
+    got = sha256_file(dest)
     want = expected.strip().lower()
     if got != want:
         logger.error(

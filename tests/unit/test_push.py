@@ -15,9 +15,9 @@ from hyperi_ci.push import (
     _check_dirty_tree,
     _check_not_ci_commit,
     _check_push_target,
-    _has_publish_trailer,
     push,
 )
+from hyperi_ci.vocabulary import has_release_trailer
 
 
 def _git_replies(**by_key: str):
@@ -199,36 +199,20 @@ class TestCheckNotCICommit:
             assert _check_not_ci_commit(cwd=None) == 0
 
 
-class TestHasPublishTrailer:
-    """Test ``Publish: true`` trailer detection in commit messages."""
-
-    def test_no_trailer(self) -> None:
-        msg = "fix: update config parser\n\nLong body explaining why.\n"
-        assert _has_publish_trailer(msg) is False
-
-    def test_trailer_present(self) -> None:
-        msg = "fix: update config parser\n\nPublish: true\n"
-        assert _has_publish_trailer(msg) is True
-
-    def test_trailer_case_insensitive_key(self) -> None:
-        msg = "fix: thing\n\npublish: true\n"
-        assert _has_publish_trailer(msg) is True
-
-    def test_trailer_case_insensitive_value(self) -> None:
-        msg = "fix: thing\n\nPublish: TRUE\n"
-        assert _has_publish_trailer(msg) is True
-
-    def test_trailer_with_whitespace(self) -> None:
-        msg = "fix: thing\n\n  Publish:   true  \n"
-        assert _has_publish_trailer(msg) is True
-
-    def test_trailer_false_does_not_match(self) -> None:
-        msg = "fix: thing\n\nPublish: false\n"
-        assert _has_publish_trailer(msg) is False
-
-    def test_trailer_other_key_does_not_match(self) -> None:
-        msg = "fix: thing\n\nPublished-by: someone\n"
-        assert _has_publish_trailer(msg) is False
+@pytest.mark.parametrize(
+    ("body", "found"),
+    [
+        pytest.param("Long body explaining why.", False, id="none"),
+        pytest.param("Publish: true", True, id="present"),
+        pytest.param("publish: true", True, id="any-case-key"),
+        pytest.param("Publish: TRUE", True, id="any-case-value"),
+        pytest.param("  Publish:   true  ", True, id="whitespace"),
+        pytest.param("Publish: false", False, id="false"),
+        pytest.param("Published-by: someone", False, id="other-key"),
+    ],
+)
+def test_has_publish_trailer(body: str, found: bool) -> None:
+    assert has_release_trailer(f"fix: thing\n\n{body}\n") is found
 
 
 @pytest.fixture
@@ -591,78 +575,45 @@ class TestForcedBumpPush:
 
 
 class TestComputeNextVersion:
-    """Test _compute_next_version semver math."""
+    """Test _compute_next_version semver math.
+
+    The tag read is version_source.latest_tag_version's, tested there.
+    """
+
+    @staticmethod
+    def _next(bump: str, latest: str | None, cwd: Path | None = None) -> str | None:
+        from hyperi_ci.push import _compute_next_version
+
+        with patch("hyperi_ci.push.latest_tag_version", return_value=latest):
+            return _compute_next_version(bump=bump, cwd=str(cwd) if cwd else None)
 
     def test_patch_increment(self) -> None:
-        result = MagicMock(stdout="v1.5.4\nv1.5.3\n", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="patch", cwd=None) == "1.5.5"
+        assert self._next("patch", "1.5.4") == "1.5.5"
 
     def test_minor_increment_resets_patch(self) -> None:
-        result = MagicMock(stdout="v1.5.4\n", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
+        assert self._next("minor", "1.5.4") == "1.6.0"
 
-            assert _compute_next_version(bump="minor", cwd=None) == "1.6.0"
-
-    def test_prerelease_tag_is_not_a_bump_anchor(self) -> None:
-        """A prerelease sorts above its own release under -v:refname."""
-        result = MagicMock(stdout="v1.1.2-beta.1\nv1.1.1\n", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="patch", cwd=None) == "1.1.2"
-
-    def test_prerelease_only_repo_bumps_from_the_declared_version(
+    def test_no_final_release_tag_bumps_from_the_declared_version(
         self, tmp_path: Path
     ) -> None:
-        """No final-release tag is the initial-release case, prereleases or not."""
+        """No tag, or only prerelease tags, is the initial-release case (issue #85)."""
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "thing"\nversion = "1.4.2"\n', encoding="utf-8"
         )
-        result = MagicMock(stdout="v1.1.2-beta.1\n", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "1.4.3"
-
-    def test_no_tags_bumps_from_the_declared_version(self, tmp_path: Path) -> None:
-        """A tag-less repo bumps from what its manifest declares (issue #85)."""
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "thing"\nversion = "1.4.2"\n', encoding="utf-8"
-        )
-        result = MagicMock(stdout="", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "1.4.3"
+        assert self._next("patch", None, tmp_path) == "1.4.3"
 
     def test_no_tags_no_manifest_bumps_from_the_seed_default(
         self, tmp_path: Path
     ) -> None:
-        result = MagicMock(stdout="", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="minor", cwd=str(tmp_path)) == "0.2.0"
+        assert self._next("minor", None, tmp_path) == "0.2.0"
 
     def test_a_stale_version_file_is_not_consulted(self, tmp_path: Path) -> None:
         """VERSION is an artefact this tool writes, never an input (issue #85)."""
         (tmp_path / "VERSION").write_text("2.3.10\n", encoding="utf-8")
-        result = MagicMock(stdout="", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "0.1.1"
+        assert self._next("patch", None, tmp_path) == "0.1.1"
 
     def test_unsupported_bump_returns_none(self) -> None:
-        result = MagicMock(stdout="v1.5.4\n", returncode=0)
-        with patch("hyperi_ci.push.run_cmd", return_value=result):
-            from hyperi_ci.push import _compute_next_version
-
-            assert _compute_next_version(bump="major", cwd=None) is None
+        assert self._next("major", "1.5.4") is None
 
 
 class TestSkipCIPush:

@@ -48,15 +48,6 @@ _PRESCRIPTIVE = "quality.doc_paths.prescriptive"
 _IGNORE_MARKER = re.compile(r"<!--\s*doc-paths:\s*ignore\s*-->")
 
 
-class _Suppressed:
-    """A suppression count threaded through the scan functions' keyword args."""
-
-    __slots__ = ("count",)
-
-    def __init__(self) -> None:
-        self.count = 0
-
-
 def _line_at(text: str, pos: int) -> str:
     """Return the line of ``text`` containing offset ``pos``, newline excluded."""
     start = text.rfind("\n", 0, pos) + 1
@@ -141,7 +132,7 @@ def _strip_fragment(dest: str) -> str:
 
 
 def scan_links(
-    doc: Path, root: Path, *, suppressed: _Suppressed | None = None
+    doc: Path, root: Path, *, suppressed: list[str] | None = None
 ) -> list[fdg.Finding]:
     """Return one finding per markdown link in ``doc`` whose target is gone.
 
@@ -166,7 +157,7 @@ def scan_links(
             if _is_marked(text, match.start()):
                 # Not added to `seen`, so a later unmarked occurrence is reported.
                 if suppressed is not None:
-                    suppressed.count += 1
+                    suppressed.append(dest)
                 continue
             seen.add(dest)
             out.append(
@@ -208,7 +199,7 @@ def _siblings_share_the_kind(token: str, doc: Path, root: Path) -> bool:
 
 
 def scan_code_paths(
-    doc: Path, root: Path, *, suppressed: _Suppressed | None = None
+    doc: Path, root: Path, *, suppressed: list[str] | None = None
 ) -> list[fdg.Finding]:
     """Return one finding per inline-code path in ``doc`` that no longer exists.
 
@@ -239,7 +230,7 @@ def scan_code_paths(
         if _is_marked(stripped, match.start()):
             # Not added to `seen`, so a later unmarked occurrence is reported.
             if suppressed is not None:
-                suppressed.count += 1
+                suppressed.append(token)
             continue
         seen.add(token)
         out.append(
@@ -288,7 +279,7 @@ def run(
     root = Path(root or Path.cwd())
     found: list[fdg.Finding] = []
     exempt = 0
-    suppressed = _Suppressed()
+    suppressed: list[str] = []
     for doc in files:
         if check_links:
             found.extend(scan_links(doc, root, suppressed=suppressed))
@@ -301,9 +292,9 @@ def run(
             f"  doc-paths: inline-code paths not checked in {exempt} file(s) "
             f"({_PRESCRIPTIVE})"
         )
-    if suppressed.count:
+    if suppressed:
         info(
-            f"  doc-paths: {suppressed.count} reference(s) ignored by marker "
+            f"  doc-paths: {len(suppressed)} reference(s) ignored by marker "
             "(doc-paths: ignore)"
         )
 

@@ -81,7 +81,7 @@ class TestRunSelection:
         sent: list[str] = []
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
         monkeypatch.setattr(run_lookup, "resolve", lambda **_k: {"databaseId": 99})
-        monkeypatch.setattr(rerun, "describe_run", lambda _run: "99 CI")
+        monkeypatch.setattr(run_lookup, "describe_run", lambda _run: "99 CI")
         monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
         assert rerun.rerun_run() == 0
         assert sent == ["run", "rerun", "99", "--failed"]
@@ -106,7 +106,7 @@ class TestRunSelection:
         sent: list[str] = []
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
         monkeypatch.setattr(run_lookup, "resolve", capture)
-        monkeypatch.setattr(rerun, "describe_run", lambda _run: "77 CI")
+        monkeypatch.setattr(run_lookup, "describe_run", lambda _run: "77 CI")
         monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
         assert rerun.rerun_run(pr=18) == 0
         assert seen["pr"] == 18

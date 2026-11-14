@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from hyperi_ci.build_targets import DEFAULT_CI_TRIPLES, ci_targets
-from hyperi_ci.common import info, success, warn
+from hyperi_ci.common import info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -177,14 +177,7 @@ def run(
 ) -> int:
     """Report rustflags this repo declares but cannot ship.
 
-    Args:
-        config: Merged CI configuration.
-        project_root: Repo root; defaults to the working directory.
-        sarif_path: Where to write SARIF, when the caller collects it.
-
-    Returns:
-        0 unless a blocking mode found something.
-
+    ``project_root`` defaults to the working directory. Returns 0 unless a blocking mode found something.
     """
     mode = resolve_tool_mode("cargo_flags", config, default="warn")
     if mode == "disabled":
@@ -196,10 +189,6 @@ def run(
 
     fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success(f"  {_TOOL}: this repo's rustflags reach the compiler")
-        return 0
-    if mode == "blocking":
-        return 1
-    warn(f"  {_TOOL}: {len(found)} finding(s) -- advisory")
-    return 0
+    return fdg.verdict(
+        _TOOL, len(found), mode, "this repo's rustflags reach the compiler"
+    )

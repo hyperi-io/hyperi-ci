@@ -340,13 +340,7 @@ def _env_config_override() -> str | None:
 
 
 def run(config: CIConfig) -> int:
-    """Run gitleaks secret scanning.
-
-    Args:
-        config: Merged CI configuration.
-
-    Returns:
-        Exit code (0 = success).
+    """Run gitleaks secret scanning and return the exit code.
 
     Raises:
         GateReasonRequiredError: The gate is turned below the shipped

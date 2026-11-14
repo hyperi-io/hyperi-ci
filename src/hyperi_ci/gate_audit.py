@@ -231,7 +231,7 @@ def _parse_ts(raw: object) -> datetime | None:
     if not isinstance(raw, str) or not raw:
         return None
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

@@ -32,9 +32,6 @@ RELEASE = "release"
 DEV = "dev"
 VALIDATE = "validate"
 
-# Deprecated spelling of RELEASE, kept for out-of-tree comparisons.
-PUBLISH = RELEASE
-
 _MODE_ENV = "HYPERCI_RELEASE_MODE"
 _LEGACY_MODE_ENV = "HYPERCI_PUBLISH_MODE"
 
@@ -107,11 +104,6 @@ def is_branch_ci_context(*, env: Mapping[str, str] | None = None) -> bool:
 def is_release_mode(*, env: Mapping[str, str] | None = None) -> bool:
     """Bool view for a caller with no dev mode: release or not."""
     return resolve_push_mode(env=env) == RELEASE
-
-
-def is_publish_mode(*, env: Mapping[str, str] | None = None) -> bool:
-    """Return :func:`is_release_mode` under its deprecated spelling."""
-    return is_release_mode(env=env)
 
 
 def dev_branch_slug(*, env: Mapping[str, str] | None = None) -> str:

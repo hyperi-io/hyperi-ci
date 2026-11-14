@@ -42,12 +42,12 @@ def _labels_from_dispatch(config: CIConfig) -> dict[str, str]:
     dockerfile.write_text("FROM scratch\n", encoding="utf-8")
     with patch.object(stage, "build_and_push", return_value=0) as pushed:
         with patch.object(stage, "_read_version", return_value="1.2.3"):
-            with patch.object(stage, "_read_sha", return_value="deadbeef"):
+            with patch.object(stage, "_checkout_sha", return_value="deadbeef"):
                 stage._dispatch_build(
                     dockerfile_path=dockerfile,
                     config=config,
                     org=org,
-                    registry_bases=["ghcr.io/hyperi-io"],
+                    registry_base="ghcr.io/hyperi-io",
                     push_mode="release",
                 )
     return pushed.call_args.kwargs["labels"]

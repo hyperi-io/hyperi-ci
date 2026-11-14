@@ -34,6 +34,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import run_destinations
 from hyperi_ci.languages.rust import semver_checks
 from hyperi_ci.languages.rust.build import binary_targets, stamp_manifest
 
@@ -229,14 +230,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     destinations = config.destination_for("cargo")
     info(f"Publishing Rust crate to: {', '.join(destinations)}")
-    for dest in destinations:
-        if dest == "crates-io":
-            with group("Publish: crates.io"):
-                rc = _publish_crates_io(root)
-                if rc != 0:
-                    return rc
-        else:
-            error(f"Unknown Rust publish destination: {dest}")
-            return 1
-
-    return 0
+    return run_destinations(
+        destinations,
+        {"crates-io": ("Publish: crates.io", lambda: _publish_crates_io(root))},
+        "Rust",
+    )

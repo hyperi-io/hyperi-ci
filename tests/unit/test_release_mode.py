@@ -10,8 +10,6 @@ The env is injected as a plain dict -- no os.environ monkeypatching, so
 the matrix is exact regardless of what CI env the test itself runs in.
 """
 
-import pytest
-
 from hyperi_ci.release_mode import (
     DEV,
     RELEASE,
@@ -118,25 +116,6 @@ class TestBoolView:
 
     def test_is_release_mode_dev_is_not_release(self) -> None:
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) is False
-
-
-# These tests import the deprecated module on purpose; its warning is the
-# expected behaviour, not a finding.
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-class TestDeprecatedSpellings:
-    """The old module path and the old bool name keep resolving."""
-
-    def test_shim_module_re_exports(self) -> None:
-        from hyperi_ci.publish_mode import PUBLISH, is_publish_mode
-
-        assert PUBLISH == RELEASE
-        assert is_publish_mode(env={"HYPERCI_RELEASE_MODE": "true"}) is True
-
-    def test_is_publish_mode_matches_is_release_mode(self) -> None:
-        from hyperi_ci.release_mode import is_publish_mode
-
-        env = {"HYPERCI_RELEASE_MODE": "dev"}
-        assert is_publish_mode(env=env) == is_release_mode(env=env)
 
 
 class TestBranchCiContext:

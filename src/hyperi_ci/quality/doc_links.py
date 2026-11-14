@@ -13,10 +13,9 @@ headings. A repo silences a known-bad link with a committed ``.lycheeignore``.
 """
 
 import functools
-import json
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
@@ -58,11 +57,8 @@ def parse(stdout: str) -> list[fdg.Finding]:
     Reads ``error_map`` only; ``excluded_map`` is the external links
     ``--offline`` skipped.
     """
-    try:
-        doc = json.loads(stdout or "{}")
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(doc, dict):
+    doc = fdg.load_json(stdout, dict)
+    if doc is None:
         return []
     out: list[fdg.Finding] = []
     for path, entries in (doc.get("error_map") or {}).items():
@@ -130,11 +126,9 @@ def run(
 
     fdg.report("doc-links", found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success(f"  doc-links: every internal link in {len(files)} file(s) resolves")
-        return 0
-    if mode == "blocking":
-        error(f"  doc-links: {len(found)} broken internal link(s) or anchor(s)")
-        return 1
-    warn(f"  doc-links: {len(found)} broken internal link(s) (non-blocking)")
-    return 0
+    return fdg.verdict(
+        "doc-links",
+        len(found),
+        mode,
+        f"every internal link in {len(files)} file(s) resolves",
+    )

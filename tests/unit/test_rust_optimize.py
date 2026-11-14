@@ -9,13 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import optimize
 from hyperi_ci.languages.rust.build import _resolve_build_channel
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
-    _parse_features_from_text,
     cargo_feature_args,
     log_outcome,
     parse_cargo_features,
@@ -40,18 +38,18 @@ class TestBuildChannelResolution:
 
     def test_a_plain_push_build_is_alpha(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clean(monkeypatch)
-        assert _resolve_build_channel(CIConfig()) == "alpha"
+        assert _resolve_build_channel() == "alpha"
 
     def test_the_env_override_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clean(monkeypatch)
         monkeypatch.setenv("HYPERCI_CHANNEL", "release")
-        assert _resolve_build_channel(CIConfig()) == "release"
+        assert _resolve_build_channel() == "release"
 
     def test_the_override_is_normalised(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The workflow interpolates it, so whitespace and case arrive as typed.
         self._clean(monkeypatch)
         monkeypatch.setenv("HYPERCI_CHANNEL", "  Release  ")
-        assert _resolve_build_channel(CIConfig()) == "release"
+        assert _resolve_build_channel() == "release"
 
     def test_an_empty_override_does_not_count(
         self, monkeypatch: pytest.MonkeyPatch
@@ -60,12 +58,12 @@ class TestBuildChannelResolution:
         # through to the inference rather than resolve to an empty channel.
         self._clean(monkeypatch)
         monkeypatch.setenv("HYPERCI_CHANNEL", "")
-        assert _resolve_build_channel(CIConfig()) == "alpha"
+        assert _resolve_build_channel() == "alpha"
 
     def test_a_tag_ref_infers_release(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clean(monkeypatch)
         monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
-        assert _resolve_build_channel(CIConfig()) == "release"
+        assert _resolve_build_channel() == "release"
 
     @pytest.mark.parametrize("var", ["RUST_VERSION", "CI_COMMIT_TAG"])
     def test_a_tagged_build_marker_infers_release(
@@ -73,7 +71,7 @@ class TestBuildChannelResolution:
     ) -> None:
         self._clean(monkeypatch)
         monkeypatch.setenv(var, "1.2.3")
-        assert _resolve_build_channel(CIConfig()) == "release"
+        assert _resolve_build_channel() == "release"
 
     def test_the_override_beats_the_ref_type(
         self, monkeypatch: pytest.MonkeyPatch
@@ -83,18 +81,7 @@ class TestBuildChannelResolution:
         self._clean(monkeypatch)
         monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
         monkeypatch.setenv("HYPERCI_CHANNEL", "alpha")
-        assert _resolve_build_channel(CIConfig()) == "alpha"
-
-    def test_the_publish_channel_config_does_not_leak_in(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # `publish.channel` says WHERE artefacts go. A project that ships to
-        # `release` still gets push-event CI on every commit, which must not
-        # trigger Tier 2 -- the build channel is orthogonal.
-        self._clean(monkeypatch)
-        config = CIConfig()
-        monkeypatch.setattr(config, "get", lambda *_a, **_k: "release")
-        assert _resolve_build_channel(config) == "alpha"
+        assert _resolve_build_channel() == "alpha"
 
 
 class TestChannelDefaults:
@@ -658,30 +645,40 @@ class TestEnvOverrides:
 class TestValidateProfile:
     """Graceful fallbacks when Cargo.toml / target don't support requested opts."""
 
-    def test_missing_jemalloc_feature_falls_back_to_system(self) -> None:
+    @pytest.fixture
+    def warned(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        seen: list[str] = []
+        monkeypatch.setattr(optimize, "warn", seen.append)
+        return seen
+
+    def test_missing_jemalloc_feature_falls_back_to_system(
+        self, warned: list[str]
+    ) -> None:
         p = OptimizationProfile(channel="release", allocator="jemalloc")
         validated = validate_profile(p, cargo_features=set())
         assert validated.allocator == "system"
-        assert any("jemalloc" in w for w in validated.warnings)
+        assert any("jemalloc" in w for w in warned)
 
-    def test_present_jemalloc_feature_keeps_jemalloc(self) -> None:
+    def test_present_jemalloc_feature_keeps_jemalloc(self, warned: list[str]) -> None:
         p = OptimizationProfile(channel="release", allocator="jemalloc")
         validated = validate_profile(p, cargo_features={"jemalloc"})
         assert validated.allocator == "jemalloc"
-        assert not validated.warnings
+        assert not warned
 
     def test_missing_mimalloc_feature_falls_back_to_system(self) -> None:
         p = OptimizationProfile(channel="release", allocator="mimalloc")
         validated = validate_profile(p, cargo_features={"jemalloc"})
         assert validated.allocator == "system"
 
-    def test_system_allocator_never_needs_feature_check(self) -> None:
+    def test_system_allocator_never_needs_feature_check(
+        self, warned: list[str]
+    ) -> None:
         p = OptimizationProfile(channel="release", allocator="system")
         validated = validate_profile(p, cargo_features=set())
         assert validated.allocator == "system"
-        assert not validated.warnings
+        assert not warned
 
-    def test_pgo_without_workload_cmd_is_disabled(self) -> None:
+    def test_pgo_without_workload_cmd_is_disabled(self, warned: list[str]) -> None:
         p = OptimizationProfile(
             channel="release",
             allocator="jemalloc",
@@ -690,9 +687,9 @@ class TestValidateProfile:
         )
         validated = validate_profile(p, cargo_features={"jemalloc"})
         assert validated.pgo_enabled is False
-        assert any("workload_cmd" in w for w in validated.warnings)
+        assert any("workload_cmd" in w for w in warned)
 
-    def test_bolt_on_non_linux_target_disabled(self) -> None:
+    def test_bolt_on_non_linux_target_disabled(self, warned: list[str]) -> None:
         p = OptimizationProfile(
             channel="release",
             allocator="jemalloc",
@@ -706,7 +703,7 @@ class TestValidateProfile:
             target="x86_64-apple-darwin",
         )
         assert validated.bolt_enabled is False
-        assert any("BOLT" in w or "bolt" in w for w in validated.warnings)
+        assert any("BOLT" in w or "bolt" in w for w in warned)
 
     def test_bolt_on_linux_target_kept(self) -> None:
         p = OptimizationProfile(
@@ -737,56 +734,41 @@ class TestValidateProfile:
 
 
 class TestParseCargoFeatures:
-    """Cargo.toml feature parsing (stdlib-only)."""
+    """Cargo.toml feature parsing."""
 
-    def test_empty_toml_returns_empty_set(self) -> None:
-        assert _parse_features_from_text("") == set()
-
-    def test_no_features_section_returns_empty_set(self) -> None:
-        text = '[package]\nname = "foo"\nversion = "0.1.0"\n'
-        assert _parse_features_from_text(text) == set()
-
-    def test_simple_features_parsed(self) -> None:
-        text = """
-[package]
-name = "foo"
-
-[features]
-default = []
-jemalloc = ["dep:tikv-jemallocator"]
-mimalloc = ["dep:mimalloc"]
-"""
-        assert _parse_features_from_text(text) == {"default", "jemalloc", "mimalloc"}
-
-    def test_features_ignored_outside_section(self) -> None:
-        text = """
-[features]
-jemalloc = []
-
-[dependencies]
-default = { version = "1.0" }
-"""
-        assert _parse_features_from_text(text) == {"jemalloc"}
-
-    def test_comments_ignored(self) -> None:
-        text = """
-[features]
-# This is a comment
-default = []
-# mimalloc = []
-mimalloc = []
-"""
-        assert _parse_features_from_text(text) == {"default", "mimalloc"}
-
-    def test_parse_cargo_features_missing_file_returns_empty(self, tmp_path) -> None:
-        assert parse_cargo_features(tmp_path / "nonexistent.toml") == set()
-
-    def test_parse_cargo_features_reads_real_file(self, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param("", set(), id="empty"),
+            pytest.param('[package]\nname = "foo"\n', set(), id="no-features-table"),
+            pytest.param(
+                '[package]\nname = "foo"\n\n[features]\ndefault = []\n'
+                'jemalloc = ["dep:tikv-jemallocator"]\nmimalloc = ["dep:mimalloc"]\n',
+                {"default", "jemalloc", "mimalloc"},
+                id="simple",
+            ),
+            pytest.param(
+                '[features]\njemalloc = []\n\n[dependencies]\ndefault = { version = "1.0" }\n',
+                {"jemalloc"},
+                id="ignores-other-tables",
+            ),
+            pytest.param(
+                "[features]\n# a comment\ndefault = []\n# mimalloc = []\nmimalloc = []\n",
+                {"default", "mimalloc"},
+                id="comments",
+            ),
+            pytest.param("[features\nfoo = []\n", set(), id="invalid-toml"),
+        ],
+    )
+    def test_reads_the_features_table(
+        self, tmp_path: Path, text: str, expected: set[str]
+    ) -> None:
         cargo_toml = tmp_path / "Cargo.toml"
-        cargo_toml.write_text(
-            '[package]\nname = "x"\n\n[features]\nfoo = []\nbar = []\n'
-        )
-        assert parse_cargo_features(cargo_toml) == {"foo", "bar"}
+        cargo_toml.write_text(text, encoding="utf-8")
+        assert parse_cargo_features(cargo_toml) == expected
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        assert parse_cargo_features(tmp_path / "nonexistent.toml") == set()
 
 
 class TestDescribe:

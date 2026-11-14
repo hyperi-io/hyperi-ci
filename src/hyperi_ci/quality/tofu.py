@@ -13,7 +13,6 @@ scratch, with the modules and files it reaches, and checked there. Never
 ``plan`` or ``apply``: they need credentials and state a lint job must not hold.
 """
 
-import json
 import os
 import re
 import subprocess
@@ -112,12 +111,11 @@ def _fmt(exe: str, dirs: list[Path], timeout: float | None) -> list[fdg.Finding]
 
 def _diagnostics(stdout: str, root: Path) -> list[fdg.Finding]:
     """Parse ``tofu validate -json`` diagnostics into findings against ``root``."""
-    try:
-        doc = json.loads(stdout or "{}")
-    except json.JSONDecodeError:
+    doc = fdg.load_json(stdout, dict)
+    if doc is None:
         return []
     out: list[fdg.Finding] = []
-    for diag in doc.get("diagnostics", []) if isinstance(doc, dict) else []:
+    for diag in doc.get("diagnostics", []):
         if not isinstance(diag, dict):
             continue
         rng = diag.get("range") or {}

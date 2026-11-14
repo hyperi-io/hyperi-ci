@@ -21,6 +21,7 @@ runs, and passing one the callee does not declare is a hard error.
 """
 
 import os
+from collections.abc import Callable
 from typing import Any
 
 # The git trailer that marks a commit as one to release.
@@ -39,13 +40,13 @@ REVERSAL_NOTE = (
 )
 
 
-def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+def merge_deep(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Deep-merge ``override`` onto ``base``; ``override`` wins a conflict."""
     merged = dict(base)
     for key, value in override.items():
         current = merged.get(key)
         if isinstance(current, dict) and isinstance(value, dict):
-            merged[key] = _merge(current, value)
+            merged[key] = merge_deep(current, value)
         else:
             merged[key] = value
     return merged
@@ -76,30 +77,29 @@ def fold_legacy_config(doc: Any) -> tuple[Any, list[str]]:
         return doc, removing
 
     folded = dict(doc)
-    folded[CONFIG_NAMESPACE] = _merge(legacy, canonical)
+    folded[CONFIG_NAMESPACE] = merge_deep(legacy, canonical)
     folded.pop(LEGACY_CONFIG_NAMESPACE, None)
     renamed = sorted(f"{LEGACY_CONFIG_NAMESPACE}.{key}" for key in legacy)
     return folded, renamed + removing
 
 
+def _rename_namespace(key: str, old: str, new: str) -> str:
+    """Swap the leading namespace ``old`` of a dotted key for ``new``."""
+    if key == old:
+        return new
+    if key.startswith(f"{old}."):
+        return f"{new}.{key[len(old) + 1 :]}"
+    return key
+
+
 def canonical_key(key: str) -> str:
     """Rewrite a dotted ``publish.*`` key to its ``release.*`` equivalent."""
-    prefix = f"{LEGACY_CONFIG_NAMESPACE}."
-    if key == LEGACY_CONFIG_NAMESPACE:
-        return CONFIG_NAMESPACE
-    if key.startswith(prefix):
-        return f"{CONFIG_NAMESPACE}.{key[len(prefix) :]}"
-    return key
+    return _rename_namespace(key, LEGACY_CONFIG_NAMESPACE, CONFIG_NAMESPACE)
 
 
 def legacy_key(key: str) -> str:
     """Rewrite a dotted ``release.*`` key back to its ``publish.*`` spelling."""
-    prefix = f"{CONFIG_NAMESPACE}."
-    if key == CONFIG_NAMESPACE:
-        return LEGACY_CONFIG_NAMESPACE
-    if key.startswith(prefix):
-        return f"{LEGACY_CONFIG_NAMESPACE}.{key[len(prefix) :]}"
-    return key
+    return _rename_namespace(key, CONFIG_NAMESPACE, LEGACY_CONFIG_NAMESPACE)
 
 
 def key_candidates(key: str) -> list[str]:
@@ -385,20 +385,24 @@ def carry_over_message(key: str) -> str:
     return f"{key}: blocking is carried over to {successor}: blocking"
 
 
-def report_carry_overs(keys: list[str]) -> None:
-    """Announce each carried-over gate once per process, as a removed key is."""
-    fresh = [key for key in keys if key not in _reported_carry_overs]
-    if not fresh:
-        return
+def _announce_once(
+    keys: list[str], seen: set[str], message: Callable[[str], str]
+) -> None:
+    """Announce each key not yet in ``seen`` as a removed-config-key warning."""
     from hyperi_ci.common import announce
 
-    for key in fresh:
-        _reported_carry_overs.add(key)
+    for key in [k for k in keys if k not in seen]:
+        seen.add(key)
         announce(
-            carry_over_message(key),
+            message(key),
             "Removed config key in .hyperi-ci.yaml",
             level="warning",
         )
+
+
+def report_carry_overs(keys: list[str]) -> None:
+    """Announce each carried-over gate once per process, as a removed key is."""
+    _announce_once(keys, _reported_carry_overs, carry_over_message)
 
 
 def report_removed_keys(keys: list[str]) -> None:
@@ -406,15 +410,4 @@ def report_removed_keys(keys: list[str]) -> None:
 
     A stage reloads the config several times.
     """
-    fresh = [key for key in keys if key not in _reported_removed_keys]
-    if not fresh:
-        return
-    from hyperi_ci.common import announce
-
-    for key in fresh:
-        _reported_removed_keys.add(key)
-        announce(
-            removed_key_message(key),
-            "Removed config key in .hyperi-ci.yaml",
-            level="warning",
-        )
+    _announce_once(keys, _reported_removed_keys, removed_key_message)

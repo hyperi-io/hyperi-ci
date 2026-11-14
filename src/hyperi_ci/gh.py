@@ -283,19 +283,7 @@ def get_latest_run(
     if workflow:
         args.extend(["--workflow", workflow])
 
-    fields = [
-        "databaseId",
-        "status",
-        "conclusion",
-        "headBranch",
-        "event",
-        "workflowName",
-        "createdAt",
-        "updatedAt",
-        "url",
-    ]
-
-    runs = gh_json(args, fields)
+    runs = gh_json(args, RUN_LIST_FIELDS)
     if not runs:
         return None
     return runs[0]

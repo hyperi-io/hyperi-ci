@@ -17,6 +17,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import charset
+from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.charset import BANNED, INVISIBLE, scan, scan_text
 
 
@@ -119,8 +120,12 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         'name = "Identifiant Commun de l\N{RIGHT SINGLE QUOTATION MARK}Entreprise"\n',
     )
     lines: list[str] = []
-    for level in ("info", "warn", "error", "success"):
-        monkeypatch.setattr(charset, level, lines.append)
+    for module, levels in (
+        (charset, ("info", "error")),
+        (fdg, ("info", "warn", "error", "success")),
+    ):
+        for level in levels:
+            monkeypatch.setattr(module, level, lines.append)
     return lines
 
 
@@ -149,7 +154,7 @@ class TestNoExclusionChangesNothing:
     def test_no_exclusion_prints_no_excluded_line(self, repo: list[str]) -> None:
         assert charset.run(_config(), roots=[Path("src")]) == 0
         assert _excluded_lines(repo) == []
-        assert any("2 line(s)" in line for line in repo), repo
+        assert any("2 finding(s)" in line for line in repo), repo
 
 
 class TestExcludePaths:
@@ -163,7 +168,7 @@ class TestExcludePaths:
         assert _excluded_lines(repo) == [
             "  charset: 1 file(s) excluded (quality.exclude_paths: 1)"
         ]
-        assert any("1 line(s)" in line for line in repo), repo
+        assert any("1 finding(s)" in line for line in repo), repo
 
     def test_a_trailing_slash_still_counts_as_exclude_paths(
         self, repo: list[str]
@@ -182,7 +187,7 @@ class TestExcludePaths:
     def test_a_partial_path_excludes_nothing(self, repo: list[str]) -> None:
         charset.run(_config(exclude_paths=["scalo/data"]), roots=[Path("src")])
         assert _excluded_lines(repo) == []
-        assert any("2 line(s)" in line for line in repo), repo
+        assert any("2 finding(s)" in line for line in repo), repo
 
     def test_a_scan_root_can_itself_be_excluded(self, repo: list[str]) -> None:
         assert charset.run(_config(exclude_paths=["src"]), roots=[Path("src")]) == 0
@@ -256,5 +261,5 @@ class TestDefaultPruning:
         """Same always-pruned set as every other discovery in quality/targets.py."""
         _write(tmp_path / "src/pkg/node_modules/dep/index.mjs", "// a — b\n")
         charset.run(_config(), roots=[Path("src")])
-        assert any("2 line(s)" in line for line in repo), repo
+        assert any("2 finding(s)" in line for line in repo), repo
         assert _excluded_lines(repo) == []

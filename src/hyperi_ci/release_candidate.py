@@ -15,7 +15,7 @@ later tags the chosen candidate's commit ``vX.Y.Z``.
 A ``Hotfix:`` trailer on the release commit ships ``X.Y.Z`` directly. The
 trailer carries the reason, which the release reports.
 
-Stdlib-only apart from :mod:`hyperi_ci.project_config`, because the
+Stdlib-only apart from :mod:`hyperi_ci.project_config` and :mod:`hyperi_ci.commit_range`, because the
 predict-version composite loads it by path where hyperi-ci is not installed.
 """
 
@@ -23,11 +23,11 @@ predict-version composite loads it by path where hyperi-ci is not installed.
 from __future__ import annotations
 
 import re
-import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 from typing import NamedTuple
 
+from hyperi_ci.commit_range import git_out
 from hyperi_ci.project_config import find_config, read_project_config, setting
 
 CANDIDATES_KEY = "release.candidates"
@@ -122,25 +122,11 @@ def resolve(root: Path, version: str, tags: Iterable[str], hotfix: str) -> Candi
 
 def repo_tags(root: Path) -> list[str]:
     """Return every tag in the checkout, empty when git fails."""
-    return _git(["tag", "--list"], root).splitlines()
+    return git_out(["tag", "--list"], root).splitlines()
 
 
 def hotfix_reason(root: Path) -> str:
     """Return HEAD's ``Hotfix:`` trailers on one line, empty when it has none."""
     trailer = f"--format=%(trailers:key={HOTFIX_TRAILER},valueonly)"
     # One line, because the reason lands in a workflow command.
-    return " ".join(_git(["log", "-1", trailer], root).split())
-
-
-def _git(args: list[str], root: Path) -> str:
-    """Run git in ``root`` and return its stripped stdout, empty on failure."""
-    result = subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=root,
-        check=False,
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""
+    return " ".join(git_out(["log", "-1", trailer], root).split())

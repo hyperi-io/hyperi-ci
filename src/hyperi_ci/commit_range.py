@@ -112,6 +112,20 @@ def git_log(
     return 0, _parse_git_log(result.stdout)
 
 
+def git_out(args: list[str], root: Path) -> str:
+    """Run git in ``root`` and return its stripped stdout, empty on failure."""
+    result = subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=root,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def is_zero_sha(sha: str) -> bool:
     """Return True for git's all-zeros sentinel SHA (branch creation / no parent)."""
     return len(sha) >= 7 and set(sha) == {"0"}

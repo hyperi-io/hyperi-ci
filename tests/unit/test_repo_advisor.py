@@ -191,7 +191,7 @@ def test_known_language_generates_override_layer(
         "rust-cargo-toml-exists",
         "python-manifest-exists",
     ):
-        assert f"- id: {rule}\n    level: off" in layer
+        assert f"- id: {rule}\n  level: 'off'" in layer
     # ...the primary's own stay active.
     assert "node-package-json-exists" not in layer
     assert "node-has-lockfile" not in layer
@@ -205,11 +205,11 @@ def test_language_falls_back_to_config_attribute(
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto", language="rust"), tmp_path) == 0
     (layer,) = configs
-    assert "- id: go-mod-exists\n    level: off" in layer
+    assert "- id: go-mod-exists\n  level: 'off'" in layer
     assert "rust-cargo-toml-exists" not in layer
 
 
-_CARGO_LOCK_OFF = "- id: rust-cargo-lock-exists\n    level: off"
+_CARGO_LOCK_OFF = "- id: rust-cargo-lock-exists\n  level: 'off'"
 
 
 def _rust_crate(root: Path, *, main: bool = False) -> Path:

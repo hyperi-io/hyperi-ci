@@ -52,6 +52,13 @@ class TestLicenseConfig:
     def test_default_is_busl(self, tmp_path: Path) -> None:
         assert detect_license(tmp_path) == "BUSL-1.1"
 
+    @pytest.mark.parametrize("where", ["tool.py", "src/pkg/mod.py"])
+    def test_source_header_scan(self, tmp_path: Path, where: str) -> None:
+        header = tmp_path / where
+        header.parent.mkdir(parents=True, exist_ok=True)
+        header.write_text("# License: MIT License\n", encoding="utf-8")
+        assert detect_license(tmp_path) == "MIT"
+
     def test_scaffold_includes_license_key(self, tmp_path: Path) -> None:
         content = _render_hyperi_ci_yaml("python", "p")
         assert "license: BUSL-1.1" in content

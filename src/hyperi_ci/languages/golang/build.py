@@ -12,18 +12,12 @@ checksums. The version is in the R2/release path, not the filename.
 
 import os
 import shutil
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, sanitize_ref_name, success
+from hyperi_ci.common import error, group, info, run_cmd, sanitize_ref_name, success
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages._build_common import (
-    generate_checksums as _generate_checksums,
-)
-from hyperi_ci.languages._build_common import (
-    human_size as _human_size,
-)
+from hyperi_ci.languages._build_common import generate_checksums, human_size
 
 _TARGET_SHORTCUTS = {
     "all": [
@@ -39,14 +33,7 @@ _TARGET_SHORTCUTS = {
 
 def _detect_binary_name() -> str:
     """Detect binary name from go.mod module path."""
-    result = subprocess.run(
-        ["go", "list", "-m"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    result = run_cmd(["go", "list", "-m"], check=False, capture=True)
     if result.returncode == 0 and result.stdout.strip():
         module_path = result.stdout.strip()
         return module_path.rsplit("/", 1)[-1]
@@ -96,13 +83,8 @@ def _build_ldflags(version: str, version_pkg: str) -> str:
 
     Version, commit and build time are injected with -X when version_pkg is set.
     """
-    commit_result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
+    commit_result = run_cmd(
+        ["git", "rev-parse", "--short", "HEAD"], check=False, capture=True
     )
     commit = (
         commit_result.stdout.strip() if commit_result.returncode == 0 else "unknown"
@@ -195,7 +177,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
         with group(f"Build: {goos}/{goarch}"):
             env = {
-                **os.environ,
                 "GOOS": goos,
                 "GOARCH": goarch,
                 "CGO_ENABLED": "1" if cgo else "0",
@@ -216,22 +197,22 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 cmd.insert(2, "-tags")
                 cmd.insert(3, build_tags)
 
-            result = subprocess.run(cmd, env=env)
+            result = run_cmd(cmd, check=False, env=env)
             if result.returncode != 0:
                 error(f"Build failed for {goos}/{goarch}")
                 return result.returncode
 
             if output_path.exists():
-                size = _human_size(output_path.stat().st_size)
+                size = human_size(output_path.stat().st_size)
                 info(f"  Created: {output_path.name} ({size})")
             success(f"Built: {goos}/{goarch}")
 
     with group("Build summary"):
         for f in sorted(output_dir.iterdir()):
             if f.is_file() and f.suffix != ".sha256":
-                info(f"  {f.name} ({_human_size(f.stat().st_size)})")
+                info(f"  {f.name} ({human_size(f.stat().st_size)})")
 
-        _generate_checksums(output_dir)
+        generate_checksums(output_dir)
 
     success("Build complete")
     return 0

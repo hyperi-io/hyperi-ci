@@ -15,13 +15,13 @@ from hyperi_ci.common import (
     error,
     explicit_version,
     info,
-    latest_version_tag,
     run_cmd,
     success,
     warn,
 )
 from hyperi_ci.gh import gh_api
 from hyperi_ci.release_candidate import candidate_version
+from hyperi_ci.version_source import latest_tag_version
 
 # A consumer's `on.workflow_dispatch.inputs` must declare all of these or the
 # dispatch fails with HTTP 422 (issue #88); `hyperi-ci audit-callers` checks it.
@@ -101,7 +101,7 @@ def resolve_latest_tag() -> str | None:
     Prereleases are skipped because ``-v:refname`` sorts ``v1.1.2-beta.1``
     above ``v1.1.1``.
     """
-    version = latest_version_tag()
+    version = latest_tag_version()
     return f"v{version}" if version else None
 
 
@@ -138,8 +138,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
             "the remote."
         )
 
-    workflow = _WORKFLOW_FILE
-    cmd = _dispatch_cmd(workflow, {"from-head": "true", "bump": bump})
+    cmd = _dispatch_cmd(_WORKFLOW_FILE, {"from-head": "true", "bump": bump})
 
     label = f"version=v{bump}" if explicit is not None else f"bump={bump}"
 
@@ -147,7 +146,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
         info(f"Would run: {' '.join(cmd)}")
         return 0
 
-    info(f"Dispatching from-head publish ({label}) via {workflow}...")
+    info(f"Dispatching from-head publish ({label}) via {_WORKFLOW_FILE}...")
     result = run_cmd(cmd, check=False)
     if result.returncode != 0:
         error("Failed to dispatch workflow")
@@ -192,14 +191,13 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
             "any registries a partial publish missed (publish is idempotent)."
         )
 
-    workflow = _WORKFLOW_FILE
-    cmd = _dispatch_cmd(workflow, {"tag": tag})
+    cmd = _dispatch_cmd(_WORKFLOW_FILE, {"tag": tag})
 
     if dry_run:
         info(f"Would run: {' '.join(cmd)}")
         return 0
 
-    info(f"Dispatching publish for {tag} via {workflow}...")
+    info(f"Dispatching publish for {tag} via {_WORKFLOW_FILE}...")
     result = run_cmd(cmd, check=False)
     if result.returncode != 0:
         error("Failed to dispatch workflow")

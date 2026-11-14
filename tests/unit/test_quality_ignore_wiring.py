@@ -25,9 +25,8 @@ from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.python.quality import (
     _build_pip_audit_cmd,
-    _build_ruff_docstring_cmd,
     _build_ruff_format_cmd,
-    _build_ruff_security_cmd,
+    _build_ruff_select_cmd,
     _repo_ruff_ignores,
 )
 from hyperi_ci.languages.quality_common import run_gate_tool
@@ -125,7 +124,7 @@ class TestRuffSecurityCommand:
     """The S pass selects only the bandit rules, over production code."""
 
     def test_selects_s_over_src(self) -> None:
-        assert _build_ruff_security_cmd(["src/"], [], []) == [
+        assert _build_ruff_select_cmd("S", ["src/"], [], []) == [
             "ruff",
             "check",
             "--select",
@@ -135,7 +134,7 @@ class TestRuffSecurityCommand:
         ]
 
     def test_handler_excludes_extend_the_repos_own(self) -> None:
-        assert _build_ruff_security_cmd(["src/"], ["vendor", "data"], []) == [
+        assert _build_ruff_select_cmd("S", ["src/"], ["vendor", "data"], []) == [
             "ruff",
             "check",
             "--select",
@@ -146,7 +145,8 @@ class TestRuffSecurityCommand:
         ]
 
     def test_ruff_ignores_reach_the_pass(self) -> None:
-        cmd = _build_ruff_security_cmd(
+        cmd = _build_ruff_select_cmd(
+            "S",
             ["src/"],
             ["vendor"],
             [
@@ -246,12 +246,10 @@ class TestRuffDocstringsIgnores:
 class TestRepoIgnoresReachSelectPasses:
     """`--select` drops the config's ignore list, so the S and D passes pass it back."""
 
-    @pytest.mark.parametrize(
-        ("build", "rule"),
-        [(_build_ruff_security_cmd, "S"), (_build_ruff_docstring_cmd, "D")],
-    )
-    def test_repo_and_quality_ignores_merge_into_one_flag(self, build, rule) -> None:
-        cmd = build(
+    @pytest.mark.parametrize("rule", ["S", "D"])
+    def test_repo_and_quality_ignores_merge_into_one_flag(self, rule) -> None:
+        cmd = _build_ruff_select_cmd(
+            rule,
             ["src/"],
             ["vendor"],
             [IgnoreEntry("ruff", f"{rule}603", "argv is a list")],
@@ -262,11 +260,10 @@ class TestRepoIgnoresReachSelectPasses:
             "--extend-exclude=vendor", f"--extend-ignore={rule}105,{rule}603",
         ]  # fmt: skip
 
-    @pytest.mark.parametrize(
-        "build", [_build_ruff_security_cmd, _build_ruff_docstring_cmd]
-    )
-    def test_no_ignores_adds_no_flag(self, build) -> None:
-        assert not [a for a in build(["src/"], [], [], []) if "ignore" in a]
+    @pytest.mark.parametrize("rule", ["S", "D"])
+    def test_no_ignores_adds_no_flag(self, rule) -> None:
+        cmd = _build_ruff_select_cmd(rule, ["src/"], [], [], [])
+        assert not [a for a in cmd if "ignore" in a]
 
 
 class TestRepoRuffIgnoresAreRead:
@@ -346,7 +343,7 @@ class TestRealRuffHonoursTheRepoIgnore:
             tmp_path, ["ruff", "check", "--select", "D", "--output-format=concise", "."]
         )
         assert "D105" in bare, "ruff stopped dropping the config ignore on --select"
-        cmd = _build_ruff_docstring_cmd(["."], [], [], _repo_ruff_ignores(tmp_path))
+        cmd = _build_ruff_select_cmd("D", ["."], [], [], _repo_ruff_ignores(tmp_path))
         assert "D105" not in self._findings(tmp_path, cmd)
 
 
@@ -392,53 +389,27 @@ class TestRuffFormatBelowTheFlagVersion:
         ]
 
 
-class TestRuffVersionProbe:
-    """The probe reads the RESOLVED ruff -- hyperi-ci pins none for consumers."""
+# The probe reads the RESOLVED ruff, because hyperi-ci pins none for consumers.
+# The flag landed in 0.15.21 and Markdown formatting in 0.16, so reading the two
+# as one release would drop a project's excludes on 0.15.21-0.15.22.
+@pytest.mark.parametrize(
+    ("stdout", "returncode", "takes"),
+    [
+        pytest.param("ruff 0.15.12\n", 0, False, id="rejected-it"),
+        pytest.param("ruff 0.15.20\n", 0, False, id="last-to-reject"),
+        pytest.param("ruff 0.15.21\n", 0, True, id="first-to-take"),
+        pytest.param("ruff 0.16.0\n", 0, True, id="walks-markdown"),
+        pytest.param("ruff 0.17.3\n", 0, True, id="newer"),
+        pytest.param("ruff banana\n", 0, True, id="unreadable-keeps-flag"),
+        pytest.param("", 0, True, id="no-output-keeps-flag"),
+        pytest.param("ruff 0.15.12\n", 1, True, id="failed-probe-keeps-flag"),
+    ],
+)
+def test_ruff_version_probe(
+    monkeypatch: pytest.MonkeyPatch, stdout: str, returncode: int, takes: bool
+) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess([], returncode, stdout, "")
 
-    @staticmethod
-    def _probe(
-        monkeypatch: pytest.MonkeyPatch, stdout: str, returncode: int = 0
-    ) -> bool:
-        def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
-            return subprocess.CompletedProcess([], returncode, stdout, "")
-
-        monkeypatch.setattr(quality.subprocess, "run", fake_run)
-        return quality._ruff_format_takes_extend_exclude()
-
-    def test_the_version_that_rejected_it(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        assert self._probe(monkeypatch, "ruff 0.15.12\n") is False
-
-    def test_the_last_version_that_rejected_it(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # The flag landed in 0.15.21, Markdown formatting in 0.16 -- reading
-        # the two as one release drops a project's excludes on 0.15.21-0.15.22.
-        assert self._probe(monkeypatch, "ruff 0.15.20\n") is False
-
-    def test_the_first_version_that_takes_it(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        assert self._probe(monkeypatch, "ruff 0.15.21\n") is True
-
-    def test_the_version_that_also_walks_markdown(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        assert self._probe(monkeypatch, "ruff 0.16.0\n") is True
-
-    def test_a_newer_ruff(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert self._probe(monkeypatch, "ruff 0.17.3\n") is True
-
-    def test_an_unreadable_version_keeps_the_flag(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        assert self._probe(monkeypatch, "ruff banana\n") is True
-
-    def test_no_output_keeps_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert self._probe(monkeypatch, "") is True
-
-    def test_a_failed_probe_keeps_the_flag(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        assert self._probe(monkeypatch, "ruff 0.15.12\n", returncode=1) is True
+    monkeypatch.setattr(quality.subprocess, "run", fake_run)
+    assert quality._ruff_format_takes_extend_exclude() is takes

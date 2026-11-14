@@ -17,7 +17,7 @@ import re
 import shutil
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -113,7 +113,7 @@ def run(
     args = [exe]
     if repo_config(root) is None:
         args += ["--config", str(DEFAULT_CONFIG)]
-    args += [f":{_relative(f, root)}" for f in files]
+    args += [f":{fdg.relpath(f, root)}" for f in files]
 
     info(f"  markdownlint: linting {len(files)} markdown file(s)...")
     # cli2 writes findings to stderr today; both streams are read in case that
@@ -130,19 +130,4 @@ def run(
 
     fdg.report("markdownlint", found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success(f"  markdownlint: {len(files)} file(s) clean")
-        return 0
-    if mode == "blocking":
-        error(f"  markdownlint: {len(found)} violation(s) must be fixed")
-        return 1
-    warn(f"  markdownlint: {len(found)} violation(s) (non-blocking)")
-    return 0
-
-
-def _relative(path: Path, root: Path) -> str:
-    """Return ``path`` as ``root``-relative POSIX, or as given when outside it."""
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+    return fdg.verdict("markdownlint", len(found), mode, f"{len(files)} file(s) clean")

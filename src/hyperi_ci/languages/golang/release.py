@@ -12,8 +12,9 @@ through the generic publish_binaries in dispatch.py.
 
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, success
+from hyperi_ci.common import error, info, success
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import run_destinations
 
 
 def _module_path(root: Path) -> str | None:
@@ -68,15 +69,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         info("No Go publish destinations configured")
         return 0
 
-    for dest in go_destinations:
-        if dest == "go-proxy":
-            with group("Publish: Go proxy"):
-                rc = _publish_go_proxy()
-                if rc != 0:
-                    return rc
-
-        else:
-            error(f"Unknown Go publish destination: {dest}")
-            return 1
-
-    return 0
+    return run_destinations(
+        go_destinations,
+        {"go-proxy": ("Publish: Go proxy", _publish_go_proxy)},
+        "Go",
+    )

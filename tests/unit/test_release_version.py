@@ -18,7 +18,6 @@ from hyperi_ci.common import (
     ReleaseVersionError,
     explicit_version,
     holds_latest,
-    latest_version_tag,
     newer_release_than,
     resolve_release_version,
 )
@@ -122,28 +121,6 @@ class TestTheVersionMustBeAVersion:
         monkeypatch.chdir(repo)
         with pytest.raises(ReleaseVersionError, match="symlink"):
             resolve_release_version()
-
-
-class TestLatestVersionTag:
-    """The last-resort fallback in `resolve_release_version` must never hand a
-    build a prerelease as the version to stamp."""
-
-    def test_release_tag_wins_over_a_higher_prerelease(
-        self, monkeypatch, tmp_path: Path
-    ) -> None:
-        _init_repo(tmp_path)
-        _git(tmp_path, "tag", "v1.1.1")
-        _git(tmp_path, "tag", "v1.1.2-beta.1")
-        monkeypatch.chdir(tmp_path)
-        assert latest_version_tag() == "1.1.1"
-
-    def test_prerelease_only_repo_resolves_to_none(
-        self, monkeypatch, tmp_path: Path
-    ) -> None:
-        _init_repo(tmp_path)
-        _git(tmp_path, "tag", "v1.1.2-beta.1")
-        monkeypatch.chdir(tmp_path)
-        assert latest_version_tag() is None
 
 
 class TestNewerReleaseThan:

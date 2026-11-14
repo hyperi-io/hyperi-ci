@@ -22,7 +22,6 @@ that did not move is a ruleset or permission refusal and fails at once.
 import base64
 import binascii
 import os
-import random
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,7 +30,7 @@ from urllib.parse import quote
 from packaging.version import InvalidVersion, Version
 
 from hyperi_ci import release_prepare
-from hyperi_ci.common import error, info, run_cmd, success, warn
+from hyperi_ci.common import backoff, error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
 from hyperi_ci.gh import gh_api
 from hyperi_ci.release_branches import (
@@ -64,7 +63,6 @@ _MESSAGE = "chore(release): v{version} [skip ci]"
 # A merge burst outlasts a few immediate retries, so each one waits longer,
 # jittered so two releases racing the same branch do not retry in step.
 _RETRIES = 6
-_BACKOFF_CAP_SECONDS = 30.0
 
 # gh's stderr from the most recent `gh api` call, "" when it had none, quoted
 # in refusal reports.
@@ -467,7 +465,7 @@ def commit_release_artefacts(
             return 0 if outcome == "ok" else 1
         if attempt == _RETRIES:
             break
-        delay = _backoff(attempt)
+        delay = backoff(attempt + 1)
         warn(
             f"release-commit: {branch} moved while committing "
             f"(attempt {attempt}/{_RETRIES}) -- rebuilding on the new tip "
@@ -477,12 +475,6 @@ def commit_release_artefacts(
 
     error(f"release-commit: {branch} kept moving -- giving up after {_RETRIES} tries")
     return 1
-
-
-def _backoff(attempt: int) -> float:
-    """Return the wait before retry ``attempt + 1``: doubling, capped, jittered."""
-    ceiling = min(2.0**attempt, _BACKOFF_CAP_SECONDS)
-    return random.uniform(ceiling / 2, ceiling)  # noqa: S311 - jitter, not a secret
 
 
 def _attempt(
