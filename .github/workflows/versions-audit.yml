@@ -122,11 +122,10 @@ jobs:
             --stable --fail-on-drift $now_flag
 
       - name: Mint a fleet read token
-        # The fixtures are private and GITHUB_TOKEN sees only this repo, so the
-        # check below would read every fixture as missing from the org.
-        # No `repositories`: `gh repo list` has to see a ci-test-* repo that
-        # config/fixtures.yaml does not list yet, and listing names needs
-        # metadata only.
+        # GITHUB_TOKEN lists only public repos, so a ci-test-* repo created
+        # private would go unseen. No `repositories`: `gh repo list` has to see
+        # one that config/fixtures.yaml does not list yet, and listing names
+        # needs metadata only.
         id: bot
         if: always()
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
