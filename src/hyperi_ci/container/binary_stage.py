@@ -15,7 +15,9 @@ alone.
 
 The rewrite also appends ``COPY LICENSE /licenses/LICENSE`` (the Red Hat
 certification path) when the context root has a licence file, so the image
-carries the text its ``org.opencontainers.image.licenses`` label names.
+carries the text its ``org.opencontainers.image.licenses`` label names, and
+``COPY dist/THIRD-PARTY-NOTICES /licenses/THIRD-PARTY-NOTICES`` when the Build
+stage wrote the notices and the Dockerfile does not already copy them.
 """
 
 import fnmatch
@@ -28,6 +30,8 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 
 LICENCE_DEST = "/licenses/LICENSE"
+NOTICES_NAME = "THIRD-PARTY-NOTICES"
+NOTICES_DEST = f"/licenses/{NOTICES_NAME}"
 
 # Checked in order; the first present wins.
 _LICENCE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt")
@@ -62,8 +66,10 @@ def stage_binary_dockerfile(
     Each ``COPY <name> <dst>`` with a ``dist/<name>-linux-<arch>`` artefact
     becomes ``COPY dist/<name>-linux-${TARGETARCH} <dst>``, with ``ARG
     TARGETARCH`` added to its stage. A licence file in ``context`` adds a
-    ``COPY <file> /licenses/LICENSE`` to the final stage. The temp file is
-    written in the cwd so buildx resolves it against the build context.
+    ``COPY <file> /licenses/LICENSE`` to the final stage, and
+    ``dist/THIRD-PARTY-NOTICES`` adds its own COPY unless the Dockerfile names
+    the file already. The temp file is written in the cwd so buildx resolves it
+    against the build context.
 
     Args:
         dockerfile_path: Path to the project's Dockerfile.
@@ -80,7 +86,8 @@ def stage_binary_dockerfile(
 
     rewrites = _find_binary_copy_rewrites(original, dist)
     licence = find_licence_file(context or Path("."))
-    if not rewrites and licence is None:
+    notices = _notices_source(original, dist, context or Path("."))
+    if not rewrites and licence is None and not notices:
         return dockerfile_path
 
     rewritten = original
@@ -96,6 +103,9 @@ def stage_binary_dockerfile(
     if licence is not None:
         rewritten = _append_copy(rewritten, licence, LICENCE_DEST)
         info(f"Container: copying {licence} into the image at {LICENCE_DEST}")
+    if notices:
+        rewritten = _append_copy(rewritten, notices, NOTICES_DEST)
+        info(f"Container: copying {NOTICES_NAME} into the image at {NOTICES_DEST}")
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -107,6 +117,43 @@ def stage_binary_dockerfile(
     ) as f:
         f.write(rewritten)
         return Path(f.name)
+
+
+def _notices_source(dockerfile: str, dist: Path, context: Path) -> str | None:
+    """Return the notices path to COPY, relative to ``context``, or None.
+
+    None when the Build stage wrote none, the final stage already copies it,
+    or the file sits outside the context or under a ``.dockerignore`` exclude.
+    """
+    notices = dist / NOTICES_NAME
+    if not notices.is_file() or _final_stage_copies(dockerfile, NOTICES_NAME):
+        return None
+    try:
+        relative = notices.resolve().relative_to(context.resolve()).as_posix()
+    except ValueError:
+        warn(f"Container: {notices} is outside the build context, so it is not copied")
+        return None
+    parent = relative.rpartition("/")[0]
+    if _dockerignore_excludes(context, relative) or (
+        parent and _dockerignore_excludes(context, parent)
+    ):
+        warn(f"Container: {relative} is excluded by .dockerignore, so it is not copied")
+        return None
+    return relative
+
+
+def _final_stage_copies(dockerfile: str, name: str) -> bool:
+    """True when a COPY or ADD in the final stage, outside a comment, names ``name``."""
+    final: list[str] = []
+    for line in dockerfile.splitlines():
+        if _FROM_LINE.match(line):
+            final = []
+        else:
+            final.append(line)
+    return any(
+        re.match(r"^\s*(COPY|ADD)\b", line, re.IGNORECASE) and name in line
+        for line in final
+    )
 
 
 def find_licence_file(context: Path) -> str | None:
