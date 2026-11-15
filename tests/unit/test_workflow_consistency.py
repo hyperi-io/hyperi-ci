@@ -131,9 +131,10 @@ def _jobs_saving_the_uv_cache(workflow_name: str) -> list[str]:
     """Jobs of one workflow whose setup-uv writes the cache at job end.
 
     A direct setup-uv call saves when `enable-cache` is on and `save-cache` is
-    not off (setup-uv's own default, `auto`, saves). A setup-runtime call saves
-    when both `enable-uv-cache` and `save-uv-cache` are on. A job's retry
-    steps count once.
+    not off (setup-uv's own default, `auto`, saves). The setup-uv composite
+    saves when `enable-cache` is on and `save-cache` (default true) is not off.
+    A setup-runtime call saves when both `enable-uv-cache` and `save-uv-cache`
+    are on.
     """
     saving = []
     for job_name, job in (_load_workflow(workflow_name).get("jobs") or {}).items():
@@ -143,6 +144,10 @@ def _jobs_saving_the_uv_cache(workflow_name: str) -> list[str]:
             if uses.startswith("astral-sh/setup-uv@"):
                 saves = _truthy(args.get("enable-cache", "auto")) and _truthy(
                     args.get("save-cache", "auto")
+                )
+            elif "actions/setup-uv@" in uses:
+                saves = _truthy(args.get("enable-cache", "false")) and _truthy(
+                    args.get("save-cache", "true")
                 )
             elif "actions/setup-runtime@" in uses:
                 saves = _truthy(args.get("enable-uv-cache", "false")) and _truthy(
@@ -186,7 +191,7 @@ class TestOneJobSavesTheUvCache:
         uv_steps = [
             s
             for s in action["runs"]["steps"]
-            if str(s.get("uses", "")).startswith("astral-sh/setup-uv@")
+            if "actions/setup-uv@" in str(s.get("uses", ""))
         ]
         assert uv_steps, "no setup-uv steps found -- the test is looking wrong"
         for step in uv_steps:
@@ -446,8 +451,8 @@ class TestFromHeadThreading:
         # changing the checkout order (issue #455).
         steps = _load_workflow("_release-tail.yml")["jobs"][job_name]["steps"]
         install = next(s for s in steps if s.get("name") == "Install uv")
-        assert "astral-sh/setup-uv" in str(install.get("uses", "")), (
-            f"_release-tail.{job_name}: 'Install uv' step must use astral-sh/setup-uv"
+        assert "actions/setup-uv@" in str(install.get("uses", "")), (
+            f"_release-tail.{job_name}: 'Install uv' step must use the setup-uv composite"
         )
         assert install.get("with", {}).get("ignore-empty-workdir") is True, (
             f"_release-tail.{job_name}: pre-checkout 'Install uv' must set "

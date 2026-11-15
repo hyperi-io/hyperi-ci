@@ -56,24 +56,8 @@ runs:
       run: |
         if command -v uv >/dev/null; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
     - name: Install uv
-      id: uv_try1
       if: ${{ runner.environment != 'self-hosted' || steps.uv_probe.outputs.found != 'true' }}
-      continue-on-error: true
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-      with:
-        enable-cache: ${{ inputs.enable-uv-cache }}
-        save-cache: ${{ inputs.save-uv-cache }}
-    - name: Install uv (retry 1)
-      id: uv_try2
-      if: ${{ steps.uv_try1.outcome == 'failure' }}
-      continue-on-error: true
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-      with:
-        enable-cache: ${{ inputs.enable-uv-cache }}
-        save-cache: ${{ inputs.save-uv-cache }}
-    - name: Install uv (retry 2)
-      if: ${{ steps.uv_try2.outcome == 'failure' }}
-      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      uses: hyperi-io/hyperi-ci/.github/actions/setup-uv@main
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}
         save-cache: ${{ inputs.save-uv-cache }}
