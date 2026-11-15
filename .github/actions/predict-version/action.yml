@@ -215,17 +215,8 @@ runs:
         fi
 
         if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-          # A dispatch publishes in exactly one of two modes, each of which
-          # resolves a real version: `tag=vX.Y.Z` re-publishes an existing
-          # release (version = the tag), and `from-head=true` releases HEAD
-          # (the CI computes + cuts the tag). A bare dispatch resolves neither,
-          # and publishing one named from the committed manifest seed rebuilt a
-          # four-month-old version and clobbered `latest` (issue #105).
-          #
-          # So a bare dispatch runs the pipeline and publishes nothing (issue
-          # #111): tag-and-release is gated on `will-publish` and the container
-          # stage reads HYPERCI_RELEASE_MODE from it, so false reaches no
-          # registry.
+          # Only `tag=vX.Y.Z` and `from-head=true` resolve a real version, so a
+          # bare dispatch validates and publishes nothing (issues #105, #111).
           if [[ -z "$DISPATCH_TAG" && "$FROM_HEAD" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
             # A notice: a validate-only dispatch is deliberate, and alert sweeps
@@ -257,13 +248,9 @@ runs:
           exit 0
         fi
 
-        # Stable releases happen only from main (branch-mode decision 1).
-        # A branch the release config declares `prerelease` also releases,
-        # but on its own version sequence (1.2.0-beta.1), so the stable
-        # numbers never move -- that is what makes a release rehearsable
-        # (issue #144). Stated HERE, at the gate SSOT, rather than relying
-        # on downstream job `if:` conditions to catch a trailer on a
-        # branch. A trailer on any other ref is ignored LOUDLY.
+        # Stable releases come only from main. A declared `prerelease` branch
+        # releases on its own sequence (1.2.0-beta.1, issue #144). A trailer
+        # on any other ref is ignored, loudly.
         if [[ "$GIT_REF" != "refs/heads/main" ]]; then
           prerelease=$(python3 "$GITHUB_ACTION_PATH/prerelease_branch.py")
           if [[ "$prerelease" != "true" ]]; then
@@ -287,17 +274,8 @@ runs:
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
           echo "No release trailer -- validate-only run (no tag, no publish)"
-          # Validate-only is correct, and it reads exactly like a release run:
-          # the same green rollup, and no line saying the repo is falling
-          # behind. That silence left scalo-rs 13 releasable commits and 26
-          # days behind crates.io, a security floor bump among them. The
-          # trailer-on-the-wrong-branch case three lines up has warned all
-          # along, and it is the less consequential of the two.
-          #
-          # Silent when nothing is waiting, and a notice while the oldest
-          # waiting commit is under release.unreleased_warn_days: a warning on
-          # every push is a warning nobody reads. The helper prints the whole
-          # annotation, or nothing, and says on stderr which answer it was.
+          # Say when releasable commits are waiting: a notice under
+          # release.unreleased_warn_days, a warning past it, nothing otherwise.
           # The value is a command and its arguments, so it is split on purpose.
           # shellcheck disable=SC2086
           $CONFIG_PYTHON "$GITHUB_ACTION_PATH/unreleased.py" || true
@@ -363,13 +341,8 @@ runs:
           exit 1
         fi
 
-        # Orphaned-tag guard (issue #37): semantic-release only considers
-        # tags REACHABLE from HEAD ('No git tag version found on branch
-        # main'). If v* tags exist in refs but NONE are reachable, a past
-        # history rewrite orphaned them -- semantic-release re-predicts a
-        # taken or regressed version. Fail at plan time (the _release-tail
-        # off-HEAD guard stays as defence-in-depth) instead of after a
-        # full build. Tags are local: the plan checkout is fetch-depth: 0.
+        # semantic-release sees only tags reachable from HEAD, so v* tags that
+        # a history rewrite orphaned make it re-predict a taken version (#37).
         tags_all=$(git tag --list 'v[0-9]*')
         tags_reachable=$(git tag --list 'v[0-9]*' --merged HEAD)
         if [[ -n "$tags_all" && -z "$tags_reachable" ]]; then
@@ -377,22 +350,9 @@ runs:
           exit 1
         fi
 
-        # First release on a genuinely tag-less repo: semantic-release
-        # defaults to 1.0.0 ('There is no previous release'). The starting
-        # version comes from the project's own manifest instead, shipped
-        # verbatim as the first release. The forced --bump paths bump from
-        # the same value; see push._compute_next_version.
-        #
-        # Not the committed VERSION file (issue #85) -- that is an artefact
-        # this tool writes, not an input.
-        #
-        # A prerelease keeps semantic-release's own answer: the seed names a
-        # stable starting version, and stamping it over `1.0.0-beta.1` would
-        # cut the first stable release off a prerelease branch.
-        #
-        # "No release" means no stable tag: semantic-release ignores prerelease
-        # tags on main, so a repo with only X.Y.Z-rc.N tags still starts from
-        # the seed. The release tail tests the same thing.
+        # With no stable tag, the first release is the manifest's own version,
+        # not semantic-release's 1.0.0 and never the VERSION file (#85). A
+        # prerelease keeps semantic-release's answer, because the seed is stable.
         tags_stable=$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags_all" || true)
         if [[ -z "$tags_stable" && "$version" != *-* ]]; then
           start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
