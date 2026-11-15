@@ -16,9 +16,7 @@ classification refuses, because the publish would otherwise go ahead on a
 marker nobody can read. Any other failure warns and lets the publish run.
 """
 
-# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
-# GitHub runs this composite's scripts before any install, on whatever python3
-# the runner has, which may predate our floor.
+# KEEP: runs on the runner's python3, which may predate the 3.14 floor (#184).
 from __future__ import annotations
 
 import os

@@ -18,9 +18,7 @@ Importing it as a package member instead would drag in the whole dependency
 tree via ``hyperi_ci/__init__``.
 """
 
-# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
-# GitHub runs this composite's scripts before any install, on whatever python3
-# the runner has, which may predate our floor.
+# KEEP: runs on the runner's python3, which may predate the 3.14 floor (#184).
 from __future__ import annotations
 
 import importlib.util
