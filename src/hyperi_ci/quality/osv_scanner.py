@@ -14,6 +14,7 @@ ships false-positive waves (ossf/malicious-packages#1276), and the Renovate
 because osv-scanner reads that file only when no ``--config`` is given.
 """
 
+import json
 import shutil
 import subprocess
 import tempfile
@@ -49,11 +50,6 @@ def available() -> bool:
     return shutil.which(_BINARY) is not None
 
 
-def _toml_escape(value: str) -> str:
-    """Escape a string for a TOML basic (double-quoted) string."""
-    return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
 def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
     """Render an ``osv-scanner.toml`` body from ignore entries.
 
@@ -66,10 +62,11 @@ def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
     """
     blocks: list[str] = []
     for e in entries:
-        lines = ["[[IgnoredVulns]]", f'id = "{_toml_escape(e.id)}"']
+        # A JSON string is a valid TOML basic string, control characters included.
+        lines = ["[[IgnoredVulns]]", f"id = {json.dumps(e.id, ensure_ascii=False)}"]
         if e.expires is not None:
             lines.append(f"ignoreUntil = {e.expires.isoformat()}T00:00:00Z")
-        lines.append(f'reason = "{_toml_escape(e.reason)}"')
+        lines.append(f"reason = {json.dumps(e.reason, ensure_ascii=False)}")
         blocks.append("\n".join(lines))
     if not blocks:
         return ""

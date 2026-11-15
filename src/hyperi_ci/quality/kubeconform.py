@@ -18,11 +18,10 @@ and multi-source ArgoCD apps render with in-repo defaults only.
 """
 
 import contextlib
-import json
 import time
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, truthy, warn
+from hyperi_ci.common import info, truthy
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
@@ -58,11 +57,8 @@ def _parse(stdout: str) -> list[fdg.Finding]:
     Status spelling varies by version ("INVALID", "statusInvalid"), so it is
     matched case-insensitively by substring.
     """
-    try:
-        doc = json.loads(stdout or "{}")
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(doc, dict):
+    doc = fdg.load_json(stdout, dict)
+    if doc is None:
         return []
     out: list[fdg.Finding] = []
     for r in doc.get("resources", []) or []:
@@ -153,11 +149,6 @@ def run(
 
     fdg.report("kubeconform", found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success("  kubeconform: all manifests valid (unknown CRDs skipped)")
-        return 0
-    if mode == "blocking":
-        error(f"  kubeconform: {len(found)} invalid manifest(s) must be fixed")
-        return 1
-    warn(f"  kubeconform: {len(found)} invalid manifest(s) (non-blocking)")
-    return 0
+    return fdg.verdict(
+        "kubeconform", len(found), mode, "all manifests valid (unknown CRDs skipped)"
+    )

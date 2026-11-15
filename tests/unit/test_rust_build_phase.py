@@ -255,8 +255,7 @@ class TestBuildStage:
         monkeypatch.setattr(build, "_get_native_target", lambda: TARGET)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: list(binaries))
         monkeypatch.setattr(build, "_detect_cargo_features", lambda: set())
-        monkeypatch.setattr(build, "_resolve_build_channel", lambda _cfg: "release")
-        monkeypatch.setattr(build, "_detect_version", lambda: "v1.0.0")
+        monkeypatch.setattr(build, "_resolve_build_channel", lambda: "release")
         packaged: list[list[str]] = []
         monkeypatch.setattr(
             build,

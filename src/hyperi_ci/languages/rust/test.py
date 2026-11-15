@@ -601,11 +601,10 @@ def _run_feature_sets(
                 what=what,
                 workspace=workspace,
             )
-            if rc >= 0:
-                if rc == 0:
-                    success(f"Rust tests passed{label} (with coverage)")
-                else:
-                    return rc
+            if rc > 0:
+                return rc
+            if rc == 0:
+                success(f"Rust tests passed{label} (with coverage)")
                 continue
 
         if rust_tier == "all":
@@ -623,22 +622,20 @@ def _run_feature_sets(
             success(f"Rust tests passed{label}")
             continue
 
-        for kind in ("unit", "integration", "e2e"):
-            if rust_tier != kind:
-                continue
+        if rust_tier in ("unit", "integration", "e2e"):
             cmd = _build_test_cmd(
                 feature_set,
-                rust_tier=kind,
+                rust_tier=rust_tier,
                 runner=runner,
                 test_tier=test_tier,
                 selection=selection,
                 workspace=workspace,
             )
-            info(f"  Running {kind} tests{label}...")
-            rc = _run_tests(cmd, test_tier, f"{what} {kind}".strip())
+            info(f"  Running {rust_tier} tests{label}...")
+            rc = _run_tests(cmd, test_tier, f"{what} {rust_tier}".strip())
             if rc != 0:
-                error(f"  {kind} tests failed{label}")
+                error(f"  {rust_tier} tests failed{label}")
                 return rc
-            success(f"  {kind} tests passed{label}")
+            success(f"  {rust_tier} tests passed{label}")
 
     return 0

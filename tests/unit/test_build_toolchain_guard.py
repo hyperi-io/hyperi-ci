@@ -26,7 +26,7 @@ class TestMissingToolchain:
 
     def test_go_reports_rather_than_raising(self) -> None:
         with patch("hyperi_ci.languages.golang.build.shutil.which", return_value=None):
-            with patch("hyperi_ci.languages.golang.build.subprocess.run") as spawned:
+            with patch("hyperi_ci.languages.golang.build.run_cmd") as spawned:
                 assert go_build.run(CIConfig(_raw={})) == 1
         spawned.assert_not_called()
 
@@ -45,9 +45,7 @@ class TestMissingToolchain:
                 "hyperi_ci.languages.golang.build._detect_binary_name",
                 return_value="app",
             ):
-                with patch(
-                    "hyperi_ci.languages.golang.build.subprocess.run"
-                ) as spawned:
+                with patch("hyperi_ci.languages.golang.build.run_cmd") as spawned:
                     spawned.return_value.returncode = 0
                     go_build.run(CIConfig(_raw={}))
         assert spawned.called

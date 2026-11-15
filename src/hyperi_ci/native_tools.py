@@ -41,6 +41,7 @@ from pathlib import Path, PurePosixPath
 from typing import IO
 from urllib.parse import quote, unquote
 
+from hyperi_ci.ci_env import machine_arch
 from hyperi_ci.common import download_to_file, error, info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.tools import missing_tool_notice
@@ -178,9 +179,6 @@ _TOOLS: dict[str, NativeTool] = {
 
 _NUMERIC = re.compile(r"\d+(?:\.\d+)*")
 
-# platform.machine() -> the arch every table entry is keyed on.
-_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
-
 
 class NativeToolError(ValueError):
     """``test.native_tools`` is malformed or names a tool hyperi-ci cannot install."""
@@ -243,9 +241,7 @@ def _asset_url(name: str, arch: str) -> tuple[str, str]:
 
 def _linux_arch() -> str | None:
     """The asset arch for this host, or None off Linux or on an unknown CPU."""
-    if sys.platform != "linux":
-        return None
-    return _ARCH.get(platform.machine().lower())
+    return machine_arch() if sys.platform == "linux" else None
 
 
 def _pinned_digest(name: str, arch: str) -> str:
@@ -254,7 +250,7 @@ def _pinned_digest(name: str, arch: str) -> str:
     return tool_sha256(name, key).strip().lower()
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_file(path: Path) -> str:
     """Return the sha256 of ``path``, read in chunks."""
     with path.open("rb") as fh:
         return hashlib.file_digest(fh, "sha256").hexdigest()
@@ -316,7 +312,7 @@ def _fetch_pinned(name: str, arch: str, dest: Path) -> bool:
     if not fetched:
         return False
     try:
-        got = _sha256_file(dest)
+        got = sha256_file(dest)
     except OSError as exc:
         error(f"  {name}: cannot read the download back: {exc}")
         return False
@@ -476,7 +472,7 @@ def _cached_copy_ok(name: str, binary: Path, expected: str) -> bool:
     if _TOOLS[name].archive:
         return True
     try:
-        got = _sha256_file(binary)
+        got = sha256_file(binary)
     except OSError:
         return False
     if got == expected:

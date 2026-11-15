@@ -28,16 +28,10 @@ def table(headers: list[str], rows: list[list[str]], indent: str = "") -> list[s
     for row in rows:
         for index, cell in enumerate(row):
             widths[index] = max(widths[index], len(cell))
-    out = [
-        indent
-        + "  ".join(head.ljust(widths[i]) for i, head in enumerate(headers)).rstrip()
+    return [
+        indent + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip()
+        for row in (headers, *rows)
     ]
-    for row in rows:
-        out.append(
-            indent
-            + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip()
-        )
-    return out
 
 
 def _rule(title: str) -> list[str]:
@@ -66,11 +60,6 @@ def _group_rows(entries: list[dict]) -> list[list[str]]:
 
 
 _GROUP_HEADERS = ["DEP", "DECLARED", "FLOOR", "LOCKED", "DRIFT", "SRC"]
-
-
-# ---------------------------------------------------------------------------
-# ACTION blocks
-# ---------------------------------------------------------------------------
 
 
 def drift_block(drift_result: dict, full: bool) -> list[str]:
@@ -182,11 +171,6 @@ def unclassified_block(scan_result: dict) -> list[str]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# INVENTORY / PINS / GROUPS
-# ---------------------------------------------------------------------------
-
-
 def inventory(scan_result: dict) -> list[str]:
     """Present surfaces in a table; absent ones collapsed to one line."""
     present = [r for r in scan_result["surfaces"] if r["state"] != ABSENT]
@@ -259,11 +243,6 @@ def groups(drift_result: dict, full: bool) -> list[str]:
                 out.append(f"    ... and {hidden} more (capped; --full shows all)")
         out.append("")
     return out or ["No pyproject.toml / Cargo.toml / package.json in this repo."]
-
-
-# ---------------------------------------------------------------------------
-# Whole-report renderers
-# ---------------------------------------------------------------------------
 
 
 def report(payload: dict, full: bool = False) -> str:

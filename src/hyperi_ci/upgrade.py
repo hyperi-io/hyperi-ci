@@ -27,7 +27,7 @@ from packaging.version import InvalidVersion, Version
 from scalo.logger import logger
 
 from hyperi_ci import __version__, channel
-from hyperi_ci.common import URL_ATTEMPTS, is_ci, url_read
+from hyperi_ci.common import URL_ATTEMPTS, is_ci, run_cmd, url_read
 
 PACKAGE = "hyperi-ci"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
@@ -333,15 +333,7 @@ def _installed_version(uv_path: str | None) -> str | None:
         else [sys.executable, "-m", "pip", "show", PACKAGE]
     )
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=SUBPROCESS_TIMEOUT,
-        )
+        result = run_cmd(cmd, check=False, capture=True, timeout=SUBPROCESS_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
@@ -499,7 +491,7 @@ def _run_upgrade_cmd(cmd: list[str]) -> int:
 
     """
     try:
-        result = subprocess.run(cmd, check=False)
+        result = run_cmd(cmd, check=False)
         return result.returncode
     except PermissionError:
         logger.warning(

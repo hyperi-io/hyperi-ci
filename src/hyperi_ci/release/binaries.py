@@ -38,8 +38,6 @@ from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.stamp import CHANGELOG_ENTRY_HEADING, CHANGELOG_FILE, repo_paths
 from hyperi_ci.tools import missing_tool_notice
 
-VALID_CHANNELS = ("alpha", "beta", "release")
-
 
 def _resolve_gh_release_flags(channel: str) -> list[str]:
     """Return extra flags for gh release create based on channel."""

@@ -816,9 +816,6 @@ _LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
             args=["cargo-pgo", "--locked"],
         ),
     ],
-    "python": [],
-    "typescript": [],
-    "golang": [],
 }
 
 

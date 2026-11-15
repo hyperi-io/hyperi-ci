@@ -53,7 +53,7 @@ class TestEnvOverridesReachTheBuild:
             calls.append(cmd)
             return subprocess.CompletedProcess(cmd, 0, "abc1234\n", "")
 
-        monkeypatch.setattr(build.subprocess, "run", fake_run)
+        monkeypatch.setattr(build, "run_cmd", fake_run)
         config = CIConfig(_raw={"build": {"golang": {"targets": ["linux/amd64"]}}})
 
         assert build.run(config) == 0

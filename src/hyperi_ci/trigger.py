@@ -79,9 +79,7 @@ def _wait_for_run(
         created = run.get("createdAt")
         if created:
             try:
-                created_ts = datetime.fromisoformat(
-                    created.replace("Z", "+00:00")
-                ).timestamp()
+                created_ts = datetime.fromisoformat(created).timestamp()
             except ValueError:
                 created_ts = 0.0
             if created_ts < before_time:

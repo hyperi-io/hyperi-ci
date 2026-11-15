@@ -25,7 +25,11 @@ from pathlib import Path
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
-from hyperi_ci.languages.rust.runner_fit import planned_gib_per_job, record_phase
+from hyperi_ci.languages.rust.runner_fit import (
+    JOBS_ENV,
+    planned_gib_per_job,
+    record_phase,
+)
 from hyperi_ci.memory import (
     CGROUP_ROOT,
     GIB,
@@ -38,8 +42,6 @@ from hyperi_ci.memory import (
     memory_limit,
 )
 from hyperi_ci.swap import ensure_free_runner_swap
-
-JOBS_ENV = "CARGO_BUILD_JOBS"
 
 _CONFIG_NAMES = ("config.toml", "config")
 

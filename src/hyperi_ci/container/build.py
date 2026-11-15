@@ -505,11 +505,7 @@ def _index_platforms(manifests: object) -> frozenset[str]:
         if (
             isinstance(os_name, str)
             and isinstance(arch, str)
-            and "unknown"
-            not in (
-                os_name,
-                arch,
-            )
+            and "unknown" not in (os_name, arch)
         ):
             found.add(f"{os_name}/{arch}")
     return frozenset(found)
@@ -517,7 +513,7 @@ def _index_platforms(manifests: object) -> frozenset[str]:
 
 def resolve_tags(
     *,
-    registry_bases: list[str],
+    registry_base: str,
     image_name: str,
     version: str,
     sha: str,
@@ -526,9 +522,9 @@ def resolve_tags(
     branch_slug: str = "",
     move_latest: bool = True,
 ) -> list[str]:
-    """Generate image tags spanning all configured registries.
+    """Generate the image tags for one registry base.
 
-    Tags per registry base, by push mode (:mod:`hyperi_ci.release_mode`):
+    Tags by push mode (:mod:`hyperi_ci.release_mode`):
 
     * ``validate`` -> none.
     * ``dev`` -> ``:branch-<slug>`` and ``:branch-<slug>-sha-<short>``. Never
@@ -541,9 +537,7 @@ def resolve_tags(
     * ``release`` with ``move_latest`` False -> no ``:latest``.
 
     Args:
-        registry_bases: Registry base URLs from
-            :func:`hyperi_ci.container.registry.resolve_registry_bases`
-            (always ``["ghcr.io/<org>"]``).
+        registry_base: Registry base URL, ``ghcr.io/<org>``.
         image_name: Image name (typically the repo name, e.g. ``dfe-loader``).
         version: Semantic version with no leading ``v``
             (e.g. ``"1.13.5"``).
@@ -576,12 +570,7 @@ def resolve_tags(
             version=version, sha=sha, channel=channel, move_latest=move_latest
         )
 
-    tags: list[str] = []
-    for base in registry_bases:
-        prefix = f"{base}/{image_name}"
-        for suffix in suffixes:
-            tags.append(f"{prefix}:{suffix}")
-    return tags
+    return [f"{registry_base}/{image_name}:{s}" for s in suffixes]
 
 
 def _tag_suffixes(

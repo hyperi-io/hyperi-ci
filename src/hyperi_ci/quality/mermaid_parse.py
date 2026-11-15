@@ -127,11 +127,11 @@ def screen(block: Block) -> fdg.Finding | None:
     return None
 
 
-def _module_dirs(root: Path) -> list[Path]:
-    """Return the ``node_modules`` directories the runner may import from.
+def _node_env(root: Path) -> dict[str, str]:
+    """Return the environment naming the runner's ``node_modules`` directories.
 
-    The repo's own comes first. hyperi-ci's pinned install is added only when
-    the repo lacks one of the packages.
+    The repo's own comes first, then hyperi-ci's pinned install when the repo
+    lacks a package. NODE_PATH does not work: node's ESM loader ignores it.
     """
     own = root / "node_modules"
     dirs = [own]
@@ -139,17 +139,7 @@ def _module_dirs(root: Path) -> list[Path]:
         installed = node_tools.install()
         if installed is not None:
             dirs.append(installed)
-    return dirs
-
-
-def _node_env(root: Path) -> dict[str, str]:
-    """Return the environment naming the runner's ``node_modules`` directories.
-
-    NODE_PATH does not work: node's ESM loader ignores it, and the runner's own
-    search starts in site-packages.
-    """
-    dirs = os.pathsep.join(str(d) for d in _module_dirs(root))
-    return {"HYPERCI_NODE_MODULES": dirs}
+    return {"HYPERCI_NODE_MODULES": os.pathsep.join(str(d) for d in dirs)}
 
 
 def _run_parser(blocks: list[Block], root: Path) -> tuple[dict[int, str], str | None]:

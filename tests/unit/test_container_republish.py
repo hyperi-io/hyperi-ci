@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from hyperi_ci.common import run_cmd as real_run_cmd
 from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.container import build, stage
 from hyperi_ci.container.build import PublishedImage, published_image
@@ -323,6 +324,8 @@ def _dispatch(
     def registry_write(
         cmd: list[str], **_kwargs: Any
     ) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "git":
+            return real_run_cmd(cmd, **_kwargs)
         run.writes.append(cmd)
         return subprocess.CompletedProcess(cmd, repoint_rc, "", "denied")
 
@@ -345,7 +348,7 @@ def _dispatch(
         dockerfile_path=Path("Dockerfile"),
         config=CIConfig(_raw=raw or {}),
         org=OrgConfig(),
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         push_mode=push_mode,
         binary_backed=False,
     )

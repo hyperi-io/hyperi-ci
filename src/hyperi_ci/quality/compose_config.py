@@ -21,7 +21,7 @@ import re
 import shutil
 from pathlib import Path
 
-from hyperi_ci.common import error, info, run_cmd, success, warn
+from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -237,13 +237,6 @@ def run(
 
     fdg.report("compose-config", found, mode, sarif_path=sarif_path)
 
-    if not found:
-        success(f"  compose-config: all {len(stacks)} compose file(s) resolve")
-        return 0
-    if mode == "blocking":
-        error(f"  compose-config: {len(found)} compose file(s) do not resolve")
-        return 1
-    warn(
-        f"  compose-config: {len(found)} compose file(s) do not resolve (non-blocking)"
+    return fdg.verdict(
+        "compose-config", len(found), mode, f"all {len(stacks)} compose file(s) resolve"
     )
-    return 0

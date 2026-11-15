@@ -9,13 +9,16 @@
 """A small version parser for the floor-vs-lock warning, not a resolver.
 
 It only asks whether the lock is a major (or a 0.x minor) ahead of the floor,
-so pre-release, epoch, local and build parts are ignored and ``packaging`` is
-not needed. Do not share it with ``scripts/update-versions.py``'s
+so pre-release, epoch, local and build parts are ignored. It reads the leading
+digits of free text and never raises, where ``packaging.version.Version`` raises
+on ``3.1.0-node20``. Do not share it with ``scripts/update-versions.py``'s
 ``_parse_semver``: that must reject ``v3.1.0-node20``, and this must accept
 ``1.2.3rc1``.
 """
 
 import re
+
+from packaging.utils import canonicalize_name
 
 _VERSION_HEAD = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 _FLOOR_GE = re.compile(r">=\s*v?(\d+(?:\.\d+)*)")
@@ -88,7 +91,7 @@ def split_requirement(text: str) -> tuple[str, str]:
 
 def norm_python(name: str) -> str:
     """PEP 503 normalisation, so ``Pytest_AsyncIO`` finds ``pytest-asyncio``."""
-    return re.sub(r"[-_.]+", "-", str(name)).lower()
+    return canonicalize_name(str(name))
 
 
 def norm_cargo(name: str) -> str:

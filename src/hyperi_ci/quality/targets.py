@@ -46,10 +46,10 @@ def _is_dockerfile(name: str) -> bool:
     Matches ``Dockerfile``, ``Dockerfile.<x>``, ``<x>.Dockerfile`` and the
     ``Containerfile`` forms.
     """
-    for base in ("Dockerfile", "Containerfile"):
-        if name == base or name.startswith(f"{base}.") or name.endswith(f".{base}"):
-            return True
-    return False
+    return any(
+        name == base or name.startswith(f"{base}.") or name.endswith(f".{base}")
+        for base in ("Dockerfile", "Containerfile")
+    )
 
 
 def discover_dockerfiles(
@@ -90,11 +90,6 @@ def is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
     return relative in prune
 
 
-def _file_excluded(path: Path, root: Path, prune: set[str]) -> bool:
-    """Return whether the file at ``path`` equals a ``prune`` entry by relative path."""
-    return path.relative_to(root).as_posix() in prune
-
-
 def walk(
     root: Path | str, prune: set[str], *, skip_hidden: bool = False
 ) -> Iterator[tuple[Path, list[str]]]:
@@ -114,7 +109,11 @@ def walk(
         ]
         yield (
             here,
-            [fn for fn in filenames if not _file_excluded(here / fn, root, prune)],
+            [
+                fn
+                for fn in filenames
+                if (here / fn).relative_to(root).as_posix() not in prune
+            ],
         )
 
 

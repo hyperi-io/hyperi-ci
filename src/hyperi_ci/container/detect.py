@@ -73,21 +73,14 @@ def _is_library(*, language: str, project_dir: Path) -> bool:
     if language == "rust":
         return rust_is_library(project_dir)
     if language == "python":
-        return _python_is_library(project_dir)
+        # A console script is not a service signal (issue #51), so a Python
+        # service ships its own Dockerfile.
+        return (project_dir / "pyproject.toml").exists()
     if language == "typescript":
         return _typescript_is_library(project_dir)
     if language == "golang":
         return _golang_is_library(project_dir)
     return False
-
-
-def _python_is_library(project_dir: Path) -> bool:
-    """Return True when ``pyproject.toml`` exists.
-
-    A console script is not a service signal (issue #51), and pyproject has
-    no reliable one, so a Python service ships its own Dockerfile.
-    """
-    return (project_dir / "pyproject.toml").exists()
 
 
 def _typescript_is_library(project_dir: Path) -> bool:

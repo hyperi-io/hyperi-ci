@@ -430,7 +430,7 @@ def test_dispatch_build_hands_buildx_the_licence_copy(
     df = _write_dockerfile(cwd_tmp, "FROM scratch\n")
     monkeypatch.setattr(stage, "build_and_push", record)
     monkeypatch.setattr(stage, "_read_version", lambda: "1.2.3")
-    monkeypatch.setattr(stage, "_read_sha", lambda: "deadbeef")
+    monkeypatch.setattr(stage, "_checkout_sha", lambda: "deadbeef")
     with patch("hyperi_ci.description_source.github_description", return_value=None):
         rc = stage._dispatch_build(
             dockerfile_path=df,
@@ -438,7 +438,7 @@ def test_dispatch_build_hands_buildx_the_licence_copy(
                 _raw={"release": {"container": {"context": str(_REPO_ROOT)}}}
             ),
             org=OrgConfig(),
-            registry_bases=["ghcr.io/hyperi-io"],
+            registry_base="ghcr.io/hyperi-io",
             push_mode="release",
             binary_backed=False,
         )

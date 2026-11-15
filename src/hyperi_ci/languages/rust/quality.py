@@ -139,13 +139,9 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
     if not (cwd / "Cargo.toml").exists():
         return False
 
-    metadata = cargo_metadata(cwd)
-    if metadata is not None:
-        for package in metadata.get("packages", []):
-            for target in package.get("targets", []):
-                if "lib" in target.get("kind", []) or "rlib" in target.get("kind", []):
-                    return True
-        return False
+    lib_map = _package_lib_map(cwd)
+    if lib_map:
+        return any(lib_map.values())
 
     # Without cargo metadata, workspace members are not explored.
     return (cwd / "src" / "lib.rs").exists()
@@ -171,7 +167,7 @@ def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
         if not name:
             continue
         lib_map[name] = any(
-            "lib" in target.get("kind", []) or "rlib" in target.get("kind", [])
+            {"lib", "rlib"} & set(target.get("kind", []))
             for target in package.get("targets", [])
         )
     return lib_map
@@ -207,8 +203,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
 
     mode = resolve_tool_mode("fmt", config, language="rust")
-    if not run_gate_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
-        had_failure = True
+    had_failure |= not run_gate_tool("cargo fmt", ["cargo", "fmt", "--check"], mode)
 
     # Two clippy passes: production code strict, tests and benches relaxed.
     mode = resolve_tool_mode("clippy", config, language="rust")
@@ -226,6 +221,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "matrix and rustdoc take --workspace, so every member is checked"
         )
 
+    deny = ["-D", "warnings", "-D", "clippy::dbg_macro"]
     for feature_set in feature_sets:
         feature_args = []
         if feature_set == "all":
@@ -235,28 +231,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
         target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
         prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
-        prod_cmd.extend(
-            ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
-        )
-        if not run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode):
-            had_failure = True
+        prod_cmd.extend(["--", *deny, *clippy_user_allows])
+        had_failure |= not run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode)
 
         test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
         test_cmd.extend(feature_args)
         allow_flags = [f"-A{rule}" for rule in test_ignore]
-        test_cmd.extend(
-            [
-                "--",
-                "-D",
-                "warnings",
-                "-D",
-                "clippy::dbg_macro",
-                *allow_flags,
-                *clippy_user_allows,
-            ]
+        test_cmd.extend(["--", *deny, *allow_flags, *clippy_user_allows])
+        had_failure |= not run_gate_tool(
+            f"clippy tests ({feature_set})", test_cmd, mode
         )
-        if not run_gate_tool(f"clippy tests ({feature_set})", test_cmd, mode):
-            had_failure = True
 
     deny_advisory_ids = _deny_toml_advisory_ignores()
     if deny_advisory_ids:
@@ -272,14 +256,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     )
     for entry in audit_ignores:
         audit_cmd.extend(["--ignore", entry.id])
-    if not run_gate_tool(
+    had_failure |= not run_gate_tool(
         "cargo audit",
         audit_cmd,
         mode,
         pinned="cargo-audit",
         retry_unreachable=_advisory_db_unreachable,
-    ):
-        had_failure = True
+    )
 
     # osv-scanner catches MAL-* advisories: the RustSec DB cargo audit reads
     # does not ingest the OSSF malicious-packages feed.
@@ -287,8 +270,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     osv_ignores = _merge_deny_advisory_ignores(
         for_tool(ignores, osv_scanner.SLUG), osv_scanner.SLUG, deny_advisory_ids
     )
-    if not osv_scanner.run(Path("Cargo.lock"), osv_ignores, mode):
-        had_failure = True
+    had_failure |= not osv_scanner.run(Path("Cargo.lock"), osv_ignores, mode)
 
     mode = resolve_tool_mode("deny", config, language="rust")
     if not Path("deny.toml").exists():
@@ -307,16 +289,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    if not licenses.run_gate(config):
-        had_failure = True
+    had_failure |= not licenses.run_gate(config)
 
-    if not _run_feature_matrix(
+    had_failure |= not _run_feature_matrix(
         config, workspace=workspace, clippy_allows=clippy_user_allows
-    ):
-        had_failure = True
+    )
 
-    if not _run_feature_matrix_tests(config, workspace=workspace):
-        had_failure = True
+    had_failure |= not _run_feature_matrix_tests(config, workspace=workspace)
 
     _run_rustdoc_hint(config, workspace=workspace)
 
@@ -597,10 +576,9 @@ def _run_feature_matrix(
                 *lint_args,
             ]
             label = " on ".join(["--no-default-features", *scope_args[1:]])
-            if not _run_matrix_pass(
+            had_failure |= not _run_matrix_pass(
                 "feature_matrix (no-default-features)", cmd, label, warnings_mode
-            ):
-                had_failure = True
+            )
 
     # No --no-dev-deps: it rewrites every Cargo.toml while it runs, and
     # resolver 2+ already keeps dev-dependency features out of the build.
@@ -615,13 +593,12 @@ def _run_feature_matrix(
             *tuning,
             *lint_args,
         ]
-        if not _run_matrix_pass(
+        had_failure |= not _run_matrix_pass(
             "feature_matrix (each-feature)",
             cmd,
             "a feature set cargo-hack did not name",
             warnings_mode,
-        ):
-            had_failure = True
+        )
 
     return not had_failure
 

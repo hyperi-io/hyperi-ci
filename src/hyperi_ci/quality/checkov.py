@@ -7,8 +7,7 @@
 """Checkov IaC misconfiguration scanning, advisory by default.
 
 Checkov reads Kubernetes manifests, Helm charts, Kustomize and OpenTofu, and
-templates Helm and Kustomize itself. Kubescape was passed over because it
-cannot scan OpenTofu. It runs through uvx at the versions.yaml pin.
+templates Helm and Kustomize itself. It runs through uvx at the versions.yaml pin.
 
 The default mode is ``warn`` because its 1000+ policies would fail an existing
 estate on day one; a repo escalates to ``blocking`` once tuned. Frameworks and
@@ -158,11 +157,4 @@ def run(
     found = [_in_tree(f, root) for f in fdg.parse_sarif(text, "checkov")]
     fdg.report("checkov", found, mode, sarif_path=sarif_path)
 
-    if not found:
-        info("  checkov: no findings")
-        return 0
-    if mode == "blocking":
-        warn(f"  checkov: {len(found)} finding(s) must be fixed")
-        return 1
-    warn(f"  checkov: {len(found)} finding(s) (non-blocking)")
-    return 0
+    return fdg.verdict("checkov", len(found), mode, "no findings")

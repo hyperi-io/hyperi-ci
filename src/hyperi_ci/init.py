@@ -18,6 +18,7 @@ config, and a per-repo one with @semantic-release/git caused the issue #37
 tag-rewrite damage.
 """
 
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,6 @@ from hyperi_ci.versions import runtime_version
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
-_DEFAULT_LICENSE = licenses.DEFAULT_LICENSE
 
 _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "python": "python-ci.yml",
@@ -46,8 +46,6 @@ _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "typescript": "ts-ci.yml",
     "golang": "go-ci.yml",
 }
-
-_LICENSE_MARKERS = licenses.LICENSE_MARKERS
 
 # The caller passes exactly the secrets each reusable workflow declares in
 # `workflow_call`. test_init pins these to the workflow files.
@@ -83,6 +81,25 @@ def caller_secrets(workflow_file: str) -> tuple[str, ...]:
     return (*_LANGUAGE_SECRETS.get(workflow_file, ()), *_SHARED_SECRETS)
 
 
+_SCAN_GLOBS = ("*.py", "*.rs", "*.go", "*.ts", "*.sh", "Makefile")
+
+
+def _read_head(path: Path, size: int) -> str:
+    """First ``size`` characters of a file, or "" where it cannot be read as text."""
+    try:
+        return path.read_text(encoding="utf-8")[:size]
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _licence_in(text: str) -> str | None:
+    """The licence whose marker text appears in ``text``, if any."""
+    for license_id, markers in licenses.LICENSE_MARKERS.items():
+        if any(m in text for m in markers):
+            return license_id
+    return None
+
+
 def detect_license(project_dir: Path) -> str:
     """Resolve the project licence: explicit declaration, else scan, else default.
 
@@ -106,39 +123,17 @@ def detect_license(project_dir: Path) -> str:
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             pass
 
-    license_file = project_dir / "LICENSE"
-    if license_file.exists():
-        try:
-            content = license_file.read_text(encoding="utf-8")[:2000]
-            for license_id, markers in _LICENSE_MARKERS.items():
-                if any(m in content for m in markers):
-                    return license_id
-        except (OSError, UnicodeDecodeError):
-            pass
+    found = _licence_in(_read_head(project_dir / "LICENSE", 2000))
+    if found:
+        return found
 
-    scan_globs = ["*.py", "*.rs", "*.go", "*.ts", "*.sh", "Makefile"]
-    for glob_pattern in scan_globs:
-        for f in project_dir.glob(glob_pattern):
-            try:
-                header = f.read_text(encoding="utf-8")[:500]
-            except (OSError, UnicodeDecodeError):
-                continue
-            for license_id, markers in _LICENSE_MARKERS.items():
-                if any(m in header for m in markers):
-                    return license_id
+    scanned = chain.from_iterable(project_dir.glob(g) for g in _SCAN_GLOBS)
+    for f in chain(scanned, (project_dir / "src").rglob("*.py")):
+        found = _licence_in(_read_head(f, 500))
+        if found:
+            return found
 
-    src_dir = project_dir / "src"
-    if src_dir.is_dir():
-        for f in src_dir.rglob("*.py"):
-            try:
-                header = f.read_text(encoding="utf-8")[:500]
-            except (OSError, UnicodeDecodeError):
-                continue
-            for license_id, markers in _LICENSE_MARKERS.items():
-                if any(m in header for m in markers):
-                    return license_id
-
-    return _DEFAULT_LICENSE
+    return licenses.DEFAULT_LICENSE
 
 
 def _detect_submodules(project_dir: Path) -> str:
@@ -170,7 +165,7 @@ def _license_header_text(license_id: str) -> str:
 def _render_hyperi_ci_yaml(
     language: str,
     project_name: str,
-    license_id: str = _DEFAULT_LICENSE,
+    license_id: str = licenses.DEFAULT_LICENSE,
     submodules: str = "",
     channel: str = "alpha",
 ) -> str:
@@ -243,7 +238,9 @@ def _render_hyperi_ci_yaml(
     )
 
 
-def _render_makefile(project_name: str, license_id: str = _DEFAULT_LICENSE) -> str:
+def _render_makefile(
+    project_name: str, license_id: str = licenses.DEFAULT_LICENSE
+) -> str:
     """Render Makefile content with CI targets."""
     return (
         f"# Project:   {project_name}\n"
@@ -272,7 +269,7 @@ def _render_makefile(project_name: str, license_id: str = _DEFAULT_LICENSE) -> s
 def _render_workflow(
     project_name: str,
     workflow_file: str,
-    license_id: str = _DEFAULT_LICENSE,
+    license_id: str = licenses.DEFAULT_LICENSE,
     submodules: str = "",
     cron: str | None = None,
 ) -> str:

@@ -204,7 +204,7 @@ class TestCgroupProbeEnv:
         def _no_build(**_):  # pragma: no cover - must not run
             raise AssertionError("the probe must not build")
 
-        monkeypatch.setattr(stage_module, "_build_custom", _no_build)
+        monkeypatch.setattr(stage_module, "_dispatch_build", _no_build)
         assert run(CIConfig(language="rust", _raw={}), language="rust") == 0
         return out.read_text(encoding="utf-8")
 

@@ -37,7 +37,6 @@ from hyperi_ci.versions import tool_version
 class ToolInfo:
     """How to install one external tool, and what hyperi-ci needs it for."""
 
-    name: str
     purpose: str
     # One or more copy-pasteable install command lines (first = preferred).
     install: tuple[str, ...] = ()
@@ -47,7 +46,6 @@ class ToolInfo:
 # External tools hyperi-ci shells out to, with copy-pasteable install lines.
 _REGISTRY: dict[str, ToolInfo] = {
     "alint": ToolInfo(
-        name="alint",
         purpose="profile-aware repo-hygiene advice (.gitignore / .editorconfig / lockfiles / ...)",
         # Prebuilt binaries first: `cargo install` compiles from source (minutes).
         install=(
@@ -59,7 +57,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/asamarts/alint",
     ),
     "gitleaks": ToolInfo(
-        name="gitleaks",
         purpose="secret scanning",
         # Never `go install ...@latest`: unpinned and built from source.
         install=(
@@ -69,7 +66,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/gitleaks/gitleaks#installing",
     ),
     "semgrep": ToolInfo(
-        name="semgrep",
         purpose="SAST scanning",
         # uv first: it is already a hard dependency, so `uvx` needs nothing new.
         install=(
@@ -80,7 +76,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://semgrep.dev/docs/getting-started/",
     ),
     "hadolint": ToolInfo(
-        name="hadolint",
         purpose="Dockerfile linting gate (lints the shell inside RUN via ShellCheck)",
         # Linux CI auto-installs the pinned release, so this is for local dev.
         install=(
@@ -90,7 +85,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/hadolint/hadolint#install",
     ),
     "droast": ToolInfo(
-        name="droast",
         purpose="Dockerfile advisory - cache ordering / .dockerignore / npm ci (DF070/DF033/DF031)",
         # Advisory-only, never auto-installed.
         install=(
@@ -101,7 +95,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/immanuwell/dockerfile-roast",
     ),
     "kubeconform": ToolInfo(
-        name="kubeconform",
         purpose="Kubernetes manifest schema validation gate",
         # Linux CI auto-installs the pinned release, so this is for local dev.
         install=(
@@ -111,7 +104,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/yannh/kubeconform#installation",
     ),
     "kube-linter": ToolInfo(
-        name="kube-linter",
         purpose="Kubernetes best-practice advisory (production-readiness / security)",
         install=(
             "brew install kube-linter",
@@ -120,7 +112,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://docs.kubelinter.io/#/configuring-kubelinter",
     ),
     "checkov": ToolInfo(
-        name="checkov",
         purpose="IaC security scanning (k8s / helm / kustomize / terraform / opentofu)",
         install=(
             "uvx checkov --version",
@@ -130,7 +121,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://www.checkov.io/2.Basics/Installing%20Checkov.html",
     ),
     "lychee": ToolInfo(
-        name="lychee",
         purpose="repo-internal doc link + anchor checking (offline, no network)",
         # Prebuilt binaries first: `cargo install` compiles from source (minutes).
         install=(
@@ -142,7 +132,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/lycheeverse/lychee#installation",
     ),
     "markdownlint-cli2": ToolInfo(
-        name="markdownlint-cli2",
         purpose="mechanical markdown syntax linting",
         install=(
             "npm install -g markdownlint-cli2",
@@ -151,7 +140,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://github.com/DavidAnson/markdownlint-cli2#install",
     ),
     "mermaid": ToolInfo(
-        name="mermaid",
         purpose="mermaid diagram parse checking (the grammar, not a render)",
         # linkedom supplies the browser globals mermaid's bundle needs, or a
         # valid flowchart throws. CI installs the pinned set via
@@ -163,19 +151,16 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://mermaid.js.org/config/usage.html",
     ),
     "osv-scanner": ToolInfo(
-        name="osv-scanner",
         purpose="dependency vulnerability scanning (OSV)",
         install=("brew install osv-scanner",),
         url="https://google.github.io/osv-scanner/installation/",
     ),
     "gh": ToolInfo(
-        name="gh",
         purpose="GitHub operations (releases, workflow dispatch, run status)",
         install=("brew install gh",),
         url="https://cli.github.com/",
     ),
     "docker compose": ToolInfo(
-        name="docker compose",
         purpose="compose file resolution (`docker compose config`) - no daemon needed",
         # The v2 plugin, not the end-of-life standalone `docker-compose` v1.
         install=(
@@ -185,13 +170,11 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://docs.docker.com/compose/install/",
     ),
     "helm": ToolInfo(
-        name="helm",
         purpose="Helm chart rendering for manifest linting",
         install=("brew install helm",),
         url="https://helm.sh/docs/intro/install/",
     ),
     "tofu": ToolInfo(
-        name="tofu",
         purpose="OpenTofu fmt and validate (lint-iac)",
         # Linux CI installs the pinned release, so this is for local dev.
         install=(
@@ -201,7 +184,6 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://opentofu.org/docs/intro/install/",
     ),
     "kustomize": ToolInfo(
-        name="kustomize",
         purpose="rendering kustomizations for schema validation (lint-iac)",
         install=(
             "brew install kustomize",
@@ -210,13 +192,11 @@ _REGISTRY: dict[str, ToolInfo] = {
         url="https://kubectl.docs.kubernetes.io/installation/kustomize/",
     ),
     "ansible-lint": ToolInfo(
-        name="ansible-lint",
         purpose="ansible playbook and role linting (lint-iac)",
         install=("uvx ansible-lint --version", "uv tool install ansible-lint"),
         url="https://ansible.readthedocs.io/projects/lint/installing/",
     ),
     "aws": ToolInfo(
-        name="aws",
         purpose="S3-compatible upload to Cloudflare R2",
         install=("brew install awscli",),
         url="https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",

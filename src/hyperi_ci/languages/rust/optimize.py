@@ -18,7 +18,8 @@ overrides the channel defaults key by key. Library-only crates skip this path.
 
 import re
 import shlex
-from dataclasses import dataclass, field, replace
+import tomllib
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +47,6 @@ class OptimizationProfile:
     pgo_duration_secs: int = 300
     bolt_enabled: bool = False
     optimize_skipped: bool = False
-    warnings: list[str] = field(default_factory=list)
 
     def cargo_features(self) -> list[str]:
         """Allocator features to pass via --features. Empty if system."""
@@ -357,43 +357,32 @@ def validate_profile(
         A new `OptimizationProfile` with fallbacks applied.
 
     """
-    warnings: list[str] = []
     allocator = profile.allocator
     pgo_enabled = profile.pgo_enabled
     bolt_enabled = profile.bolt_enabled
 
     if allocator in ("jemalloc", "mimalloc") and allocator not in cargo_features:
-        warnings.append(
+        warn(
             f"allocator '{allocator}' requested but feature not declared in "
             f"Cargo.toml -- falling back to system allocator"
         )
         allocator = "system"
 
     if pgo_enabled and not profile.pgo_workload_cmd:
-        warnings.append(
-            "pgo.enabled=true but no workload_cmd configured -- disabling PGO"
-        )
+        warn("pgo.enabled=true but no workload_cmd configured -- disabling PGO")
         pgo_enabled = False
         bolt_enabled = False  # BOLT needs PGO
 
     # BOLT is Linux-only (ELF + llvm-bolt)
     if bolt_enabled and target and not _is_linux_target(target):
-        warnings.append(
-            f"BOLT requested but target '{target}' is not Linux -- skipping BOLT"
-        )
+        warn(f"BOLT requested but target '{target}' is not Linux -- skipping BOLT")
         bolt_enabled = False
-
-    for w in warnings:
-        warn(w)
-
-    combined = list(profile.warnings) + warnings
 
     return replace(
         profile,
         allocator=allocator,
         pgo_enabled=pgo_enabled,
         bolt_enabled=bolt_enabled,
-        warnings=combined,
     )
 
 
@@ -418,53 +407,22 @@ def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
 
     """
     try:
-        text = cargo_toml_path.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
+        data = tomllib.loads(cargo_toml_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
         return set()
-
-    return _parse_features_from_text(text)
-
-
-def _parse_features_from_text(text: str) -> set[str]:
-    """Return the keys of the `[features]` table in Cargo.toml text."""
-    features: set[str] = set()
-    in_features = False
-
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("["):
-            in_features = line == "[features]"
-            continue
-        if not in_features:
-            continue
-        if "=" in line:
-            key = line.split("=", 1)[0].strip()
-            if key:
-                features.add(key)
-
-    return features
+    return set(data.get("features", {}))
 
 
 def _normalise_allocator(value: str | None) -> str:
     """Map None/empty/unknown to system, keep jemalloc/mimalloc as-is."""
-    if not value or value == "null":
-        return "system"
-    v = value.strip().lower()
-    if v in ("system", "jemalloc", "mimalloc"):
-        return v
-    return "system"
+    v = str(value or "").strip().lower()
+    return v if v in ("system", "jemalloc", "mimalloc") else "system"
 
 
 def _normalise_lto(value: str | None) -> str:
     """Map None/empty/unknown to thin, keep thin/fat as-is."""
-    if not value or value == "null":
-        return "thin"
-    v = value.strip().lower()
-    if v in ("thin", "fat"):
-        return v
-    return "thin"
+    v = str(value or "").strip().lower()
+    return v if v in ("thin", "fat") else "thin"
 
 
 def _is_linux_target(target: str) -> bool:

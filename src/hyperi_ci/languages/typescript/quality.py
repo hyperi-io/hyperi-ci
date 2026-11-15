@@ -262,7 +262,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
     dev_deps = _dev_dependencies()
 
-    if not _run_check(
+    had_failure |= not _run_check(
         config,
         pm=pm,
         scripts=["lint"],
@@ -270,12 +270,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         fallbacks=_lint_fallbacks(dev_deps),
         skip_message="  lint: no 'lint' script and no eslint or oxlint setup -- "
         "skipping",
-    ):
-        had_failure = True
+    )
 
     # `format --check` is unsafe, as `format` is often `prettier --write .` and
     # the flag may not reach it. Only check-variant scripts are used.
-    if not _run_check(
+    had_failure |= not _run_check(
         config,
         pm=pm,
         scripts=["format:check", "check-format", "check:format"],
@@ -283,8 +282,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         fallbacks=_format_fallbacks(dev_deps),
         skip_message="  format: no 'format:check' script and no prettier or Oxfmt "
         "setup -- skipping",
-    ):
-        had_failure = True
+    )
 
     # --- tsc ---
     # Without a tsconfig.json tsc would crawl cwd on defaults, which is noisy on
@@ -292,11 +290,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     mode = resolve_tool_mode("tsc", config, language="typescript")
     tsc_script = _find_npm_script(["typecheck", "check-types"])
     if tsc_script:
-        if not run_gate_tool("tsc", [pm, "run", tsc_script], mode):
-            had_failure = True
+        had_failure |= not run_gate_tool("tsc", [pm, "run", tsc_script], mode)
     elif Path("tsconfig.json").exists():
-        if not run_gate_tool("tsc", ["npx", "tsc", "--noEmit"], mode):
-            had_failure = True
+        had_failure |= not run_gate_tool("tsc", ["npx", "tsc", "--noEmit"], mode)
     else:
         warn("  tsc: no typecheck script and no tsconfig.json -- skipping")
 
@@ -317,17 +313,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 f"{pm}-audit but the tool has no CLI ignore flag. Use "
                 f"package.json overrides instead."
             )
-    if not run_gate_tool("audit", audit_cmd, mode):
-        had_failure = True
+    had_failure |= not run_gate_tool("audit", audit_cmd, mode)
 
     # osv-scanner finds malicious packages (MAL-*). The audit commands read only
     # the GitHub Advisory DB's CVEs and miss the OSSF malicious-packages feed.
     mode = resolve_tool_mode("osv_scanner", config, language="typescript")
     osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
-    if not osv_scanner.run(osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode):
-        had_failure = True
+    had_failure |= not osv_scanner.run(
+        osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode
+    )
 
-    if not licenses.run_gate(config):
-        had_failure = True
+    had_failure |= not licenses.run_gate(config)
 
     return 1 if had_failure else 0

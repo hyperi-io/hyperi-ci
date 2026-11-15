@@ -22,7 +22,7 @@ no docker and covers overlay fragments too.
 import re
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -186,19 +186,9 @@ def run(
     fdg.report("compose-pins", found, mode, sarif_path=sarif_path)
 
     floating = [f for f in found if f.level == "error"]
-    if not floating:
-        success(
-            f"  compose-pins: no image in {len(files)} file(s) resolves to "
-            f"`{_FLOATING_TAG}`"
-        )
-        return 0
-    if mode == "blocking":
-        error(
-            f"  compose-pins: {len(floating)} image(s) resolve to `{_FLOATING_TAG}` "
-            "and must be pinned"
-        )
-        return 1
-    warn(
-        f"  compose-pins: {len(floating)} unpinned image(s) (non-blocking)",
+    return fdg.verdict(
+        "compose-pins",
+        len(floating),
+        mode,
+        f"no image in {len(files)} file(s) resolves to `{_FLOATING_TAG}`",
     )
-    return 0

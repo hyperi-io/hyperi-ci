@@ -36,15 +36,12 @@ from hyperi_ci.fork_version import check_fork, forced_version
 from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.release_branches import FLEET_PRERELEASE_BRANCHES
 from hyperi_ci.release_candidate import HOTFIX_TRAILER, candidate_version
-from hyperi_ci.version_source import seed_version
+from hyperi_ci.version_source import latest_tag_version, seed_version
 from hyperi_ci.vocabulary import (
     TRAILER_KEY,
     TRAILER_VALUE,
     has_release_trailer,
 )
-
-RELEASE_TRAILER_KEY = TRAILER_KEY
-RELEASE_TRAILER_VALUE = TRAILER_VALUE
 
 # Lockfiles staged into the release-marker commit when modified at commit time.
 # Cargo, uv, npm and the rest refresh them during the quality stage, and that
@@ -236,7 +233,7 @@ def _publish_push(
             f"under conventional-commits rules; this marker commit records\n"
             f"the operator's explicit decision to publish anyway.\n"
             f"\n"
-            f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}\n"
+            f"{TRAILER_KEY}: {TRAILER_VALUE}\n"
             + (f"{hotfix_line}\n" if hotfix_line else "")
         )
         if dry_run:
@@ -261,8 +258,8 @@ def _publish_push(
             return 1
 
         trailers = []
-        if not _has_publish_trailer(head_msg):
-            trailers.append(f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}")
+        if not has_release_trailer(head_msg):
+            trailers.append(f"{TRAILER_KEY}: {TRAILER_VALUE}")
         if hotfix_line and hotfix_line not in head_msg:
             trailers.append(hotfix_line)
         if not trailers:
@@ -412,24 +409,9 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     root = Path(cwd) if cwd else Path.cwd()
     if check_fork(root).fork:
         return forced_version(root, bump)
-    latest: str | None = None
-    result = run_cmd(
-        ["git", "tag", "--list", "v*", "--sort=-v:refname"],
-        capture=True,
-        check=False,
-        cwd=cwd,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        # Plain vX.Y.Z only -- a prerelease sorts above its own release.
-        for line in result.stdout.splitlines():
-            candidate = explicit_version(line)
-            if candidate:
-                latest = candidate
-                break
-
+    latest = latest_tag_version(root)
     if not latest:
-        cwd_path = Path(cwd) if cwd else Path.cwd()
-        latest, source = seed_version(cwd_path)
+        latest, source = seed_version(root)
         info(f"No release tags -- bumping from {latest} ({source})")
 
     parts = latest.split(".")
@@ -511,15 +493,6 @@ def _stage_modified_lockfiles(*, cwd: str | None) -> None:
             continue
         if Path(rel_path).name in _AUTO_STAGE_LOCKFILES:
             run_cmd(["git", "add", rel_path], cwd=cwd, capture=True)
-
-
-def _has_publish_trailer(message: str) -> bool:
-    """Return True if the message carries the release trailer, either spelling.
-
-    The matcher is in :mod:`hyperi_ci.vocabulary`, shared with the predict-version
-    composite's shell check.
-    """
-    return has_release_trailer(message)
 
 
 def _amend_trailers(trailers: list[str], *, cwd: str | None) -> int:
@@ -784,11 +757,7 @@ def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
     return 0
 
 
-def _rebase_and_push(
-    *,
-    branch: str | None = None,
-    cwd: str | None = None,
-) -> int:
+def _rebase_and_push(*, cwd: str | None = None) -> int:
     """Pull --rebase then push with HYPERCI_PUSH=1.
 
     A new branch has no upstream and ``git pull --rebase`` aborts with "no
@@ -796,14 +765,14 @@ def _rebase_and_push(
     uses ``-u origin <branch>`` to set tracking.
     """
     if not _has_upstream(cwd=cwd):
-        current = branch or get_current_branch(cwd=cwd)
+        current = get_current_branch(cwd=cwd)
         if not current:
             error("Cannot determine current branch to push")
             return 1
         info(f"No upstream for '{current}' -- first push, setting upstream")
         return _push_with_env(args=["-u", "origin", current], cwd=cwd)
 
-    if rc := _pull_rebase(branch=branch, cwd=cwd):
+    if rc := _pull_rebase(cwd=cwd):
         return rc
 
     return _push_with_env(cwd=cwd)
@@ -815,12 +784,8 @@ def _push_with_env(
     cwd: str | None = None,
 ) -> int:
     """Run git push with HYPERCI_PUSH=1 set."""
-    cmd = ["git", "push"]
-    if args:
-        cmd.extend(args)
-
     try:
-        run_cmd(cmd, env={"HYPERCI_PUSH": "1"}, cwd=cwd)
+        run_cmd(["git", "push", *(args or [])], env={"HYPERCI_PUSH": "1"}, cwd=cwd)
     except subprocess.CalledProcessError:
         # git's stderr is not captured here (issue #210).
         error("Push failed -- git's reason is in its output directly above.")

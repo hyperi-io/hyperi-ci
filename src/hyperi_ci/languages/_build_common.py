@@ -8,10 +8,11 @@
 
 import hashlib
 import struct
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import BinaryIO
 
-from hyperi_ci.common import info
+from hyperi_ci.common import error, group, info
 
 _ELF_MAGIC = b"\x7fELF"
 
@@ -50,6 +51,35 @@ def generate_checksums(output_dir: Path) -> None:
         count += 1
     if count:
         info(f"Per-binary checksums written ({count} file(s)) to {output_dir}/")
+
+
+def run_destinations(
+    destinations: Iterable[str],
+    publishers: dict[str, tuple[str, Callable[[], int]]],
+    language: str,
+) -> int:
+    """Run each destination's publisher in its own log group, stopping at a failure.
+
+    Args:
+        destinations: Destination names, in the order to publish.
+        publishers: Destination name to ``(group title, publish function)``.
+        language: Name used in the unknown-destination error.
+
+    Returns:
+        Exit code (0 = success). An unknown destination fails with 1.
+
+    """
+    for dest in destinations:
+        entry = publishers.get(dest)
+        if entry is None:
+            error(f"Unknown {language} publish destination: {dest}")
+            return 1
+        title, publish = entry
+        with group(title):
+            rc = publish()
+        if rc != 0:
+            return rc
+    return 0
 
 
 def _elf_section_entry(

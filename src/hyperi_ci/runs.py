@@ -19,10 +19,13 @@ that reaches the run.
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from hyperi_ci import workflows
+from hyperi_ci.common import error, info
 from hyperi_ci.gh import (
     RunSelectionError,
     describe_run,
@@ -320,6 +323,25 @@ def resolve(
         project_dir=project_dir,
         command=command,
     )
+
+
+def pinned_run_id(
+    command: str,
+    *,
+    resolver: Callable[..., dict] | None = None,
+    **anchor: Any,
+) -> str | None:
+    """Resolve the run ``command`` means and log the pin, or log the error and return None.
+
+    ``resolver`` defaults to :func:`resolve`. ``anchor`` is its remaining keywords.
+    """
+    try:
+        run = (resolver or resolve)(command=command, **anchor)
+    except RunSelectionError as exc:
+        error(str(exc))
+        return None
+    info(f"Pinned to run {describe_run(run)}")
+    return str(run["databaseId"])
 
 
 def require_sha(

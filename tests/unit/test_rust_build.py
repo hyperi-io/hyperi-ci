@@ -168,8 +168,7 @@ class TestTier2Summary:
         monkeypatch.setattr(build, "_get_native_target", lambda: native)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
         monkeypatch.setattr(build, "_detect_cargo_features", lambda: {"jemalloc"})
-        monkeypatch.setattr(build, "_resolve_build_channel", lambda _cfg: "release")
-        monkeypatch.setattr(build, "_detect_version", lambda: "v1.0.0")
+        monkeypatch.setattr(build, "_resolve_build_channel", lambda: "release")
         monkeypatch.setattr(build, "_package_binaries", lambda *_args, **_kwargs: 0)
         # Packaging is stubbed, so there is no packaged file to inspect.
         monkeypatch.setattr(build, "_verify_bolt_shipped", lambda *_args: 0)

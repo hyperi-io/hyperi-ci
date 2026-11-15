@@ -22,10 +22,7 @@ imports it as the build back-end's version source (:func:`build_version`),
 neither after a ``pip install``.
 """
 
-# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
-# predict-version loads this file BY PATH before any install, on whatever
-# python3 the runner has, which may predate our floor.
-# predict-version loads this file by path on the runner's python3, which may predate 3.14.
+# KEEP: predict-version loads this file by path on the runner's python3, which may predate 3.14 (issue #184).
 from __future__ import annotations
 
 import json

@@ -42,6 +42,7 @@ from scalo.logger.scrub import ScrubConfig, SecretsConfig
 
 from hyperi_ci.ci_env import is_ci as is_ci
 from hyperi_ci.repo_path import RepoPathError, confine
+from hyperi_ci.version_source import latest_tag_version
 
 if TYPE_CHECKING:
     from hyperi_ci.config import CIConfig
@@ -118,29 +119,7 @@ def resolve_release_version() -> str | None:
         value = path.read_text(encoding="utf-8", errors="replace").strip()
         if value:
             return _checked_version(value, "VERSION")
-    return latest_version_tag()
-
-
-def latest_version_tag() -> str | None:
-    """Highest final-release ``vX.Y.Z`` tag as a bare version, or None outside a repo.
-
-    Last-resort fallback for a checkout with no ``VERSION`` file (issue #85).
-    It is one behind mid-release, so callers that need the version being
-    released read ``HYPERCI_VERSION``.
-    """
-    result = run_cmd(
-        ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
-        capture=True,
-        check=False,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    # Plain vX.Y.Z only: a prerelease sorts above its own release.
-    for line in result.stdout.splitlines():
-        candidate = line.strip().removeprefix("v")
-        if _SEMVER_RE.match(candidate):
-            return candidate
-    return None
+    return latest_tag_version()
 
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -157,7 +136,7 @@ def newer_release_than(version: str | None) -> str | None:
     candidate = version.strip().removeprefix("v")
     if not _SEMVER_RE.match(candidate):
         return None
-    highest = latest_version_tag()
+    highest = latest_tag_version()
     if highest is None:
         return None
 
@@ -219,11 +198,6 @@ def set_github_output(**pairs: str) -> None:
     with Path(gh_out).open("a", encoding="utf-8", newline="\n") as fh:
         for key, value in pairs.items():
             fh.write(f"{key}={value}\n")
-
-
-def is_macos() -> bool:
-    """Detect if running on macOS."""
-    return sys.platform == "darwin"
 
 
 def is_linux() -> bool:

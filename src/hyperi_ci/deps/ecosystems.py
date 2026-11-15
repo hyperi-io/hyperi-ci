@@ -47,11 +47,6 @@ class Ecosystem:
     note: str = ""
 
 
-# ---------------------------------------------------------------------------
-# File loading
-# ---------------------------------------------------------------------------
-
-
 def _load_json(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -232,11 +227,6 @@ def find_lock(start: Path, root: Path, names: tuple[str, ...]) -> Path | None:
         current = current.parent
 
 
-# ---------------------------------------------------------------------------
-# Enrichment -- optional and additive
-# ---------------------------------------------------------------------------
-
-
 def _run_tool(cmd: list[str], cwd: Path) -> str | None:
     """Run an optional toolchain command and return its stdout, or None.
 
@@ -366,11 +356,6 @@ def _locked_map(
     return merged
 
 
-# ---------------------------------------------------------------------------
-# Comparison
-# ---------------------------------------------------------------------------
-
-
 def _compare(
     eco: Ecosystem,
     group_path: str,
@@ -388,8 +373,9 @@ def _compare(
     for name, constraint in entries:
         floor = ver.floor_of(constraint)
         version, source = locked.get(norm(name), ("", ""))
-        kind = ver.drift_kind(floor, version) if floor and version else None
-        if floor and version:
+        both = bool(floor and version)
+        kind = ver.drift_kind(floor, version) if both else None
+        if both:
             comparable += 1
         rows.append(
             {

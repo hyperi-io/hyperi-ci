@@ -18,6 +18,7 @@ in one of three states:
 - ``absent`` -- nothing matched.
 """
 
+import functools
 import re
 import subprocess
 from dataclasses import dataclass
@@ -123,10 +124,6 @@ class Surface:
     raw_patterns: tuple[str, ...] = ()
 
 
-# The shipped catalogue, compiled once per process.
-_CACHE: tuple[Surface, ...] | None = None
-
-
 def load(path: Path | None = None) -> tuple[Surface, ...]:
     """Parse the catalogue into compiled :class:`Surface` records.
 
@@ -138,11 +135,15 @@ def load(path: Path | None = None) -> tuple[Surface, ...]:
         Every declared surface, catalogue order preserved.
 
     """
-    global _CACHE
-    if path is None and _CACHE is not None:
-        return _CACHE
+    return _shipped() if path is None else _parse(Path(path))
 
-    source = Path(path) if path is not None else _CATALOGUE
+
+@functools.cache
+def _shipped() -> tuple[Surface, ...]:
+    return _parse(_CATALOGUE)
+
+
+def _parse(source: Path) -> tuple[Surface, ...]:
     data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
     built: list[Surface] = []
     for entry in data.get("surfaces") or []:
@@ -177,10 +178,7 @@ def load(path: Path | None = None) -> tuple[Surface, ...]:
                 raw_patterns=raw_patterns,
             )
         )
-    surfaces = tuple(built)
-    if path is None:
-        _CACHE = surfaces
-    return surfaces
+    return tuple(built)
 
 
 def repo_files(root: Path) -> tuple[list[str], str]:
@@ -273,8 +271,8 @@ def extract_pins(surface: Surface, root: Path, rel: str) -> list[dict]:
                 match = pin.search(line)
                 if match is None:
                     continue
-                if surface.pin_guard is not None and not _guard_hit(
-                    surface, lines, index
+                if (guard := surface.pin_guard) is not None and not _guard_hit(
+                    guard, surface.guard_window, lines, index
                 ):
                     continue
                 version = _named(match, "ver")
@@ -292,13 +290,12 @@ def extract_pins(surface: Surface, root: Path, rel: str) -> list[dict]:
     return out
 
 
-def _guard_hit(surface: Surface, lines: list[str], index: int) -> bool:
+def _guard_hit(
+    guard: re.Pattern[str], window: int, lines: list[str], index: int
+) -> bool:
     """Report whether the guard regex hits in the window around ``index``."""
-    guard = surface.pin_guard
-    if guard is None:
-        return True
-    low = max(0, index - surface.guard_window)
-    high = min(len(lines), index + surface.guard_window + 1)
+    low = max(0, index - window)
+    high = min(len(lines), index + window + 1)
     return any(guard.search(lines[i]) for i in range(low, high))
 
 

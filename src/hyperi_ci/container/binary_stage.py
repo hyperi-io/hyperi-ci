@@ -22,6 +22,7 @@ import fnmatch
 import posixpath
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
@@ -93,7 +94,7 @@ def stage_binary_dockerfile(
             info(f"  COPY {src} -> COPY dist/{src}-linux-${{TARGETARCH}}")
 
     if licence is not None:
-        rewritten = _append_licence_copy(rewritten, licence)
+        rewritten = _append_copy(rewritten, licence, LICENCE_DEST)
         info(f"Container: copying {licence} into the image at {LICENCE_DEST}")
 
     with tempfile.NamedTemporaryFile(
@@ -167,28 +168,20 @@ def _dockerignore_excludes(context: Path, name: str) -> bool:
     return excluded
 
 
-def _append_licence_copy(content: str, licence: str) -> str:
-    """Append a ``COPY <licence> /licenses/LICENSE`` line to the final stage."""
+def _append_copy(content: str, src: str, dest: str) -> str:
+    """Append a ``COPY <src> <dest>`` line to the final stage."""
     body = content if content.endswith("\n") or not content else content + "\n"
-    return f"{body}COPY {licence} {LICENCE_DEST}\n"
+    return f"{body}COPY {src} {dest}\n"
 
 
+@dataclass(frozen=True, slots=True)
 class _CopyRewrite:
     """A COPY line to rewrite: its index, indent, source and destination."""
 
-    __slots__ = ("dst", "indent", "line_index", "src")
-
-    def __init__(
-        self,
-        line_index: int,
-        indent: str,
-        src: str,
-        dst: str,
-    ) -> None:
-        self.line_index = line_index
-        self.indent = indent
-        self.src = src
-        self.dst = dst
+    line_index: int
+    indent: str
+    src: str
+    dst: str
 
 
 def _find_binary_copy_rewrites(content: str, dist_dir: Path) -> list[_CopyRewrite]:
@@ -218,12 +211,9 @@ def _has_dist_artefact(dist_dir: Path, name: str) -> bool:
     The check stops a bare COPY of an unrelated file, such as a config file,
     from being rewritten.
     """
-    if not dist_dir.is_dir():
-        return False
-    for arch in ("amd64", "arm64"):
-        if (dist_dir / f"{name}-linux-{arch}").is_file():
-            return True
-    return False
+    return any(
+        (dist_dir / f"{name}-linux-{arch}").is_file() for arch in ("amd64", "arm64")
+    )
 
 
 def _apply_rewrites(content: str, rewrites: list[_CopyRewrite]) -> str:

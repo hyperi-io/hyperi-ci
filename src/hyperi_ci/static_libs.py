@@ -31,6 +31,7 @@ from pathlib import Path
 
 from hyperi_ci.common import curl_fetch, error, info, run_cmd
 from hyperi_ci.gh import gh_run
+from hyperi_ci.native_tools import sha256_file
 from hyperi_ci.upgrade import CACHE_DIR
 from hyperi_ci.versions import static_libs, static_libs_release
 
@@ -135,8 +136,7 @@ def _fetch_source(name: str, pin: dict[str, str], work: Path) -> Path | None:
     if result.returncode != 0:
         error(f"  {name}: could not download {url}")
         return None
-    with archive.open("rb") as fh:
-        got = hashlib.file_digest(fh, "sha256").hexdigest()
+    got = sha256_file(archive)
     if got != pin["sha256"].lower():
         error(
             f"  {name}: SHA256 mismatch for {url} (expected {pin['sha256']}, got {got})"
@@ -313,8 +313,7 @@ def package(prefix: Path, out_dir: Path) -> Path:
     archive = out_dir / f"hyperi-static-libs-{manifest['target']}.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(prefix, arcname="hyperi-static-libs")
-    with archive.open("rb") as fh:
-        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    digest = sha256_file(archive)
     sha_file = archive.with_name(archive.name + ".sha256")
     sha_file.write_text(f"{digest}  {archive.name}\n", encoding="utf-8", newline="\n")
     shutil.copyfile(

@@ -21,12 +21,9 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hyperi_ci.commit_range import last_version_tag
+from hyperi_ci.commit_range import git_log, last_version_tag
 from hyperi_ci.fork_version import ForkVersionError, check_fork, fork_commit_bumps
 from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, default_type_bump
-
-# classify_commit is re-exported for existing importers.
-__all__ = ["BumpPrediction", "classify_commit", "predict_bump"]
 
 
 @dataclass
@@ -85,23 +82,13 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
         return prediction
     prediction.last_tag = last_tag
 
-    # 0x1e ends each record and 0x1f separates hash from body, so multi-line
-    # bodies parse intact.
-    fmt = "%H%x1f%B%x1e"
-    result = _git(["log", f"{last_tag}..HEAD", f"--format={fmt}"], cwd)
-    if result.returncode != 0:
+    returncode, commits = git_log([f"{last_tag}..HEAD"], project_dir)
+    if returncode != 0:
         return prediction
 
     type_bump = default_type_bump()
     best = "none"
-    for record in result.stdout.split("\x1e"):
-        record = record.strip("\n")
-        if not record or "\x1f" not in record:
-            continue
-        _sha, _, body = record.partition("\x1f")
-        body = body.strip()
-        if not body:
-            continue
+    for _sha, body in commits:
         bump = classify_commit(body, type_bump)
         subject = body.splitlines()[0]
         if bump == "minor":

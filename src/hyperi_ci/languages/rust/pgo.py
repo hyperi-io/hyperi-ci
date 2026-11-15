@@ -434,10 +434,7 @@ def _bin_scope_args(binaries: list[str]) -> list[str]:
     Unfiltered, `--all-features` also builds a feature-gated workload driver
     against a profile that does not cover it (#526).
     """
-    args: list[str] = []
-    for name in binaries:
-        args.extend(["--bin", name])
-    return args
+    return [arg for name in binaries for arg in ("--bin", name)]
 
 
 def _run_plain_release_build(

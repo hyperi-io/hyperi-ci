@@ -38,7 +38,7 @@ from pathlib import Path
 from hyperi_ci import runs as run_lookup
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.gate_audit import NO_VERDICT, gate_of
-from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
+from hyperi_ci.gh import RunSelectionError, gh_run, require_gh
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -66,9 +66,6 @@ _DEFAULT_TIMEOUT = 3600
 # run rather than watching the previous commit's.
 _RUN_APPEAR_TIMEOUT = 90
 _RUN_APPEAR_POLL = 5.0
-
-# Headroom over the handful of runs one commit produces.
-_RUN_LIST_LIMIT = 30
 
 
 def _poll_interval(base: int, attempt: int) -> float:
@@ -134,8 +131,6 @@ def _first_failed_job(run_data: dict) -> dict | None:
 def _resume_command(run_id: str, timeout: int, repo: str | None = None) -> str:
     """Format a copy-pasteable resume command for the user."""
     repo_arg = f" --repo {repo}" if repo else ""
-    if timeout == 0:
-        return f"hyperi-ci watch {run_id}{repo_arg} --timeout 0"
     return f"hyperi-ci watch {run_id}{repo_arg} --timeout {timeout}"
 
 
@@ -260,7 +255,7 @@ def resolve_target_run(
 
     deadline = time.monotonic() + _RUN_APPEAR_TIMEOUT
     while True:
-        candidates = run_lookup.anchor_runs(anchor, limit=_RUN_LIST_LIMIT)
+        candidates = run_lookup.anchor_runs(anchor, limit=run_lookup.RUN_LIST_LIMIT)
         if candidates:
             break
         if not anchor.head:
@@ -333,21 +328,19 @@ def watch_run(
         return 1
 
     if not run_id:
-        try:
-            run = resolve_target_run(
-                workflow=workflow,
-                branch=branch,
-                commit=commit,
-                pr=pr,
-                repo=repo,
-                project_dir=project_dir,
-                command="watch",
-            )
-        except RunSelectionError as exc:
-            error(str(exc))
+        pinned = run_lookup.pinned_run_id(
+            "watch",
+            resolver=resolve_target_run,
+            workflow=workflow,
+            branch=branch,
+            commit=commit,
+            pr=pr,
+            repo=repo,
+            project_dir=project_dir,
+        )
+        if pinned is None:
             return 1
-        run_id = str(run["databaseId"])
-        info(f"Pinned to run {describe_run(run)}")
+        run_id = pinned
 
     repo_label = f" in {repo}" if repo else ""
     if timeout == 0:

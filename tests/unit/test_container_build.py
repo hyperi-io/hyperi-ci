@@ -167,7 +167,7 @@ class TestPushedDigest:
 def test_resolve_tags_validate_mode_returns_no_tags():
     """Validate mode (push-to-main / local) -- no tags land in any registry."""
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.13.5",
         sha="abc1234",
@@ -185,7 +185,7 @@ class TestDevModeTags:
 
     def test_dev_mode_branch_pointer_and_pin_tags(self):
         tags = resolve_tags(
-            registry_bases=["ghcr.io/hyperi-io"],
+            registry_base="ghcr.io/hyperi-io",
             image_name="dfe-loader",
             version="1.13.5",
             sha="abc1234",
@@ -199,7 +199,7 @@ class TestDevModeTags:
 
     def test_dev_mode_never_emits_ga_namespace(self):
         tags = resolve_tags(
-            registry_bases=["ghcr.io/hyperi-io"],
+            registry_base="ghcr.io/hyperi-io",
             image_name="dfe-loader",
             version="1.13.5",
             sha="abc1234",
@@ -215,7 +215,7 @@ class TestDevModeTags:
 
     def test_dev_mode_empty_slug_falls_back_to_dev_sha(self):
         tags = resolve_tags(
-            registry_bases=["ghcr.io/hyperi-io"],
+            registry_base="ghcr.io/hyperi-io",
             image_name="dfe-loader",
             version="1.13.5",
             sha="abc1234",
@@ -227,7 +227,7 @@ class TestDevModeTags:
 
 def test_resolve_tags_release_channel_includes_sha():
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.13.5",
         sha="abc1234",
@@ -244,7 +244,7 @@ def test_resolve_tags_prerelease_version_never_moves_latest():
     # issue #144: a beta cut off a prerelease branch must not repoint `latest`
     # at itself, and must not render `v1.14.0-beta.1-beta`.
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.14.0-beta.1",
         sha="abc1234",
@@ -258,7 +258,7 @@ def test_resolve_tags_prerelease_version_never_moves_latest():
 
 def test_resolve_tags_prerelease_version_beats_a_release_channel():
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.14.0-beta.1",
         sha="abc1234",
@@ -269,7 +269,7 @@ def test_resolve_tags_prerelease_version_beats_a_release_channel():
 
 def test_resolve_tags_pre_ga_channel_includes_sha():
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.13.5",
         sha="abc1234",
@@ -281,49 +281,9 @@ def test_resolve_tags_pre_ga_channel_includes_sha():
     ]
 
 
-def test_resolve_tags_multi_registry_release():
-    tags = resolve_tags(
-        registry_bases=[
-            "ghcr.io/hyperi-io",
-            "registry.example.com/hyperi",
-        ],
-        image_name="dfe-loader",
-        version="1.13.5",
-        sha="abc1234",
-        channel="release",
-    )
-    assert tags == [
-        "ghcr.io/hyperi-io/dfe-loader:v1.13.5",
-        "ghcr.io/hyperi-io/dfe-loader:latest",
-        "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
-        "registry.example.com/hyperi/dfe-loader:v1.13.5",
-        "registry.example.com/hyperi/dfe-loader:latest",
-        "registry.example.com/hyperi/dfe-loader:sha-abc1234",
-    ]
-
-
-def test_resolve_tags_multi_registry_pre_ga():
-    tags = resolve_tags(
-        registry_bases=[
-            "ghcr.io/hyperi-io",
-            "registry.example.com/hyperi",
-        ],
-        image_name="dfe-receiver",
-        version="2.0.0",
-        sha="aaa1111",
-        channel="beta",
-    )
-    assert tags == [
-        "ghcr.io/hyperi-io/dfe-receiver:v2.0.0-beta",
-        "ghcr.io/hyperi-io/dfe-receiver:sha-aaa1111",
-        "registry.example.com/hyperi/dfe-receiver:v2.0.0-beta",
-        "registry.example.com/hyperi/dfe-receiver:sha-aaa1111",
-    ]
-
-
 def test_resolve_tags_alpha_and_beta_channels():
     alpha = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.0.0",
         sha="def5678",
@@ -335,7 +295,7 @@ def test_resolve_tags_alpha_and_beta_channels():
     ]
 
     beta = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-receiver",
         version="2.0.0",
         sha="aaa1111",
@@ -349,7 +309,7 @@ def test_resolve_tags_alpha_and_beta_channels():
 
 def test_resolve_tags_release_without_latest():
     tags = resolve_tags(
-        registry_bases=["ghcr.io/hyperi-io"],
+        registry_base="ghcr.io/hyperi-io",
         image_name="dfe-loader",
         version="1.13.5",
         sha="abc1234",
@@ -388,12 +348,12 @@ class TestLatestStaysOnTheNewestRelease:
     def _pushed_tags(version: str) -> list[str]:
         with patch.object(stage, "build_and_push", return_value=0) as pushed:
             with patch.object(stage, "_read_version", return_value=version):
-                with patch.object(stage, "_read_sha", return_value="deadbee"):
+                with patch.object(stage, "_checkout_sha", return_value="deadbee"):
                     stage._dispatch_build(
                         dockerfile_path=Path("Dockerfile"),
                         config=CIConfig(_raw={"description": "demo"}),
                         org=OrgConfig(),
-                        registry_bases=["ghcr.io/hyperi-io"],
+                        registry_base="ghcr.io/hyperi-io",
                         push_mode="release",
                     )
         return pushed.call_args.kwargs["tags"]

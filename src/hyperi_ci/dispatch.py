@@ -140,28 +140,29 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
     return mod
 
 
+# Config sections tried per stage, in order: quality and test borrow each other's.
+_FEATURE_KEYS = {
+    "build": ("build",),
+    "quality": ("quality", "test"),
+    "test": ("test", "quality"),
+}
+
+
 def _normalize_rust_features(config: CIConfig, stage: str) -> str:
     """Return Rust features as a string: stage-specific -> fallback -> "all".
 
     Arrays become pipe-separated strings.
     """
-    features: Any = None
-
-    if stage in ("build", "quality", "test"):
-        features = config.get(f"{stage}.rust.features")
-
-    if features is None and stage in ("quality", "test"):
-        for fallback in ("quality", "test"):
-            features = config.get(f"{fallback}.rust.features")
-            if features is not None:
-                break
-
-    if features is None:
-        features = "all"
-
+    features: Any = next(
+        (
+            f
+            for key in _FEATURE_KEYS.get(stage, ())
+            if (f := config.get(f"{key}.rust.features")) is not None
+        ),
+        "all",
+    )
     if isinstance(features, list):
         features = "|".join(str(f) for f in features)
-
     return str(features)
 
 

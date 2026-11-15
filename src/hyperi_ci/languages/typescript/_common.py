@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import info, warn
+from hyperi_ci.common import info, run_cmd, warn
 
 # turbo holds each task's output until the task ends when it detects CI, so a
 # cancelled or hung task leaves nothing in the log (issue #265).
@@ -34,13 +34,7 @@ def package_script_env() -> dict[str, str]:
 
 def _run_corepack_enable(*args: str) -> subprocess.CompletedProcess[str]:
     """Run ``corepack enable`` with ``args``, capturing its output."""
-    return subprocess.run(
-        ["corepack", "enable", *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    return run_cmd(["corepack", "enable", *args], check=False, capture=True)
 
 
 def _corepack_enable() -> bool:
@@ -186,8 +180,6 @@ def detect_package_manager(project_dir: Path | None = None) -> str:
         return "pnpm"
     if (root / "yarn.lock").exists():
         return "yarn"
-    if (root / "package-lock.json").exists():
-        return "npm"
 
     return "npm"
 
@@ -214,17 +206,9 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
             pass
 
     try:
-        result = subprocess.run(
-            ["yarn", "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=root,
-        )
+        result = run_cmd(["yarn", "--version"], check=False, capture=True, cwd=root)
         if result.returncode == 0:
-            major = int(result.stdout.strip().split(".")[0])
-            return major
+            return int(result.stdout.strip().split(".")[0])
     except (FileNotFoundError, ValueError, IndexError):
         pass
 
@@ -241,7 +225,6 @@ def yarn_frozen_flag(project_dir: Path | None = None) -> str:
         The CLI flag.
 
     """
-    version = detect_yarn_version(project_dir)
-    if version >= 2:
-        return "--immutable"
-    return "--frozen-lockfile"
+    return (
+        "--immutable" if detect_yarn_version(project_dir) >= 2 else "--frozen-lockfile"
+    )

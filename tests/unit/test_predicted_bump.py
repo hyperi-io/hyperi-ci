@@ -10,10 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.quality.predicted_bump import (
-    classify_commit,
-    predict_bump,
-)
+from hyperi_ci.quality.predicted_bump import predict_bump
+from hyperi_ci.release_rules import classify_commit
 
 # --- classify_commit (pure) ----------------------------------------------
 #

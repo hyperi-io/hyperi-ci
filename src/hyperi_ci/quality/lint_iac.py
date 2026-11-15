@@ -60,23 +60,6 @@ from hyperi_ci.quality.targets import (
 )
 from hyperi_ci.tools import missing_tool
 
-DIMENSIONS = (
-    "dockerfile",
-    "compose",
-    "helm",
-    "kustomize",
-    "manifests",
-    "kube-linter",
-    "checkov",
-    "tofu",
-    "ansible",
-    "generated",
-)
-
-# What the quality stage runs. It already runs hadolint itself, and checkov
-# scans the whole tree on every run as an advisory only.
-QUALITY_DIMENSIONS = tuple(d for d in DIMENSIONS if d not in ("dockerfile", "checkov"))
-
 # What the deprecated `lint-manifests` and `lint-compose` verbs ran.
 MANIFEST_DIMENSIONS = ("helm", "kustomize", "manifests", "kube-linter", "checkov")
 COMPOSE_DIMENSIONS = ("compose",)
@@ -508,6 +491,12 @@ _RUNNERS: dict[str, Callable[[_Context], tuple[int, int]]] = {
     "ansible": _ansible,
     "generated": _generated,
 }
+
+DIMENSIONS = tuple(_RUNNERS)
+
+# What the quality stage runs. It already runs hadolint itself, and checkov
+# scans the whole tree on every run as an advisory only.
+QUALITY_DIMENSIONS = tuple(d for d in DIMENSIONS if d not in ("dockerfile", "checkov"))
 
 
 def _report(outcomes: list[Outcome]) -> None:
