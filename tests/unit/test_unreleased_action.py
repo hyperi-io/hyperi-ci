@@ -20,14 +20,14 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
+from tests.git_helpers import commit_at, git, init_repo
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / ".github" / "actions" / "predict-version" / "unreleased.py"
-_SECONDS_PER_DAY = 86400
 
 
 def _run(cwd: Path, script: Path = SCRIPT) -> subprocess.CompletedProcess[str]:
@@ -48,40 +48,9 @@ def _run(cwd: Path, script: Path = SCRIPT) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    path = tmp_path / "repo"
-    path.mkdir()
-    _git(path, "init", "-q")
-    _git(path, "config", "user.email", "t@t.io")
-    _git(path, "config", "user.name", "t")
-    return path
-
-
-def _commit(cwd: Path, msg: str, days_ago: int = 0) -> None:
-    stamp = f"{int(time.time()) - days_ago * _SECONDS_PER_DAY} +0000"
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-q", "-m", msg],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp),
-    )
+    return init_repo(tmp_path / "repo")
 
 
 def _set_warn_days(repo: Path, value: str) -> None:
@@ -94,10 +63,10 @@ class TestTheGateContract:
     def test_old_work_warns_with_the_pinned_text(self, repo: Path) -> None:
         # Byte for byte what the gate raised before the age gate existed. A
         # consumer keys its findings on it.
-        _commit(repo, "chore: seed", days_ago=30)
-        _git(repo, "tag", "v2.12.3")
-        _commit(repo, "fix(deps): raise floors off three live advisories", 20)
-        _commit(repo, "fix: an off-by-one", 20)
+        commit_at(repo, "chore: seed", days_ago=30)
+        git(repo, "tag", "v2.12.3")
+        commit_at(repo, "fix(deps): raise floors off three live advisories", 20)
+        commit_at(repo, "fix: an off-by-one", 20)
 
         result = _run(repo)
         assert result.returncode == 0, result.stderr
@@ -110,9 +79,9 @@ class TestTheGateContract:
         assert "release.unreleased_warn_days=7 from defaults.yaml" in result.stderr
 
     def test_young_work_is_a_notice_with_the_same_text(self, repo: Path) -> None:
-        _commit(repo, "chore: seed", days_ago=30)
-        _git(repo, "tag", "v2.12.3")
-        _commit(repo, "fix: an off-by-one")
+        commit_at(repo, "chore: seed", days_ago=30)
+        git(repo, "tag", "v2.12.3")
+        commit_at(repo, "fix: an off-by-one")
 
         result = _run(repo)
         assert result.returncode == 0, result.stderr
@@ -122,9 +91,9 @@ class TestTheGateContract:
 
     def test_the_project_sets_the_threshold(self, repo: Path) -> None:
         _set_warn_days(repo, "0")
-        _commit(repo, "chore: seed", days_ago=30)
-        _git(repo, "tag", "v2.12.3")
-        _commit(repo, "fix: an off-by-one")
+        commit_at(repo, "chore: seed", days_ago=30)
+        git(repo, "tag", "v2.12.3")
+        commit_at(repo, "fix: an off-by-one")
 
         result = _run(repo)
         assert result.stdout.startswith("::warning::1 releasable commit sits")
@@ -132,18 +101,18 @@ class TestTheGateContract:
 
     def test_a_threshold_that_is_not_days_warns_on_both(self, repo: Path) -> None:
         _set_warn_days(repo, "soon")
-        _commit(repo, "chore: seed", days_ago=30)
-        _git(repo, "tag", "v2.12.3")
-        _commit(repo, "fix: an off-by-one")
+        commit_at(repo, "chore: seed", days_ago=30)
+        git(repo, "tag", "v2.12.3")
+        commit_at(repo, "fix: an off-by-one")
 
         lines = _run(repo).stdout.splitlines()
         assert lines[0].startswith("::warning title=release.unreleased_warn_days::")
         assert lines[1].startswith("::warning::1 releasable commit sits")
 
     def test_nothing_waiting_prints_nothing_to_stdout(self, repo: Path) -> None:
-        _commit(repo, "chore: seed")
-        _git(repo, "tag", "v2.12.3")
-        _commit(repo, "docs: a typo")
+        commit_at(repo, "chore: seed")
+        git(repo, "tag", "v2.12.3")
+        commit_at(repo, "docs: a typo")
 
         result = _run(repo)
         assert result.returncode == 0, result.stderr
@@ -151,7 +120,7 @@ class TestTheGateContract:
         assert "nothing releasable waiting since v2.12.3" in result.stderr
 
     def test_no_baseline_is_reported_separately(self, repo: Path) -> None:
-        _commit(repo, "fix: the very first commit")
+        commit_at(repo, "fix: the very first commit")
 
         result = _run(repo)
         assert result.returncode == 0, result.stderr

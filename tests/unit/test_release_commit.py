@@ -25,12 +25,12 @@ import yaml
 
 from hyperi_ci import config as config_module
 from hyperi_ci import gh, release_commit
-from hyperi_ci.common import run_cmd
 from hyperi_ci.release_commit import (
     SUPPLEMENT,
     _local_blob,
     commit_release_artefacts,
 )
+from tests.git_helpers import git, init_repo
 
 
 @pytest.fixture(autouse=True)
@@ -410,25 +410,19 @@ class TestStampPaths:
 class TestLocalBlob:
     """The checkout's HEAD blob, compared against the branch tip."""
 
-    @staticmethod
-    def _git(root: Path, *args: str) -> str:
-        identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
-        result = run_cmd(["git", "-C", str(root), *identity, *args], capture=True)
-        return result.stdout.strip()
-
     def test_matches_git_hash_object(self, tmp_path: Path) -> None:
-        self._git(tmp_path, "init", "-q")
+        init_repo(tmp_path)
         (tmp_path / "spec.json").write_text("{}\n", encoding="utf-8")
-        self._git(tmp_path, "add", "spec.json")
-        self._git(tmp_path, "commit", "-q", "-m", "x")
-        expected = self._git(tmp_path, "hash-object", "spec.json")
+        git(tmp_path, "add", "spec.json")
+        git(tmp_path, "commit", "-q", "-m", "x")
+        expected = git(tmp_path, "hash-object", "spec.json")
         assert _local_blob(tmp_path, "spec.json") == expected
 
     def test_a_path_head_lacks_is_none(self, tmp_path: Path) -> None:
-        self._git(tmp_path, "init", "-q")
+        init_repo(tmp_path)
         (tmp_path / "a").write_text("a\n", encoding="utf-8")
-        self._git(tmp_path, "add", "a")
-        self._git(tmp_path, "commit", "-q", "-m", "x")
+        git(tmp_path, "add", "a")
+        git(tmp_path, "commit", "-q", "-m", "x")
         assert _local_blob(tmp_path, "spec.json") is None
 
 
@@ -445,8 +439,7 @@ class TestATagDispatch:
     @pytest.fixture
     def tagged(self, tmp_path: Path) -> Path:
         """A checkout of the candidate's commit: VERSION and CHANGELOG at 3.0.9."""
-        git = TestLocalBlob._git
-        git(tmp_path, "init", "-q")
+        init_repo(tmp_path)
         (tmp_path / "VERSION").write_text("3.0.9\n", encoding="utf-8")
         (tmp_path / "CHANGELOG.md").write_text("# stale checkout copy\n", "utf-8")
         git(tmp_path, "add", "VERSION", "CHANGELOG.md")
@@ -531,8 +524,8 @@ class TestATagDispatch:
     def test_an_untracked_version_is_not_committed(
         self, tip: _Api, tagged: Path
     ) -> None:
-        TestLocalBlob._git(tagged, "rm", "-q", "--cached", "VERSION")
-        TestLocalBlob._git(tagged, "commit", "-q", "-m", "untrack")
+        git(tagged, "rm", "-q", "--cached", "VERSION")
+        git(tagged, "commit", "-q", "-m", "untrack")
         commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
         assert self._tree(tip) == {"CHANGELOG.md"}
 

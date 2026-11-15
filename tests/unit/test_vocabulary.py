@@ -275,8 +275,6 @@ class TestRemovedKeys:
         monkeypatch.setattr(vocabulary, "_reported_removed_keys", set())
         monkeypatch.setattr(vocabulary, "_reported_carry_overs", set())
         monkeypatch.setattr(config_module, "_config_cache", None)
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
 
     @staticmethod
     def _announced(monkeypatch: pytest.MonkeyPatch) -> list[str]:

@@ -114,8 +114,6 @@ class TestAnOwedReasonFailsTheStage:
         # run_stage moves the process into the project and caches its config.
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(config_module, "_config_cache", None)
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         monkeypatch.setattr(common, "is_github_actions", lambda: False)
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "probe"\nversion = "0.0.0"\n', encoding="utf-8"

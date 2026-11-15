@@ -74,12 +74,6 @@ def _printing(tmp_path: Path, name: str, output: str, rc: int = 0) -> str:
     return _fake_tool(tmp_path, name, f"cat <<'EOF'\n{output}\nEOF\nexit {rc}")
 
 
-@pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("HYPERCI_QUALITY_SKIP", "HYPERCI_QUALITY_STRICT"):
-        monkeypatch.delenv(var, raising=False)
-
-
 @pytest.fixture
 def surfaced(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     levels: list[str] = []

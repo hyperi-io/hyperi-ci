@@ -17,8 +17,6 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import kubeconform
 
-_SKIP = "HYPERCI_QUALITY_SKIP"
-
 
 def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
@@ -28,12 +26,6 @@ def _set_ci(monkeypatch: pytest.MonkeyPatch, answer) -> None:  # noqa: ANN001
     """Answer is_ci for the missing-tool rule and the shared runner alike."""
     monkeypatch.setattr(tools, "is_ci", answer)
     monkeypatch.setattr(fdg, "is_ci", answer)
-
-
-@pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
 
 
 def _stub(

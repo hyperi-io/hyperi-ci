@@ -51,60 +51,51 @@ def cwd_tmp(tmp_path: Path, monkeypatch):
 class TestNoRewriteCases:
     """Returns the original path unchanged when nothing needs rewriting."""
 
-    def test_no_dockerfile_copies(self, cwd_tmp: Path) -> None:
-        df = _write_dockerfile(
-            cwd_tmp,
-            "FROM ubuntu:24.04\nRUN apt-get update\n",
-        )
-        result = stage_binary_dockerfile(df)
-        assert result == df
-
-    def test_already_parameterised_copy(self, cwd_tmp: Path) -> None:
-        # ci-test-rust-app / dfe-loader pattern -- already uses TARGETARCH.
-        # Should NOT be touched.
-        _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
-        df = _write_dockerfile(
-            cwd_tmp,
-            "FROM ubuntu:24.04\n"
-            "ARG TARGETARCH\n"
-            "COPY dist/demo-linux-${TARGETARCH} /usr/local/bin/demo\n",
-        )
-        result = stage_binary_dockerfile(df)
-        assert result == df
-
-    def test_copy_from_other_stage(self, cwd_tmp: Path) -> None:
-        # Multi-stage `COPY --from=builder` shouldn't be rewritten --
-        # it copies from another build stage, not the build context.
-        _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
-        df = _write_dockerfile(
-            cwd_tmp,
-            "FROM rust:1.84 AS builder\nRUN cargo build\n"
-            "FROM ubuntu:24.04\n"
-            "COPY --from=builder /app/target/release/demo /usr/local/bin/demo\n",
-        )
-        result = stage_binary_dockerfile(df)
-        assert result == df
-
-    def test_copy_with_no_matching_dist_artefact(self, cwd_tmp: Path) -> None:
-        # `COPY config.yaml /etc/app/` -- config files, not binaries.
-        # No dist/config.yaml-linux-amd64 → don't rewrite.
-        df = _write_dockerfile(
-            cwd_tmp,
-            "FROM ubuntu:24.04\nCOPY config.yaml /etc/app/config.yaml\n",
-        )
-        result = stage_binary_dockerfile(df)
-        assert result == df
-
-    def test_copy_with_path_in_source(self, cwd_tmp: Path) -> None:
-        # Path-form sources like `COPY src/ /app/` are skipped -- only
-        # bare names are rewrite candidates.
-        _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
-        df = _write_dockerfile(
-            cwd_tmp,
-            "FROM ubuntu:24.04\nCOPY ./demo /usr/local/bin/demo\n",
-        )
-        result = stage_binary_dockerfile(df)
-        assert result == df
+    @pytest.mark.parametrize(
+        ("artefacts", "dockerfile"),
+        [
+            pytest.param(
+                [],
+                "FROM ubuntu:24.04\nRUN apt-get update\n",
+                id="no-dockerfile-copies",
+            ),
+            pytest.param(
+                # The ci-test-rust-app / dfe-loader pattern, already on TARGETARCH.
+                ["demo"],
+                "FROM ubuntu:24.04\n"
+                "ARG TARGETARCH\n"
+                "COPY dist/demo-linux-${TARGETARCH} /usr/local/bin/demo\n",
+                id="already-parameterised-copy",
+            ),
+            pytest.param(
+                # A multi-stage `COPY --from` reads another stage, not the context.
+                ["demo"],
+                "FROM rust:1.84 AS builder\nRUN cargo build\n"
+                "FROM ubuntu:24.04\n"
+                "COPY --from=builder /app/target/release/demo /usr/local/bin/demo\n",
+                id="copy-from-other-stage",
+            ),
+            pytest.param(
+                # Config files, not binaries: no dist/config.yaml-linux-amd64.
+                [],
+                "FROM ubuntu:24.04\nCOPY config.yaml /etc/app/config.yaml\n",
+                id="copy-with-no-matching-dist-artefact",
+            ),
+            pytest.param(
+                # Only bare names are rewrite candidates, not `./demo`.
+                ["demo"],
+                "FROM ubuntu:24.04\nCOPY ./demo /usr/local/bin/demo\n",
+                id="copy-with-a-path-in-the-source",
+            ),
+        ],
+    )
+    def test_the_dockerfile_is_left_alone(
+        self, cwd_tmp: Path, artefacts: list[str], dockerfile: str
+    ) -> None:
+        for name in artefacts:
+            _write_dist_artefact(cwd_tmp / "dist", name, "amd64")
+        df = _write_dockerfile(cwd_tmp, dockerfile)
+        assert stage_binary_dockerfile(df) == df
 
 
 class TestRewrite:
@@ -343,7 +334,6 @@ class TestLicenceCopy:
         lines = rewritten.splitlines()
         assert lines[-2] == 'ENTRYPOINT ["demo"]'
         assert lines[-1] == f"COPY LICENSE {LICENCE_DEST}"
-        assert LICENCE_DEST == "/licenses/LICENSE"
 
     def test_licence_copy_rides_along_with_binary_rewrite(self, cwd_tmp: Path) -> None:
         _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")

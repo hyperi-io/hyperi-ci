@@ -14,6 +14,8 @@ are the ones that bite in real manifests.
 
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.deployment.manifest import (
     dep_features,
     effective_dep_features,
@@ -307,62 +309,59 @@ class TestPythonEntryPoint:
     def test_no_pyproject(self, tmp_path: Path) -> None:
         assert python_entry_point(tmp_path) is None
 
-    def test_project_scripts(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\n[project.scripts]\ndemo = "demo.main:main"\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) == "demo"
-
-    def test_no_scripts_table(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\ndependencies = ["scalo>=2.28"]\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) is None
-
-    def test_empty_scripts_table(self, tmp_path: Path) -> None:
-        # Declared but empty, with a following section -- must not claim
-        # the next table's first key as a script name.
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\n'
-            "[project.scripts]\n"
-            "[tool.ruff]\nline-length = 88\n",
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) is None
-
-    def test_comments_skipped(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project.scripts]\n# the CLI entry\ndemo = "demo.main:main"\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) == "demo"
-
-    def test_quoted_key_unquoted(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project.scripts]\n"demo-app" = "demo.main:main"\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) == "demo-app"
-
-    def test_poetry_scripts(self, tmp_path: Path) -> None:
-        # A poetry-managed ServiceApp installs a console script just the
-        # same, so it is a producer.
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.poetry]\nname = "demo"\n'
-            '[tool.poetry.scripts]\ndemo = "demo.main:main"\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) == "demo"
-
-    def test_console_scripts_entry_points(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\n'
-            '[project.entry-points."console_scripts"]\ndemo = "demo.main:main"\n',
-            encoding="utf-8",
-        )
-        assert python_entry_point(tmp_path) == "demo"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param(
+                '[project]\nname = "demo"\n[project.scripts]\ndemo = "demo.main:main"\n',
+                "demo",
+                id="project-scripts",
+            ),
+            pytest.param(
+                '[project]\nname = "demo"\ndependencies = ["scalo>=2.28"]\n',
+                None,
+                id="no-scripts-table",
+            ),
+            pytest.param(
+                # Declared but empty, with a following section -- must not claim
+                # the next table's first key as a script name.
+                '[project]\nname = "demo"\n'
+                "[project.scripts]\n"
+                "[tool.ruff]\nline-length = 88\n",
+                None,
+                id="empty-scripts-table",
+            ),
+            pytest.param(
+                '[project.scripts]\n# the CLI entry\ndemo = "demo.main:main"\n',
+                "demo",
+                id="comments-skipped",
+            ),
+            pytest.param(
+                '[project.scripts]\n"demo-app" = "demo.main:main"\n',
+                "demo-app",
+                id="quoted-key-unquoted",
+            ),
+            pytest.param(
+                # A poetry-managed ServiceApp installs a console script just the
+                # same, so it is a producer.
+                '[tool.poetry]\nname = "demo"\n'
+                '[tool.poetry.scripts]\ndemo = "demo.main:main"\n',
+                "demo",
+                id="poetry-scripts",
+            ),
+            pytest.param(
+                '[project]\nname = "demo"\n'
+                '[project.entry-points."console_scripts"]\ndemo = "demo.main:main"\n',
+                "demo",
+                id="console-scripts-entry-points",
+            ),
+        ],
+    )
+    def test_the_entry_point(
+        self, tmp_path: Path, text: str, expected: str | None
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(text, encoding="utf-8")
+        assert python_entry_point(tmp_path) == expected
 
 
 class TestRustBinarySelection:
@@ -372,28 +371,32 @@ class TestRustBinarySelection:
     the wrong binary.
     """
 
-    def test_picks_package_name_when_matching_bin_present(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
-            '[[bin]]\nname = "pgo-driver"\npath = "src/bin/pgo-driver.rs"\n'
-            '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n',
-            encoding="utf-8",
-        )
-        assert rust_binary_name(tmp_path) == "dfe-receiver"
-
-    def test_picks_package_name_when_no_explicit_bin(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "myapp"\nversion = "1.0.0"\n', encoding="utf-8"
-        )
-        assert rust_binary_name(tmp_path) == "myapp"
-
-    def test_falls_back_to_first_bin_when_no_package_name(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[[bin]]\nname = "first-bin"\npath = "src/a.rs"\n'
-            '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
-            encoding="utf-8",
-        )
-        assert rust_binary_name(tmp_path) == "first-bin"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param(
+                '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
+                '[[bin]]\nname = "pgo-driver"\npath = "src/bin/pgo-driver.rs"\n'
+                '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n',
+                "dfe-receiver",
+                id="package-name-when-a-matching-bin-is-present",
+            ),
+            pytest.param(
+                '[package]\nname = "myapp"\nversion = "1.0.0"\n',
+                "myapp",
+                id="package-name-when-no-explicit-bin",
+            ),
+            pytest.param(
+                '[[bin]]\nname = "first-bin"\npath = "src/a.rs"\n'
+                '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
+                "first-bin",
+                id="first-bin-when-no-package-name",
+            ),
+        ],
+    )
+    def test_the_binary_name(self, tmp_path: Path, text: str, expected: str) -> None:
+        (tmp_path / "Cargo.toml").write_text(text, encoding="utf-8")
+        assert rust_binary_name(tmp_path) == expected
 
     def test_workspace_returns_none_when_no_member_has_binary(
         self, tmp_path: Path

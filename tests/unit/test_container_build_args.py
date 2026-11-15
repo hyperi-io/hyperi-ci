@@ -22,42 +22,60 @@ from hyperi_ci.container.build import BuildArgError, render_build_args
 
 
 class TestRenderBuildArgs:
-    def test_version_and_sha_are_substituted(self) -> None:
-        rendered = render_build_args(
-            {"CODE_VERSION": "{version}", "CODE_SHA": "{sha}"},
-            version="1.4.0",
-            sha="0123456789abcdef",
-        )
-        assert rendered == {"CODE_VERSION": "1.4.0", "CODE_SHA": "0123456789abcdef"}
-
-    def test_placeholders_sit_inside_other_text(self) -> None:
-        rendered = render_build_args(
-            {"BUILD_ID": "v{version}+{sha}.{version}"}, version="2.0.1", sha="abc"
-        )
-        assert rendered == {"BUILD_ID": "v2.0.1+abc.2.0.1"}
+    @pytest.mark.parametrize(
+        ("case", "raw", "version", "sha", "expected"),
+        [
+            (
+                "version-and-sha-are-substituted",
+                {"CODE_VERSION": "{version}", "CODE_SHA": "{sha}"},
+                "1.4.0",
+                "0123456789abcdef",
+                {"CODE_VERSION": "1.4.0", "CODE_SHA": "0123456789abcdef"},
+            ),
+            (
+                "placeholders-sit-inside-other-text",
+                {"BUILD_ID": "v{version}+{sha}.{version}"},
+                "2.0.1",
+                "abc",
+                {"BUILD_ID": "v2.0.1+abc.2.0.1"},
+            ),
+            (
+                # docker got f"{key}={value}" before, so a YAML int or bool keeps its text.
+                "a-non-string-value-renders-as-before",
+                {"PORT": 8080, "DEBUG": True},
+                "1.0.0",
+                "abc",
+                {"PORT": "8080", "DEBUG": "True"},
+            ),
+            (
+                "keys-are-never-substituted",
+                {"{version}": "x"},
+                "1.0.0",
+                "abc",
+                {"{version}": "x"},
+            ),
+            (
+                "doubled-braces-are-literal",
+                {"TEMPLATE": "{{name}}-{version}", "JSON": '{{"a": 1}}'},
+                "3.2.1",
+                "abc",
+                {"TEMPLATE": "{name}-3.2.1", "JSON": '{"a": 1}'},
+            ),
+        ],
+    )
+    def test_the_rendered_args(
+        self,
+        case: str,
+        raw: dict[str, Any],
+        version: str,
+        sha: str,
+        expected: dict[str, str],
+    ) -> None:
+        assert render_build_args(raw, version=version, sha=sha) == expected
 
     def test_a_value_without_placeholders_passes_through_unchanged(self) -> None:
         raw = {"BASE": "debian:bookworm-slim", "FLAGS": "--opt=a,b c"}
         assert render_build_args(raw, version="1.0.0", sha="abc") == raw
-
-    def test_a_non_string_value_renders_as_before(self) -> None:
-        # docker got f"{key}={value}" before, so a YAML int or bool keeps its text.
-        rendered = render_build_args(
-            {"PORT": 8080, "DEBUG": True}, version="1.0.0", sha="abc"
-        )
-        assert rendered == {"PORT": "8080", "DEBUG": "True"}
-
-    def test_keys_are_never_substituted(self) -> None:
-        rendered = render_build_args({"{version}": "x"}, version="1.0.0", sha="abc")
-        assert rendered == {"{version}": "x"}
-
-    def test_doubled_braces_are_literal(self) -> None:
-        rendered = render_build_args(
-            {"TEMPLATE": "{{name}}-{version}", "JSON": '{{"a": 1}}'},
-            version="3.2.1",
-            sha="abc",
-        )
-        assert rendered == {"TEMPLATE": "{name}-3.2.1", "JSON": '{"a": 1}'}
 
     def test_none_and_empty_render_to_nothing(self) -> None:
         assert render_build_args(None, version="1.0.0", sha="abc") == {}

@@ -316,20 +316,18 @@ class TestIsPrereleaseBuild:
 class TestSanitizeRefName:
     """Sanitize git ref names for use in file paths."""
 
-    def test_branch_with_slash(self) -> None:
-        assert sanitize_ref_name("fix/reconcile-release") == "fix-reconcile-release"
-
-    def test_multiple_slashes(self) -> None:
-        assert sanitize_ref_name("feat/scope/thing") == "feat-scope-thing"
-
-    def test_no_slash(self) -> None:
-        assert sanitize_ref_name("main") == "main"
-
-    def test_tag_version(self) -> None:
-        assert sanitize_ref_name("v1.2.3") == "v1.2.3"
-
-    def test_empty_string(self) -> None:
-        assert sanitize_ref_name("") == ""
+    @pytest.mark.parametrize(
+        ("ref", "expected"),
+        [
+            ("fix/reconcile-release", "fix-reconcile-release"),
+            ("feat/scope/thing", "feat-scope-thing"),
+            ("main", "main"),
+            ("v1.2.3", "v1.2.3"),
+            ("", ""),
+        ],
+    )
+    def test_the_sanitised_name(self, ref: str, expected: str) -> None:
+        assert sanitize_ref_name(ref) == expected
 
 
 class TestRunCmdUtf8:
@@ -635,50 +633,38 @@ class TestMask:
     relevant in its own right: the runner parses stdout line by line, and the
     one caller feeds it an R2 secret key straight from the environment."""
 
-    def test_emits_the_add_mask_command(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        monkeypatch.setattr(common, "is_github_actions", lambda: True)
-        common.mask("s3cret")
-        assert capsys.readouterr().out == "::add-mask::s3cret\n"
-
-    def test_silent_outside_actions(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        monkeypatch.setattr(common, "is_github_actions", lambda: False)
-        common.mask("s3cret")
-        assert capsys.readouterr().out == ""
-
-    def test_percent_is_escaped_so_the_registered_value_is_the_real_one(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """The runner unescapes command data, so an unescaped `%` registers a
-        different string and leaves the actual secret unmasked."""
-        monkeypatch.setattr(common, "is_github_actions", lambda: True)
-        common.mask("ab%25cd")
-        assert capsys.readouterr().out == "::add-mask::ab%2525cd\n"
-
-    def test_newlines_are_encoded_not_split(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """One line, so the remainder cannot be parsed as a further command."""
-        monkeypatch.setattr(common, "is_github_actions", lambda: True)
-        common.mask("first\n::set-output name=x::y")
-        out = capsys.readouterr().out
-        assert out == "::add-mask::first%0A::set-output name=x::y\n"
-        assert len(out.splitlines()) == 1
-
-    @pytest.mark.parametrize("blank", ["", "   ", "\n", "\t"])
-    def test_blank_values_emit_nothing(
+    @pytest.mark.parametrize(
+        ("secret", "on_actions", "expected"),
+        [
+            ("s3cret", True, "::add-mask::s3cret\n"),
+            ("s3cret", False, ""),
+            # The runner unescapes command data, so an unescaped `%` registers a
+            # different string and leaves the actual secret unmasked.
+            ("ab%25cd", True, "::add-mask::ab%2525cd\n"),
+            # One line, so the remainder cannot be parsed as a further command.
+            (
+                "first\n::set-output name=x::y",
+                True,
+                "::add-mask::first%0A::set-output name=x::y\n",
+            ),
+            # The runner rejects a blank mask with a warning, so none is sent.
+            ("", True, ""),
+            ("   ", True, ""),
+            ("\n", True, ""),
+            ("\t", True, ""),
+        ],
+    )
+    def test_what_mask_emits(
         self,
-        blank: str,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
+        secret: str,
+        on_actions: bool,
+        expected: str,
     ) -> None:
-        """The runner rejects a blank mask with a warning, so do not send one."""
-        monkeypatch.setattr(common, "is_github_actions", lambda: True)
-        common.mask(blank)
-        assert capsys.readouterr().out == ""
+        monkeypatch.setattr(common, "is_github_actions", lambda: on_actions)
+        common.mask(secret)
+        assert capsys.readouterr().out == expected
 
     def test_is_flushed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Masking is not retroactive: an unflushed command can reach the log

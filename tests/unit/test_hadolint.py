@@ -23,7 +23,6 @@ from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import hadolint
 
 _SKIP = "HYPERCI_QUALITY_SKIP"
-_STRICT = "HYPERCI_QUALITY_STRICT"
 
 
 def _cfg(raw: dict | None = None) -> CIConfig:
@@ -34,12 +33,6 @@ def _set_ci(monkeypatch: pytest.MonkeyPatch, answer) -> None:  # noqa: ANN001
     """Answer is_ci for the missing-tool rule and the shared runner alike."""
     monkeypatch.setattr(tools, "is_ci", answer)
     monkeypatch.setattr(fdg, "is_ci", answer)
-
-
-@pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.delenv(_STRICT, raising=False)
 
 
 def _stub_run(monkeypatch: pytest.MonkeyPatch, stdout: str) -> None:

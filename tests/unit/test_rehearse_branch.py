@@ -40,23 +40,19 @@ class TestSwapRefs:
         assert count == 2
         assert out.count("@fix/x") == 2
 
-    def test_leaves_third_party_refs_alone(self) -> None:
-        text = "uses: actions/checkout@main\nuses: dataaxiom/ghcr-cleanup-action@main\n"
-        out, count = rehearse_branch.swap_refs(text, "fix/x")
-        assert count == 0
-        assert out == text
-
-    def test_leaves_pinned_refs_alone(self) -> None:
-        # A SHA-pinned or version-pinned hyperi-ci ref is deliberate -- only
-        # the floating @main refs are rehearsal targets.
-        text = "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@abc123\n"
-        out, count = rehearse_branch.swap_refs(text, "fix/x")
-        assert count == 0
-        assert out == text
-
-    def test_does_not_match_main_prefix_words(self) -> None:
-        # @maintenance must not be treated as @main (word boundary).
-        text = "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@maintenance\n"
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "uses: actions/checkout@main\nuses: dataaxiom/ghcr-cleanup-action@main\n",
+            # A SHA-pinned or version-pinned hyperi-ci ref is deliberate: only the
+            # floating @main refs are rehearsal targets.
+            "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@abc123\n",
+            # @maintenance must not be treated as @main (word boundary).
+            "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@maintenance\n",
+        ],
+        ids=["third-party-refs", "pinned-refs", "main-prefix-words"],
+    )
+    def test_a_ref_that_is_not_a_floating_main_is_left_alone(self, text: str) -> None:
         out, count = rehearse_branch.swap_refs(text, "fix/x")
         assert count == 0
         assert out == text

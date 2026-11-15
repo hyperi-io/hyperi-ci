@@ -61,7 +61,6 @@ class _Log:
         self.ran: list[list[str]] = []
         self.results: list[subprocess.CompletedProcess[str]] = []
         self.sleeps: list[float] = []
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         self.in_ci(monkeypatch, False)
         monkeypatch.setattr(quality_common.time, "sleep", self.sleeps.append)
         monkeypatch.setattr(quality_common, "run_cmd", self._run)
@@ -271,8 +270,6 @@ _HANDLERS: dict[str, Callable[[pytest.MonkeyPatch, Path, _Calls], None]] = {
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> _Calls:
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
     monkeypatch.setattr(quality_common, "is_ci", lambda: False)
     return _Calls()
 

@@ -83,42 +83,43 @@ class TestManifestReading:
 class TestCargoWorkspace:
     """A workspace has no [package] of its own -- [workspace.package] answers."""
 
-    def test_virtual_manifest_uses_workspace_package(self, tmp_path: Path) -> None:
-        _rust(
-            tmp_path,
-            '[workspace]\nmembers = ["crates/a"]\n\n'
-            '[workspace.package]\ndescription = "The repo-level text"\n',
-        )
-        assert manifest_description(tmp_path) == ("The repo-level text", "Cargo.toml")
-
-    def test_a_member_keeps_its_own(self, tmp_path: Path) -> None:
-        """Forced inheritance would flatten distinct crates on crates.io."""
-        _rust(
-            tmp_path,
-            '[workspace.package]\ndescription = "Repo level"\n\n'
-            '[package]\nname = "t"\ndescription = "Member specific"\n',
-        )
-        assert manifest_description(tmp_path) == ("Member specific", "Cargo.toml")
-
-    def test_an_inheriting_member_resolves_to_the_workspace(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [
+            pytest.param(
+                '[workspace]\nmembers = ["crates/a"]\n\n'
+                '[workspace.package]\ndescription = "The repo-level text"\n',
+                ("The repo-level text", "Cargo.toml"),
+                id="virtual-manifest-uses-workspace-package",
+            ),
+            pytest.param(
+                # Forced inheritance would flatten distinct crates on crates.io.
+                '[workspace.package]\ndescription = "Repo level"\n\n'
+                '[package]\nname = "t"\ndescription = "Member specific"\n',
+                ("Member specific", "Cargo.toml"),
+                id="a-member-keeps-its-own",
+            ),
+            pytest.param(
+                # `description.workspace = true` parses as a table, not a string.
+                '[workspace.package]\ndescription = "Shared text"\n\n'
+                '[package]\nname = "t"\ndescription.workspace = true\n',
+                ("Shared text", "Cargo.toml"),
+                id="an-inheriting-member-resolves-to-the-workspace",
+            ),
+            pytest.param(
+                # Reported, not silently blank.
+                '[workspace]\nmembers = ["crates/a"]\n\n'
+                '[workspace.package]\nversion = "1.0.0"\n',
+                None,
+                id="a-workspace-with-no-description-has-none",
+            ),
+        ],
+    )
+    def test_the_workspace_description(
+        self, tmp_path: Path, body: str, expected: tuple[str, str] | None
     ) -> None:
-        """`description.workspace = true` parses as a table, not a string."""
-        _rust(
-            tmp_path,
-            '[workspace.package]\ndescription = "Shared text"\n\n'
-            '[package]\nname = "t"\ndescription.workspace = true\n',
-        )
-        assert manifest_description(tmp_path) == ("Shared text", "Cargo.toml")
-
-    def test_a_workspace_with_no_description_has_none(self, tmp_path: Path) -> None:
-        """The gap this design closes -- reported, not silently blank."""
-        _rust(
-            tmp_path,
-            '[workspace]\nmembers = ["crates/a"]\n\n'
-            '[workspace.package]\nversion = "1.0.0"\n',
-        )
-        assert manifest_description(tmp_path) is None
+        _rust(tmp_path, body)
+        assert manifest_description(tmp_path) == expected
 
 
 class TestResolutionOrder:

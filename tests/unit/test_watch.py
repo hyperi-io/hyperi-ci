@@ -62,27 +62,21 @@ def _listed_run(
 class TestPollInterval:
     """Exponential backoff with cap at 120 s."""
 
-    def test_first_attempt_is_base(self) -> None:
-        assert _poll_interval(30, 1) == 30.0
-
-    def test_second_attempt_grows(self) -> None:
-        assert _poll_interval(30, 2) == 45.0
-
-    def test_third_attempt_grows_more(self) -> None:
-        assert _poll_interval(30, 3) == pytest.approx(67.5)
-
-    def test_caps_at_120(self) -> None:
-        # Eventually plateaus regardless of attempt count.
-        assert _poll_interval(30, 50) == 120.0
-
-    def test_cap_holds_for_smaller_base(self) -> None:
-        # Base 10, attempt enough times: 10 * 1.5^4 = 50.625, capped above
-        # is 120 -- but we should never *exceed* 120 even with crazy attempts.
-        assert _poll_interval(10, 100) <= 120.0
-
-    def test_minimum_attempt_one(self) -> None:
-        # Attempt 1 → exponent is min(0, 4) = 0 → base * 1 = base.
-        assert _poll_interval(60, 1) == 60.0
+    @pytest.mark.parametrize(
+        ("base", "attempt", "expected"),
+        [
+            pytest.param(30, 1, 30.0, id="first-attempt-is-base"),
+            pytest.param(30, 2, 45.0, id="second-attempt-grows"),
+            pytest.param(30, 3, pytest.approx(67.5), id="third-attempt-grows-more"),
+            pytest.param(30, 50, 120.0, id="caps-at-120"),
+            pytest.param(
+                10, 100, pytest.approx(50.625), id="a-smaller-base-stays-under-the-cap"
+            ),
+            pytest.param(60, 1, 60.0, id="attempt-one-is-the-base"),
+        ],
+    )
+    def test_the_interval(self, base: int, attempt: int, expected: float) -> None:
+        assert _poll_interval(base, attempt) == expected
 
 
 class TestResumeCommand:
@@ -203,24 +197,6 @@ class TestWatchRunTimeout:
         # Returns 2 on timeout per docstring
         assert rc == 2
 
-    def test_explicit_zero_timeout_in_initial_log_line(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When timeout=0, the initial info log says '(no timeout)'."""
-        terminal = {
-            "status": "completed",
-            "conclusion": "success",
-            "jobs": [],
-            "url": "",
-            "workflowName": "CI",
-            "headBranch": "main",
-        }
-        with (
-            patch("hyperi_ci.watch.require_gh", return_value=True),
-            patch("hyperi_ci.watch._get_run_status", return_value=terminal),
-            patch("hyperi_ci.watch.time.sleep"),
-        ):
-            watch_run(run_id="42", timeout=0, interval=1)
         # The "no timeout" mode should be visibly distinguished in the
         # logs (see watch.py -- info(f"Watching run {run_id} (no timeout)")).
         # We don't assert on exact log capture due to logger plumbing
@@ -304,41 +280,19 @@ class TestWatchRunTerminalStates:
             "headBranch": "main",
         }
 
-    def test_success_returns_zero(self) -> None:
+    @pytest.mark.parametrize(
+        ("conclusion", "rc"), [("success", 0), ("failure", 1), ("cancelled", 1)]
+    )
+    def test_the_conclusion_sets_the_exit_code(self, conclusion: str, rc: int) -> None:
         with (
             patch("hyperi_ci.watch.require_gh", return_value=True),
             patch(
                 "hyperi_ci.watch._get_run_status",
-                return_value=self._terminal("success"),
+                return_value=self._terminal(conclusion),
             ),
             patch("hyperi_ci.watch.time.sleep"),
         ):
-            rc = watch_run(run_id="1", timeout=0, interval=1)
-        assert rc == 0
-
-    def test_failure_returns_one(self) -> None:
-        with (
-            patch("hyperi_ci.watch.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.watch._get_run_status",
-                return_value=self._terminal("failure"),
-            ),
-            patch("hyperi_ci.watch.time.sleep"),
-        ):
-            rc = watch_run(run_id="1", timeout=0, interval=1)
-        assert rc == 1
-
-    def test_cancelled_returns_one(self) -> None:
-        with (
-            patch("hyperi_ci.watch.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.watch._get_run_status",
-                return_value=self._terminal("cancelled"),
-            ),
-            patch("hyperi_ci.watch.time.sleep"),
-        ):
-            rc = watch_run(run_id="1", timeout=0, interval=1)
-        assert rc == 1
+            assert watch_run(run_id="1", timeout=0, interval=1) == rc
 
 
 class TestWatchRunEarlyFail:

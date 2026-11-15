@@ -37,29 +37,27 @@ def _repo(root: Path) -> Path:
 class TestParseInputs:
     """`key=value` pairs become the dict trigger_workflow sends."""
 
-    def test_none_is_empty(self) -> None:
-        assert trigger.parse_inputs(None) == {}
-
-    def test_empty_list_is_empty(self) -> None:
-        assert trigger.parse_inputs([]) == {}
-
-    def test_one_pair(self) -> None:
-        assert trigger.parse_inputs(["open_pr=true"]) == {"open_pr": "true"}
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (None, {}),
+            ([], {}),
+            (["open_pr=true"], {"open_pr": "true"}),
+            (["expr=a=b"], {"expr": "a=b"}),  # only the first `=` separates
+            (["tag="], {"tag": ""}),
+            ([" tag =v1"], {"tag": "v1"}),  # space around the key is dropped
+        ],
+    )
+    def test_the_parsed_pairs(
+        self, raw: list[str] | None, expected: dict[str, str]
+    ) -> None:
+        assert trigger.parse_inputs(raw) == expected
 
     def test_several_keep_their_order(self) -> None:
         parsed = trigger.parse_inputs(
             ["upstream_ref=v1.2.3", "base_ref=main", "open_pr=false"]
         )
         assert list(parsed) == ["upstream_ref", "base_ref", "open_pr"]
-
-    def test_only_the_first_equals_separates(self) -> None:
-        assert trigger.parse_inputs(["expr=a=b"]) == {"expr": "a=b"}
-
-    def test_an_empty_value_is_allowed(self) -> None:
-        assert trigger.parse_inputs(["tag="]) == {"tag": ""}
-
-    def test_space_around_the_key_is_dropped(self) -> None:
-        assert trigger.parse_inputs([" tag =v1"]) == {"tag": "v1"}
 
     @pytest.mark.parametrize("bad", ["justakey", "=novalue", " =x"])
     def test_a_malformed_entry_is_refused(self, bad: str) -> None:
@@ -126,28 +124,21 @@ class TestTriggerArgv:
 class TestWorkflowResolution:
     """Any workflow the repo carries, named however the caller has it."""
 
-    def test_a_bespoke_stem_resolves_to_its_file(self, tmp_path: Path) -> None:
-        # `-w upstream-sync` is what a run listing shows, not the filename.
-        root = _repo(tmp_path)
-        assert (
-            trigger.resolve_workflow_file("upstream-sync", root) == "upstream-sync.yml"
-        )
-
-    def test_a_display_name_resolves(self, tmp_path: Path) -> None:
-        assert trigger.resolve_workflow_file("CI", _repo(tmp_path)) == "ci.yml"
-
-    def test_a_filename_is_kept(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        assert (
-            trigger.resolve_workflow_file("upstream-sync.yml", root)
-            == "upstream-sync.yml"
-        )
-
-    def test_an_unknown_token_passes_through(self, tmp_path: Path) -> None:
-        # Refusing off a local listing would fail closed on a checkout
-        # that lags the remote; gh answers instead.
-        root = _repo(tmp_path)
-        assert trigger.resolve_workflow_file("release.yml", root) == "release.yml"
+    @pytest.mark.parametrize(
+        ("token", "expected"),
+        [
+            # `-w upstream-sync` is what a run listing shows, not the filename.
+            ("upstream-sync", "upstream-sync.yml"),
+            ("CI", "ci.yml"),  # a display name
+            ("upstream-sync.yml", "upstream-sync.yml"),
+            # Refusing off a local listing would fail closed on a checkout that
+            # lags the remote, so an unknown token passes through for gh to answer.
+            ("release.yml", "release.yml"),
+        ],
+        ids=["bespoke-stem", "display-name", "filename-kept", "unknown-token"],
+    )
+    def test_the_resolved_file(self, tmp_path: Path, token: str, expected: str) -> None:
+        assert trigger.resolve_workflow_file(token, _repo(tmp_path)) == expected
 
     def test_no_workflows_directory_passes_through(self, tmp_path: Path) -> None:
         assert trigger.resolve_workflow_file("ci.yml", tmp_path) == "ci.yml"

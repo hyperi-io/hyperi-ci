@@ -39,7 +39,6 @@ class _Said:
 @pytest.fixture
 def said(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Said:
     """Run only gofmt, on a dev box, from an empty Go tree."""
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setenv("HYPERCI_QUALITY_SKIP", "govet,golangci_lint,gosec,govulncheck")

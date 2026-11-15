@@ -353,91 +353,79 @@ class TestTheCliGate:
             "passes `--no-stamp-cmd`, which the published CLI does not accept"
         ]
 
-    def test_published_options_pass_in_every_spelling(self) -> None:
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} run test --tier=full -C dir\n"
-            "      - run: ${{ env.HYPERCI_INSTALL }} --version\n"
-            "      - run: ${{ env.HYPERCI_INSTALL }} stamp-version -Cdir --help\n"
-        )
-        assert _gaps(text) == []
+    @pytest.mark.parametrize(
+        "steps",
+        [
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} run test --tier=full -C dir\n"
+                "      - run: ${{ env.HYPERCI_INSTALL }} --version\n"
+                "      - run: ${{ env.HYPERCI_INSTALL }} stamp-version -Cdir --help\n",
+                id="published-options-in-every-spelling",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} run test -- --anything -x\n",
+                id="after-a-double-dash-not-checked",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump patch\n",
+                id="value-taking-options-word-is-not-a-subcommand",
+            ),
+            pytest.param(
+                '      - run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$V"\n',
+                id="hidden-command-counts-as-published",
+            ),
+        ],
+    )
+    def test_published_usage_passes(self, steps: str) -> None:
+        assert _gaps(_workflow(steps)) == []
 
-    def test_an_unknown_short_flag_fails(self) -> None:
-        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} run test -Z\n")
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "`hyperi-ci run` passes `-Z`, which the published CLI does not accept"
-        ]
-
-    def test_arguments_after_a_double_dash_are_not_checked(self) -> None:
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} run test -- --anything -x\n"
-        )
-        assert _gaps(text) == []
-
-    def test_a_value_taking_option_s_word_is_not_read_as_a_subcommand(self) -> None:
-        """issue #474: `publish --bump patch` -- `patch` is `--bump`'s value,
-        not a subcommand of the `publish` group."""
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump patch\n"
-        )
-        assert _gaps(text) == []
-
-    def test_a_fused_short_option_s_value_is_not_skipped_again(self) -> None:
-        """`-bpatch` already carries its value; the next word must still be
-        read, not swallowed as a second value."""
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} publish -bpatch frobnicate\n"
-        )
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
-        ]
-
-    def test_an_equals_form_value_is_not_skipped_again(self) -> None:
-        """`--bump=patch` carries its value inline; the next word must still
-        be read, not swallowed as a second value."""
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump=patch frobnicate\n"
-        )
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
-        ]
-
-    def test_a_nested_command_checks_its_own_options(self) -> None:
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --no-dry-run\n"
-            "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --tier x\n"
-        )
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "`hyperi-ci publish binaries` passes `--tier`, which the published "
-            "CLI does not accept"
-        ]
-
-    def test_a_missing_subcommand_is_reported(self) -> None:
-        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} gate-check\n")
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "calls `hyperi-ci gate-check`, absent from the published CLI"
-        ]
-
-    def test_a_missing_nested_subcommand_is_reported(self) -> None:
-        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} publish docs\n")
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "calls `hyperi-ci publish docs`, absent from the published CLI"
-        ]
-
-    def test_a_hidden_command_counts_as_published(self) -> None:
-        """`--help` hides `tag-head`, so the table must not come from scraping it."""
-        text = _workflow(
-            '      - run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$V"\n'
-        )
-        assert _gaps(text) == []
-
-    def test_a_subcommand_from_an_expression_is_not_silently_passed(self) -> None:
-        text = _workflow(
-            "      - run: ${{ env.HYPERCI_INSTALL }} ${{ inputs.command }}\n"
-        )
-        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
-            "the subcommand after `hyperi-ci` comes from an expression, so the "
-            "gate cannot check it"
-        ]
+    @pytest.mark.parametrize(
+        ("steps", "message"),
+        [
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} run test -Z\n",
+                "`hyperi-ci run` passes `-Z`, which the published CLI does not accept",
+                id="unknown-short-flag",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish -bpatch frobnicate\n",
+                "calls `hyperi-ci publish frobnicate`, absent from the published CLI",
+                id="fused-short-option-value-not-skipped-again",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump=patch "
+                "frobnicate\n",
+                "calls `hyperi-ci publish frobnicate`, absent from the published CLI",
+                id="equals-form-value-not-skipped-again",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries "
+                "--no-dry-run\n"
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --tier x\n",
+                "`hyperi-ci publish binaries` passes `--tier`, which the published "
+                "CLI does not accept",
+                id="nested-command-checks-its-own-options",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} gate-check\n",
+                "calls `hyperi-ci gate-check`, absent from the published CLI",
+                id="missing-subcommand",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} publish docs\n",
+                "calls `hyperi-ci publish docs`, absent from the published CLI",
+                id="missing-nested-subcommand",
+            ),
+            pytest.param(
+                "      - run: ${{ env.HYPERCI_INSTALL }} ${{ inputs.command }}\n",
+                "the subcommand after `hyperi-ci` comes from an expression, so the "
+                "gate cannot check it",
+                id="subcommand-from-an-expression",
+            ),
+        ],
+    )
+    def test_unpublished_usage_is_reported(self, steps: str, message: str) -> None:
+        assert [g.split(": ", 1)[1] for g in _gaps(_workflow(steps))] == [message]
 
     def test_every_location_is_named(self) -> None:
         text = _workflow(

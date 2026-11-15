@@ -11,7 +11,6 @@ added a ``feat:`` and a breaking ``feat!:``.
 """
 
 import json
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,21 +25,10 @@ from hyperi_ci.fork_version import (
     predict_version,
 )
 from hyperi_ci.release_rules import classify_commit
+from tests.git_helpers import git, init_repo
 
 #: The tag make_fork_history puts on upstream, reachable only through the merge.
 UPSTREAM_TAG = "v9.0.0"
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ).stdout.strip()
 
 
 class TestASyncMerge:
@@ -86,7 +74,7 @@ class TestASyncMerge:
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path, own=("chore: sync",))
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "feat: sync upstream 2.1")
+        git(repo, "commit", "--allow-empty", "-q", "-m", "feat: sync upstream 2.1")
         assert predict_version(repo)[0] == "0.3.0"
 
     def test_a_sync_merge_alone_ships_as_a_patch(
@@ -102,8 +90,8 @@ class TestASyncMerge:
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path, own=())
-        _git(repo, "reset", "-q", "--hard", "HEAD~2")
-        _git(
+        git(repo, "reset", "-q", "--hard", "HEAD~2")
+        git(
             repo,
             "merge",
             "--no-ff",
@@ -118,16 +106,16 @@ class TestASyncMerge:
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path, own=())
-        _git(repo, "reset", "-q", "--hard", "HEAD~2")
-        _git(repo, "merge", "--no-ff", "-q", "upstream", "-m", "feat: sync upstream")
+        git(repo, "reset", "-q", "--hard", "HEAD~2")
+        git(repo, "merge", "--no-ff", "-q", "upstream", "-m", "feat: sync upstream")
         assert predict_version(repo)[0] == "0.3.0"
 
     def test_nothing_of_its_own_releases_nothing(
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path)
-        _git(repo, "tag", "v0.2.9")
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "docs: more docs")
+        git(repo, "tag", "v0.2.9")
+        git(repo, "commit", "--allow-empty", "-q", "-m", "docs: more docs")
         with pytest.raises(ForkVersionError, match="No release-worthy first-parent"):
             predict_version(repo)
 
@@ -152,7 +140,7 @@ class TestASyncMerge:
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path)
-        _git(repo, "tag", "v0.3.0-beta.1", "HEAD~1")
+        git(repo, "tag", "v0.3.0-beta.1", "HEAD~1")
         assert predict_version(repo)[0] == "0.2.9"
 
 
@@ -172,10 +160,8 @@ class TestAForcedBump:
         assert forced_version(make_fork_history(tmp_path), bump) == version
 
     def test_a_tag_less_fork_bumps_from_its_seed(self, tmp_path: Path) -> None:
-        _git(tmp_path, "init", "-q", "-b", "main")
-        _git(tmp_path, "config", "user.email", "ci@example.invalid")
-        _git(tmp_path, "config", "user.name", "CI")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
+        init_repo(tmp_path, branch="main")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
         (tmp_path / "package.json").write_text('{"version": "2.4.0"}', encoding="utf-8")
         assert forced_version(tmp_path, "patch") == "2.4.1"
 
@@ -189,30 +175,26 @@ class TestTheGuards:
         self, tmp_path: Path, make_fork_history: Callable[..., Path]
     ) -> None:
         repo = make_fork_history(tmp_path)
-        _git(repo, "tag", "v0.2.9", "upstream")
+        git(repo, "tag", "v0.2.9", "upstream")
         with pytest.raises(ForkVersionError, match="v0.2.9 already exists"):
             predict_version(repo)
 
     def test_only_an_upstream_tag_is_refused(self, tmp_path: Path) -> None:
         # The fork has never released, but upstream's tag came in by the merge.
-        _git(tmp_path, "init", "-q", "-b", "main")
-        _git(tmp_path, "config", "user.email", "ci@example.invalid")
-        _git(tmp_path, "config", "user.name", "CI")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "chore: root")
-        _git(tmp_path, "checkout", "-q", "-b", "upstream")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "feat: upstream")
-        _git(tmp_path, "tag", "v1.0.0")
-        _git(tmp_path, "checkout", "-q", "main")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
-        _git(tmp_path, "merge", "--no-ff", "-q", "upstream", "-m", "Merge upstream")
+        init_repo(tmp_path, branch="main")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "chore: root")
+        git(tmp_path, "checkout", "-q", "-b", "upstream")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "feat: upstream")
+        git(tmp_path, "tag", "v1.0.0")
+        git(tmp_path, "checkout", "-q", "main")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
+        git(tmp_path, "merge", "--no-ff", "-q", "upstream", "-m", "Merge upstream")
         with pytest.raises(ForkVersionError, match="none is on HEAD's first-parent"):
             predict_version(tmp_path)
 
     def test_a_tag_less_repo_starts_at_its_seed(self, tmp_path: Path) -> None:
-        _git(tmp_path, "init", "-q", "-b", "main")
-        _git(tmp_path, "config", "user.email", "ci@example.invalid")
-        _git(tmp_path, "config", "user.name", "CI")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
+        init_repo(tmp_path, branch="main")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "fix: own")
         (tmp_path / "package.json").write_text('{"version": "2.4.0"}', encoding="utf-8")
         version, how = predict_version(tmp_path)
         assert version == "2.4.0"
@@ -221,10 +203,8 @@ class TestTheGuards:
     def test_a_tag_less_repo_with_nothing_to_release_fails(
         self, tmp_path: Path
     ) -> None:
-        _git(tmp_path, "init", "-q", "-b", "main")
-        _git(tmp_path, "config", "user.email", "ci@example.invalid")
-        _git(tmp_path, "config", "user.name", "CI")
-        _git(tmp_path, "commit", "--allow-empty", "-q", "-m", "docs: readme")
+        init_repo(tmp_path, branch="main")
+        git(tmp_path, "commit", "--allow-empty", "-q", "-m", "docs: readme")
         with pytest.raises(ForkVersionError, match="tag-less repo"):
             predict_version(tmp_path)
 

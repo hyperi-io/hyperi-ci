@@ -27,6 +27,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.git_helpers import commit, init_repo
+
 WORKFLOW_DIR = Path(__file__).parent.parent.parent / ".github" / "workflows"
 LANGUAGE_WORKFLOWS = ("rust-ci.yml", "python-ci.yml", "ts-ci.yml", "go-ci.yml")
 
@@ -2824,18 +2826,6 @@ class TestMergeGroup:
     build, tag, publish or commit back.
     """
 
-    @staticmethod
-    def _git(cwd: Path, *args: str) -> None:
-        subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
     def _plan(self, event: str, ref: str, tmp_path: Path) -> dict[str, str]:
         """Run the composite's gate and derive steps; return the gate outputs.
 
@@ -2846,11 +2836,8 @@ class TestMergeGroup:
             pytest.skip("rendering the step needs bash + python3")
         root = tmp_path / "repo"
         root.mkdir(parents=True)
-        self._git(root, "init", "-q")
-        self._git(root, "config", "user.email", "t@t.io")
-        self._git(root, "config", "user.name", "t")
-        message = "fix: squash (#228)\n\nRelease: true"
-        self._git(root, "commit", "--allow-empty", "-q", "-m", message)
+        init_repo(root)
+        commit(root, "fix: squash (#228)\n\nRelease: true")
         env = {
             "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
             "GITHUB_WORKSPACE": str(root),

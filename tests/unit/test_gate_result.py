@@ -48,16 +48,119 @@ class TestTheTwoGatesAreSeparate:
         )
         assert verdict.ok
 
-    def test_a_publish_run_needs_its_build(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=True,
-            plan="success",
-            checks={"quality": "success", "test": "success"},
-            build={"build": "skipped"},
-        )
-        assert not verdict.ok
-        assert "build" in verdict.reason
+
+_PR_RUN = {"run_checks": True, "run_build": False, "plan": "success"}
+_BOTH_PASS = {"quality": "success", "test": "success"}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "needles"),
+    [
+        pytest.param(
+            {
+                **_PR_RUN,
+                "run_build": True,
+                "checks": _BOTH_PASS,
+                "build": {"build": "skipped"},
+            },
+            ["build"],
+            id="a-publish-run-needs-its-build",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"quality": "skipped", "test": "success"}},
+            ["quality"],
+            id="a-skipped-required-check",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"quality": "skipped", "test": "skipped"}},
+            ["quality", "test"],
+            id="every-absent-check-is-named",
+        ),
+        pytest.param(
+            {
+                "run_checks": False,
+                "run_build": False,
+                "plan": "skipped",
+                "checks": {"quality": "skipped", "test": "skipped"},
+            },
+            ["decided nothing"],
+            id="a-skipped-plan-fails-whatever-else-says",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"quality": "failure", "test": "success"}},
+            ["quality"],
+            id="a-failure",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": _BOTH_PASS, "build": {"build": "failure"}},
+            ["build"],
+            id="a-failed-build-even-when-not-required",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"test": "cancelled"}},
+            [],
+            id="a-cancelled-check",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"test": "timed_out"}},
+            [],
+            id="a-timeout",
+        ),
+        pytest.param(
+            {
+                "run_checks": False,
+                "run_build": False,
+                "plan": "failure",
+                "checks": {"quality": "skipped", "test": "skipped"},
+                "build": {"build": "skipped"},
+            },
+            ["failure"],
+            id="a-failed-plan",
+        ),
+        pytest.param(
+            {
+                "run_checks": False,
+                "run_build": False,
+                "plan": "cancelled",
+                "checks": {"quality": "skipped"},
+            },
+            [],
+            id="a-cancelled-plan",
+        ),
+        pytest.param(
+            {
+                "run_checks": False,
+                "run_build": False,
+                "plan": "",
+                "checks": {"quality": "skipped"},
+            },
+            ["nothing"],
+            id="an-absent-plan-result",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {}, "build": {}},
+            ["env:"],
+            id="required-checks-with-no-results",
+        ),
+        pytest.param(
+            {**_PR_RUN, "run_build": True, "checks": _BOTH_PASS, "build": {}},
+            ["build"],
+            id="required-build-with-no-result",
+        ),
+        pytest.param(
+            {**_PR_RUN, "checks": {"quality": "neutral", "test": "success"}},
+            ["quality"],
+            id="an-unknown-result-is-not-a-pass",
+        ),
+    ],
+)
+def test_the_gate_fails_and_says_why(
+    kwargs: dict[str, object], needles: list[str]
+) -> None:
+    verdict = evaluate(**kwargs)
+    assert not verdict.ok
+    for needle in needles:
+        assert needle in verdict.reason
 
 
 class TestTheDoctrineSkipIsAllowed:
@@ -85,86 +188,6 @@ class TestTheDoctrineSkipIsAllowed:
         assert "not missed" in verdict.reason
 
 
-class TestARequiredCheckThatDidNotRun:
-    """The defect this exists for: skipped and passed look identical."""
-
-    def test_a_skipped_required_check_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"quality": "skipped", "test": "success"},
-        )
-        assert not verdict.ok
-        assert "quality" in verdict.reason
-
-    def test_every_absent_check_is_named(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"quality": "skipped", "test": "skipped"},
-        )
-        assert "quality" in verdict.reason
-        assert "test" in verdict.reason
-
-    def test_a_skipped_plan_fails_whatever_else_says(self) -> None:
-        """A fork PR used to land here -- no plan, no gate, everything skipped."""
-        verdict = evaluate(
-            run_checks=False,
-            run_build=False,
-            plan="skipped",
-            checks={"quality": "skipped", "test": "skipped"},
-        )
-        assert not verdict.ok
-        assert "decided nothing" in verdict.reason
-
-
-class TestAFailedCheck:
-    """GitHub shows these red already, but the gate must not disagree."""
-
-    def test_a_failure_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"quality": "failure", "test": "success"},
-        )
-        assert not verdict.ok
-        assert "quality" in verdict.reason
-
-    def test_a_failed_build_fails_even_when_it_was_not_required(self) -> None:
-        """A build that ran and broke is a failure whatever the gate asked for."""
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"quality": "success", "test": "success"},
-            build={"build": "failure"},
-        )
-        assert not verdict.ok
-        assert "build" in verdict.reason
-
-    def test_a_cancelled_check_is_not_a_pass(self) -> None:
-        """A cancelled required job has verified nothing."""
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"test": "cancelled"},
-        )
-        assert not verdict.ok
-
-    def test_a_timeout_is_not_a_pass(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"test": "timed_out"},
-        )
-        assert not verdict.ok
-
-
 class TestTheHappyPath:
     def test_everything_ran_and_passed(self) -> None:
         verdict = evaluate(
@@ -177,82 +200,6 @@ class TestTheHappyPath:
         assert verdict.ok
         assert "quality" in verdict.reason
         assert "build" in verdict.reason
-
-
-class TestAPlanThatDidNotSucceed:
-    """Only a SUCCEEDED plan computes a gate. Anything else verified nothing.
-
-    An earlier version guarded on `plan == "skipped"` alone, so a plan that
-    FAILED fell through to the doctrine-skip branch and the run passed -- with
-    branch protection pointed at this context and nothing else.
-    """
-
-    def test_a_failed_plan_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=False,
-            run_build=False,
-            plan="failure",
-            checks={"quality": "skipped", "test": "skipped"},
-            build={"build": "skipped"},
-        )
-        assert not verdict.ok
-        assert "failure" in verdict.reason
-
-    def test_a_cancelled_plan_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=False,
-            run_build=False,
-            plan="cancelled",
-            checks={"quality": "skipped"},
-        )
-        assert not verdict.ok
-
-    def test_an_absent_plan_result_fails(self) -> None:
-        """An unset env var reads as empty, and empty is not success."""
-        verdict = evaluate(
-            run_checks=False,
-            run_build=False,
-            plan="",
-            checks={"quality": "skipped"},
-        )
-        assert not verdict.ok
-        assert "nothing" in verdict.reason
-
-
-class TestAMisconfiguredGateJob:
-    """No results at all is a wiring fault, not a clean run."""
-
-    def test_required_checks_with_no_results_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=True, run_build=False, plan="success", checks={}, build={}
-        )
-        assert not verdict.ok
-        assert "env:" in verdict.reason
-
-    def test_required_build_with_no_result_fails(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=True,
-            plan="success",
-            checks={"quality": "success", "test": "success"},
-            build={},
-        )
-        assert not verdict.ok
-        assert "build" in verdict.reason
-
-
-class TestAnUnknownResultString:
-    """A result the code does not know must not read as a pass."""
-
-    def test_an_unknown_result_is_not_a_pass(self) -> None:
-        verdict = evaluate(
-            run_checks=True,
-            run_build=False,
-            plan="success",
-            checks={"quality": "neutral", "test": "success"},
-        )
-        assert not verdict.ok
-        assert "quality" in verdict.reason
 
 
 def _passing_release(tier: TierContext) -> GateVerdict:

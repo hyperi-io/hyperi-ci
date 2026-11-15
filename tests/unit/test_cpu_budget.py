@@ -37,81 +37,78 @@ def _point_at(
 
 
 class TestCgroupV2:
-    def test_quota_on_the_leaf_caps_the_budget(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("levels", "own_path", "affinity", "expected"),
+        [
+            pytest.param(
+                [("", "max 100000"), ("kubepods/pod-abc", "400000 100000")],
+                "/kubepods/pod-abc",
+                32,
+                4,
+                id="quota-on-the-leaf-caps-the-budget",
+            ),
+            pytest.param(
+                [("kubepods", "200000 100000"), ("kubepods/pod-abc", "max 100000")],
+                "/kubepods/pod-abc",
+                32,
+                2,
+                id="quota-on-an-ancestor-still-binds",
+            ),
+            pytest.param(
+                [("a", "800000 100000"), ("a/b", "300000 100000")],
+                "/a/b",
+                32,
+                3,
+                id="tightest-of-several-levels-wins",
+            ),
+            pytest.param(
+                [("a/b", "max 100000")],
+                "/a/b",
+                12,
+                12,
+                id="no-quota-anywhere-falls-back-to-affinity",
+            ),
+            pytest.param(
+                [("a", "150000 100000")], "/a", 32, 1, id="fractional-quota-rounds-down"
+            ),
+            pytest.param(
+                [("a", "50000 100000")],
+                "/a",
+                32,
+                1,
+                id="a-sub-one-quota-never-yields-zero-workers",
+            ),
+            pytest.param(
+                [("a", "not a quota at all")],
+                "/a",
+                6,
+                6,
+                id="a-malformed-cpu-max-is-ignored",
+            ),
+            pytest.param([], "/a/b", 9, 9, id="a-missing-hierarchy-is-ignored"),
+            pytest.param(
+                [("a", "1600000 100000")],
+                "/a",
+                2,
+                2,
+                id="affinity-wins-when-tighter-than-the-quota",
+            ),
+        ],
+    )
+    def test_the_budget(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        levels: list[tuple[str, str]],
+        own_path: str,
+        affinity: int,
+        expected: int,
     ) -> None:
         root = tmp_path / "cgroup"
-        _v2_tree(root, "", "max 100000")
-        _v2_tree(root, "kubepods/pod-abc", "400000 100000")
-        _point_at(monkeypatch, root, "/kubepods/pod-abc", 32)
-        assert cpu.cpu_budget() == 4
-
-    def test_quota_on_an_ancestor_still_binds(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A limit set one level up is as real as one on the leaf."""
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "kubepods", "200000 100000")
-        _v2_tree(root, "kubepods/pod-abc", "max 100000")
-        _point_at(monkeypatch, root, "/kubepods/pod-abc", 32)
-        assert cpu.cpu_budget() == 2
-
-    def test_tightest_of_several_levels_wins(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a", "800000 100000")
-        _v2_tree(root, "a/b", "300000 100000")
-        _point_at(monkeypatch, root, "/a/b", 32)
-        assert cpu.cpu_budget() == 3
-
-    def test_no_quota_anywhere_falls_back_to_affinity(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a/b", "max 100000")
-        _point_at(monkeypatch, root, "/a/b", 12)
-        assert cpu.cpu_budget() == 12
-
-    def test_fractional_quota_rounds_down(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A 1.5-CPU budget must not become two busy workers."""
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a", "150000 100000")
-        _point_at(monkeypatch, root, "/a", 32)
-        assert cpu.cpu_budget() == 1
-
-    def test_a_sub_one_quota_never_yields_zero_workers(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a", "50000 100000")
-        _point_at(monkeypatch, root, "/a", 32)
-        assert cpu.cpu_budget() == 1
-
-    def test_a_malformed_cpu_max_is_ignored(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a", "not a quota at all")
-        _point_at(monkeypatch, root, "/a", 6)
-        assert cpu.cpu_budget() == 6
-
-    def test_a_missing_hierarchy_is_ignored(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _point_at(monkeypatch, tmp_path / "absent", "/a/b", 9)
-        assert cpu.cpu_budget() == 9
-
-    def test_affinity_wins_when_it_is_tighter_than_the_quota(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Pinning and a quota are separate limits; the smaller applies."""
-        root = tmp_path / "cgroup"
-        _v2_tree(root, "a", "1600000 100000")
-        _point_at(monkeypatch, root, "/a", 2)
-        assert cpu.cpu_budget() == 2
+        for relative, cpu_max in levels:
+            _v2_tree(root, relative, cpu_max)
+        _point_at(monkeypatch, root, own_path, affinity)
+        assert cpu.cpu_budget() == expected
 
 
 class TestCgroupV1:

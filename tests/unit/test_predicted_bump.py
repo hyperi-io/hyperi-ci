@@ -5,13 +5,13 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from hyperi_ci.quality.predicted_bump import predict_bump
 from hyperi_ci.release_rules import classify_commit
+from tests.git_helpers import commit, git, init_repo
 
 # --- classify_commit (pure) ----------------------------------------------
 #
@@ -48,31 +48,9 @@ def test_classify_commit(message: str, expected: str) -> None:
 # --- predict_bump (real git) ---------------------------------------------
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _init_repo(tmp_path: Path) -> Path:
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "t@t.io")
-    _git(tmp_path, "config", "user.name", "t")
-    _git(tmp_path, "commit", "--allow-empty", "-m", "chore: seed")
-    return tmp_path
-
-
-def _commit(cwd: Path, message: str) -> None:
-    _git(cwd, "commit", "--allow-empty", "-m", message)
-
-
 def test_no_tag_returns_none(tmp_path: Path) -> None:
-    _init_repo(tmp_path)
-    _commit(tmp_path, "feat!: massive change")
+    init_repo(tmp_path, seed=True)
+    commit(tmp_path, "feat!: massive change")
     pred = predict_bump(tmp_path)
     # No prior tag => initial release => gate must not fire.
     assert pred.bump == "none"
@@ -80,46 +58,36 @@ def test_no_tag_returns_none(tmp_path: Path) -> None:
 
 
 def test_patch_only_range(tmp_path: Path) -> None:
-    _init_repo(tmp_path)
-    _git(tmp_path, "tag", "v1.0.0")
-    _commit(tmp_path, "fix: a")
-    _commit(tmp_path, "docs: b")
+    init_repo(tmp_path, seed=True)
+    git(tmp_path, "tag", "v1.0.0")
+    commit(tmp_path, "fix: a")
+    commit(tmp_path, "docs: b")
     pred = predict_bump(tmp_path)
     assert pred.bump == "patch"
     assert pred.last_tag == "v1.0.0"
 
 
 def test_feat_predicts_minor(tmp_path: Path) -> None:
-    _init_repo(tmp_path)
-    _git(tmp_path, "tag", "v1.0.0")
-    _commit(tmp_path, "fix: a")
-    _commit(tmp_path, "feat: new thing")
+    init_repo(tmp_path, seed=True)
+    git(tmp_path, "tag", "v1.0.0")
+    commit(tmp_path, "fix: a")
+    commit(tmp_path, "feat: new thing")
     pred = predict_bump(tmp_path)
     assert pred.bump == "minor"
     assert "feat: new thing" in pred.minor_reasons
 
 
-def _current_branch(cwd: Path) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
-
-
 def test_merge_imported_breaking_predicts_major(tmp_path: Path) -> None:
     # The issue #26 scenario: a reconcile merge brings old breaking history
     # into reachability even though HEAD's own subject is a clean fix:.
-    _init_repo(tmp_path)
-    _git(tmp_path, "tag", "v1.0.0")
-    base = _current_branch(tmp_path)
-    _git(tmp_path, "checkout", "-q", "-b", "side")
-    _commit(tmp_path, "feat!: remove legacy API")
-    _git(tmp_path, "checkout", "-q", base)
-    _commit(tmp_path, "fix: unrelated")
-    _git(tmp_path, "merge", "--no-ff", "-m", "fix: reconcile side", "side")
+    init_repo(tmp_path, seed=True)
+    git(tmp_path, "tag", "v1.0.0")
+    base = git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD")
+    git(tmp_path, "checkout", "-q", "-b", "side")
+    commit(tmp_path, "feat!: remove legacy API")
+    git(tmp_path, "checkout", "-q", base)
+    commit(tmp_path, "fix: unrelated")
+    git(tmp_path, "merge", "--no-ff", "-m", "fix: reconcile side", "side")
     pred = predict_bump(tmp_path)
     assert pred.bump == "major"
     assert any("remove legacy API" in r for r in pred.major_reasons)
@@ -130,11 +98,11 @@ def test_non_semver_v_tag_does_not_poison_range(tmp_path: Path) -> None:
     # The gate must skip it and walk from the real release tag, else a
     # feat!/BREAKING commit since v1.2.3 goes unanalysed (review finding
     # on issue #26).
-    _init_repo(tmp_path)
-    _git(tmp_path, "tag", "v1.2.3")
-    _commit(tmp_path, "feat!: drop legacy API")
-    _git(tmp_path, "tag", "vendor-x")
-    _commit(tmp_path, "fix: unrelated")
+    init_repo(tmp_path, seed=True)
+    git(tmp_path, "tag", "v1.2.3")
+    commit(tmp_path, "feat!: drop legacy API")
+    git(tmp_path, "tag", "vendor-x")
+    commit(tmp_path, "fix: unrelated")
     pred = predict_bump(tmp_path)
     assert pred.last_tag == "v1.2.3"
     assert pred.bump == "major"
@@ -143,10 +111,10 @@ def test_non_semver_v_tag_does_not_poison_range(tmp_path: Path) -> None:
 def test_prerelease_v_tag_skipped(tmp_path: Path) -> None:
     # Prereleases are not final-release anchors; the gate bumps from the
     # last FINAL tag, matching the composite's v[0-9]* + X.Y.Z discipline.
-    _init_repo(tmp_path)
-    _git(tmp_path, "tag", "v1.2.3")
-    _commit(tmp_path, "fix: a")
-    _git(tmp_path, "tag", "v1.3.0-rc.1")
-    _commit(tmp_path, "fix: b")
+    init_repo(tmp_path, seed=True)
+    git(tmp_path, "tag", "v1.2.3")
+    commit(tmp_path, "fix: a")
+    git(tmp_path, "tag", "v1.3.0-rc.1")
+    commit(tmp_path, "fix: b")
     pred = predict_bump(tmp_path)
     assert pred.last_tag == "v1.2.3"

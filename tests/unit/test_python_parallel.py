@@ -12,6 +12,7 @@ nothing.
 """
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -138,22 +139,6 @@ class TestProjectSetsOwnWorkers:
         """``-no-header`` is not pytest, but a stray short flag must not trip it."""
         assert not parallel.project_sets_own_workers(["-q", "--tb=short"], tmp_path)
 
-    def test_pyproject_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pytest.ini_options]\naddopts = "-vv -n 4 --cov=src"\n',
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert parallel.project_sets_own_workers([], tmp_path)
-
-    def test_pyproject_addopts_as_a_list_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pytest.ini_options]\naddopts = ["-vv", "-n", "4"]\n',
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert parallel.project_sets_own_workers([], tmp_path)
-
     def test_pyproject_addopts_without_n_do_not_count(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             "[tool.pytest.ini_options]\naddopts = \"-m 'not slow'\"\n",
@@ -167,26 +152,6 @@ class TestProjectSetsOwnWorkers:
             "this is not toml [[[", encoding="utf-8", newline="\n"
         )
         assert not parallel.project_sets_own_workers([], tmp_path)
-
-    def test_pytest_ini_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pytest.ini").write_text(
-            "[pytest]\naddopts = -n 8\n", encoding="utf-8", newline="\n"
-        )
-        assert parallel.project_sets_own_workers([], tmp_path)
-
-    def test_setup_cfg_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.cfg").write_text(
-            "[tool:pytest]\naddopts = --numprocesses 2\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert parallel.project_sets_own_workers([], tmp_path)
-
-    def test_tox_ini_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "tox.ini").write_text(
-            "[pytest]\naddopts = -n auto\n", encoding="utf-8", newline="\n"
-        )
-        assert parallel.project_sets_own_workers([], tmp_path)
 
     def test_a_disabled_xdist_plugin_is_hands_off(self, tmp_path: Path) -> None:
         """Turning the plugin off is a parallelism decision too."""
@@ -341,45 +306,63 @@ class TestProjectSetsOwnDist:
     def test_a_distinct_long_flag_is_not_dist(self, tmp_path: Path) -> None:
         assert not parallel.project_sets_own_dist(["--distance=3"], tmp_path)
 
-    def test_pyproject_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pytest.ini_options]\naddopts = "-n 4 --dist loadfile"\n',
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert parallel.project_sets_own_dist([], tmp_path)
-
-    def test_pyproject_addopts_as_a_list_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pytest.ini_options]\naddopts = ["--dist=loadgroup"]\n',
-            encoding="utf-8",
-            newline="\n",
-        )
-        assert parallel.project_sets_own_dist([], tmp_path)
-
-    def test_pytest_ini_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "pytest.ini").write_text(
-            "[pytest]\naddopts = --dist load\n", encoding="utf-8", newline="\n"
-        )
-        assert parallel.project_sets_own_dist([], tmp_path)
-
-    def test_setup_cfg_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.cfg").write_text(
-            "[tool:pytest]\naddopts = --dist=each\n", encoding="utf-8", newline="\n"
-        )
-        assert parallel.project_sets_own_dist([], tmp_path)
-
-    def test_tox_ini_addopts_count(self, tmp_path: Path) -> None:
-        (tmp_path / "tox.ini").write_text(
-            "[pytest]\naddopts = --dist loadscope\n", encoding="utf-8", newline="\n"
-        )
-        assert parallel.project_sets_own_dist([], tmp_path)
-
     def test_pytest_addopts_env_counts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("PYTEST_ADDOPTS", "--dist loadgroup")
         assert parallel.project_sets_own_dist([], tmp_path)
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [parallel.project_sets_own_workers, parallel.project_sets_own_dist],
+    ids=["workers", "dist"],
+)
+@pytest.mark.parametrize(
+    ("filename", "workers_text", "dist_text"),
+    [
+        pytest.param(
+            "pyproject.toml",
+            '[tool.pytest.ini_options]\naddopts = "-vv -n 4 --cov=src"\n',
+            '[tool.pytest.ini_options]\naddopts = "-n 4 --dist loadfile"\n',
+            id="pyproject-string",
+        ),
+        pytest.param(
+            "pyproject.toml",
+            '[tool.pytest.ini_options]\naddopts = ["-vv", "-n", "4"]\n',
+            '[tool.pytest.ini_options]\naddopts = ["--dist=loadgroup"]\n',
+            id="pyproject-list",
+        ),
+        pytest.param(
+            "pytest.ini",
+            "[pytest]\naddopts = -n 8\n",
+            "[pytest]\naddopts = --dist load\n",
+            id="pytest-ini",
+        ),
+        pytest.param(
+            "setup.cfg",
+            "[tool:pytest]\naddopts = --numprocesses 2\n",
+            "[tool:pytest]\naddopts = --dist=each\n",
+            id="setup-cfg",
+        ),
+        pytest.param(
+            "tox.ini",
+            "[pytest]\naddopts = -n auto\n",
+            "[pytest]\naddopts = --dist loadscope\n",
+            id="tox-ini",
+        ),
+    ],
+)
+def test_a_config_file_setting_counts(
+    tmp_path: Path,
+    setting: Callable[[list[str], Path], bool],
+    filename: str,
+    workers_text: str,
+    dist_text: str,
+) -> None:
+    text = workers_text if setting is parallel.project_sets_own_workers else dist_text
+    (tmp_path / filename).write_text(text, encoding="utf-8", newline="\n")
+    assert setting([], tmp_path)
 
 
 class TestWorksteal:

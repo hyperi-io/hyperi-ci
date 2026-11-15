@@ -15,7 +15,6 @@ declares about itself.
 
 import json
 import re
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,187 +28,171 @@ from hyperi_ci.version_source import (
     seed_version,
     tag_version,
 )
+from tests.git_helpers import git, init_repo
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
+class TestDeclaredVersion:
+    """The manifests, in the shapes a project declares them."""
+
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            pytest.param(
+                {"pyproject.toml": '[project]\nname = "thing"\nversion = "2.4.1"\n'},
+                ("2.4.1", "pyproject.toml"),
+                id="pep-621",
+            ),
+            pytest.param(
+                {
+                    "pyproject.toml": '[tool.poetry]\nname = "thing"\nversion = "0.3.0"\n'
+                },
+                ("0.3.0", "pyproject.toml"),
+                id="poetry",
+            ),
+            pytest.param(
+                # hyperi-ci's own pyproject: `dynamic = ["version"]` with hatch reading
+                # VERSION. Reading the key anyway brings the stale-file bug back.
+                {
+                    "pyproject.toml": '[project]\nname = "thing"\n'
+                    'dynamic = ["version"]\nversion = "9.9.9"\n'
+                },
+                None,
+                id="a-dynamic-version-is-skipped",
+            ),
+            pytest.param(
+                {"pyproject.toml": "[project\nname ="},
+                None,
+                id="unparseable-toml",
+            ),
+            pytest.param(
+                {"Cargo.toml": '[package]\nname = "thing"\nversion = "1.15.10"\n'},
+                ("1.15.10", "Cargo.toml"),
+                id="cargo-package-version",
+            ),
+            pytest.param(
+                {
+                    "Cargo.toml": '[workspace.package]\nversion = "3.1.4"\n\n'
+                    '[package]\nname = "thing"\nversion.workspace = true\n'
+                },
+                ("3.1.4", "Cargo.toml"),
+                id="cargo-version-workspace-true",
+            ),
+            pytest.param(
+                # A workspace root with no [package]: the dfe-archiver shape.
+                {
+                    "Cargo.toml": '[workspace]\nmembers = ["a", "b"]\n\n'
+                    '[workspace.package]\nversion = "5.0.2"\n'
+                },
+                ("5.0.2", "Cargo.toml"),
+                id="cargo-virtual-manifest",
+            ),
+            pytest.param(
+                {"package.json": json.dumps({"name": "thing", "version": "0.9.12"})},
+                ("0.9.12", "package.json"),
+                id="package-json",
+            ),
+            pytest.param({"package.json": "{not json"}, None, id="unparseable-json"),
+            pytest.param(
+                {"pyproject.toml": '[project]\nname = "thing"\nversion = "0.1.0a1"\n'},
+                None,
+                id="rejects-a-pep-440-prerelease",
+            ),
+            # A release candidate's commit-back leaves a semver prerelease in the
+            # manifest, so it seeds its core.
+            pytest.param(
+                {"Cargo.toml": '[package]\nname = "thing"\nversion = "0.4.0-rc.1"\n'},
+                ("0.4.0", "Cargo.toml"),
+                id="semver-prerelease-rc",
+            ),
+            pytest.param(
+                {
+                    "Cargo.toml": '[package]\nname = "thing"\nversion = "v0.4.0-beta.2"\n'
+                },
+                ("0.4.0", "Cargo.toml"),
+                id="semver-prerelease-beta-with-v",
+            ),
+            pytest.param(
+                {"package.json": json.dumps({"version": "1.0"})},
+                None,
+                id="rejects-a-two-part-version",
+            ),
+            pytest.param(
+                {"package.json": json.dumps({"version": "v1.2.3"})},
+                ("1.2.3", "package.json"),
+                id="tolerates-a-leading-v",
+            ),
+            pytest.param(
+                {
+                    "pyproject.toml": '[project]\nname = "thing"\nversion = "1.0.0rc1"\n',
+                    "Cargo.toml": '[package]\nname = "thing"\nversion = "1.0.0"\n',
+                },
+                ("1.0.0", "Cargo.toml"),
+                id="falls-through-a-rejected-manifest-to-the-next",
+            ),
+        ],
     )
-
-
-def _init_repo(tmp_path: Path) -> None:
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "t@t.io")
-    _git(tmp_path, "config", "user.name", "t")
-    _git(tmp_path, "commit", "--allow-empty", "-m", "chore: seed")
-
-
-class TestPythonManifest:
-    """pyproject.toml, in both PEP 621 and Poetry shapes."""
-
-    def test_reads_pep_621_version(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "thing"\nversion = "2.4.1"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("2.4.1", "pyproject.toml")
-
-    def test_reads_poetry_version(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.poetry]\nname = "thing"\nversion = "0.3.0"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("0.3.0", "pyproject.toml")
-
-    def test_skips_a_dynamic_version(self, tmp_path: Path) -> None:
-        """A dynamic version is computed by the back-end -- there is none to read.
-
-        hyperi-ci's own pyproject is this shape: `dynamic = ["version"]` with
-        hatch reading the VERSION file. Reading the `version` key anyway would
-        reintroduce the stale-file bug through the back door.
-        """
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "thing"\ndynamic = ["version"]\nversion = "9.9.9"\n',
-            encoding="utf-8",
-        )
-        assert declared_version(tmp_path) is None
-
-    def test_survives_unparseable_toml(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project\nname =", encoding="utf-8")
-        assert declared_version(tmp_path) is None
-
-
-class TestRustManifest:
-    """Cargo.toml, including the workspace-inheritance shapes."""
-
-    def test_reads_package_version(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "thing"\nversion = "1.15.10"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("1.15.10", "Cargo.toml")
-
-    def test_follows_version_workspace_true(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[workspace.package]\nversion = "3.1.4"\n\n'
-            '[package]\nname = "thing"\nversion.workspace = true\n',
-            encoding="utf-8",
-        )
-        assert declared_version(tmp_path) == ("3.1.4", "Cargo.toml")
-
-    def test_reads_a_virtual_manifest(self, tmp_path: Path) -> None:
-        """A workspace root with no [package] -- the dfe-archiver shape."""
-        (tmp_path / "Cargo.toml").write_text(
-            '[workspace]\nmembers = ["a", "b"]\n\n[workspace.package]\nversion = "5.0.2"\n',
-            encoding="utf-8",
-        )
-        assert declared_version(tmp_path) == ("5.0.2", "Cargo.toml")
-
-
-class TestNodeManifest:
-    def test_reads_package_json(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text(
-            json.dumps({"name": "thing", "version": "0.9.12"}), encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("0.9.12", "package.json")
-
-    def test_survives_unparseable_json(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text("{not json", encoding="utf-8")
-        assert declared_version(tmp_path) is None
-
-
-class TestRejectedVersions:
-    """Only an X.Y.Z can seed a tag -- the tag format is `v${version}`."""
-
-    def test_rejects_a_pep_440_prerelease(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "thing"\nversion = "0.1.0a1"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) is None
-
-    @pytest.mark.parametrize("stamped", ["0.4.0-rc.1", "v0.4.0-beta.2"])
-    def test_a_semver_prerelease_seeds_its_core(
-        self, tmp_path: Path, stamped: str
+    def test_the_declared_version(
+        self, tmp_path: Path, files: dict[str, str], expected: tuple[str, str] | None
     ) -> None:
-        # A release candidate's commit-back leaves this in the manifest.
-        (tmp_path / "Cargo.toml").write_text(
-            f'[package]\nname = "thing"\nversion = "{stamped}"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("0.4.0", "Cargo.toml")
-
-    def test_rejects_a_two_part_version(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text(
-            json.dumps({"version": "1.0"}), encoding="utf-8"
-        )
-        assert declared_version(tmp_path) is None
-
-    def test_tolerates_a_leading_v(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text(
-            json.dumps({"version": "v1.2.3"}), encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("1.2.3", "package.json")
-
-    def test_falls_through_a_rejected_manifest_to_the_next(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "thing"\nversion = "1.0.0rc1"\n', encoding="utf-8"
-        )
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "thing"\nversion = "1.0.0"\n', encoding="utf-8"
-        )
-        assert declared_version(tmp_path) == ("1.0.0", "Cargo.toml")
+        for name, text in files.items():
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        assert declared_version(tmp_path) == expected
 
 
 class TestSeedVersion:
     """seed_version always answers -- that is the point of a default."""
 
-    def test_greenfield_starts_at_the_default(self, tmp_path: Path) -> None:
-        assert seed_version(tmp_path) == (DEFAULT_SEED_VERSION, "default")
-
-    def test_default_is_pre_one_point_oh(self) -> None:
-        """A project that declares nothing has promised nothing."""
-        assert DEFAULT_SEED_VERSION == "0.1.0"
-
-    def test_go_project_gets_the_default(self, tmp_path: Path) -> None:
-        """Go has no manifest version at all."""
-        (tmp_path / "go.mod").write_text("module example.com/thing\n", encoding="utf-8")
-        assert seed_version(tmp_path) == (DEFAULT_SEED_VERSION, "default")
-
-    def test_declared_version_wins_over_the_default(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "thing"\nversion = "2.0.0"\n', encoding="utf-8"
-        )
-        assert seed_version(tmp_path) == ("2.0.0", "Cargo.toml")
-
-    def test_ignores_the_version_file(self, tmp_path: Path) -> None:
-        """The whole point of issue #85 -- VERSION is an output, not an input."""
-        (tmp_path / "VERSION").write_text("2.3.10\n", encoding="utf-8")
-        assert seed_version(tmp_path) == (DEFAULT_SEED_VERSION, "default")
-
-    def test_a_stale_version_file_cannot_override_the_manifest(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            pytest.param({}, (DEFAULT_SEED_VERSION, "default"), id="greenfield"),
+            pytest.param(
+                # Go has no manifest version at all.
+                {"go.mod": "module example.com/thing\n"},
+                (DEFAULT_SEED_VERSION, "default"),
+                id="go-project",
+            ),
+            pytest.param(
+                {"Cargo.toml": '[package]\nname = "thing"\nversion = "2.0.0"\n'},
+                ("2.0.0", "Cargo.toml"),
+                id="a-declared-version-wins-over-the-default",
+            ),
+            pytest.param(
+                # VERSION is an output of a release, never an input.
+                {"VERSION": "2.3.10\n"},
+                (DEFAULT_SEED_VERSION, "default"),
+                id="ignores-the-version-file",
+            ),
+            pytest.param(
+                {
+                    "VERSION": "2.3.10\n",
+                    "pyproject.toml": '[project]\nname = "thing"\nversion = "2.29.12"\n',
+                },
+                ("2.29.12", "pyproject.toml"),
+                id="a-stale-version-file-cannot-override-the-manifest",
+            ),
+        ],
+    )
+    def test_the_seed(
+        self, tmp_path: Path, files: dict[str, str], expected: tuple[str, str]
     ) -> None:
-        (tmp_path / "VERSION").write_text("2.3.10\n", encoding="utf-8")
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "thing"\nversion = "2.29.12"\n', encoding="utf-8"
-        )
-        assert seed_version(tmp_path) == ("2.29.12", "pyproject.toml")
+        for name, text in files.items():
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        assert seed_version(tmp_path) == expected
 
 
 class TestLatestTagVersion:
     """A wrong answer here is the version hatchling stamps into the wheel."""
 
     def test_a_release_wins_over_a_higher_prerelease(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
-        _git(tmp_path, "tag", "v1.1.1")
-        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        init_repo(tmp_path, seed=True)
+        git(tmp_path, "tag", "v1.1.1")
+        git(tmp_path, "tag", "v1.1.2-beta.1")
         assert latest_tag_version(tmp_path) == "1.1.1"
 
     def test_a_prerelease_only_repo_resolves_to_none(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
-        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        init_repo(tmp_path, seed=True)
+        git(tmp_path, "tag", "v1.1.2-beta.1")
         assert latest_tag_version(tmp_path) is None
 
 

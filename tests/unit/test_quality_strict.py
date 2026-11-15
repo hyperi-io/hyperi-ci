@@ -36,13 +36,10 @@ _REASON = "GHSA-0000 has no patched release; mitigated by pod isolation"
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate every test from ambient strict/skip env vars and from a CI runner.
+    """Run every test as on a workstation, not a CI runner.
 
-    Under GitHub Actions a relaxed gate is an annotation instead of a log line,
-    so a test reading the log line has to run as it would on a workstation.
+    Under GitHub Actions a relaxed gate is an annotation instead of a log line.
     """
-    monkeypatch.delenv(_ENV, raising=False)
-    monkeypatch.delenv(_SKIP, raising=False)
     monkeypatch.setattr(common, "is_github_actions", lambda: False)
 
 
@@ -119,7 +116,6 @@ class TestStrictQuality:
     """The env-driven strict switch."""
 
     def test_unset_is_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(_ENV, raising=False)
         assert strict_quality() is False
 
     @pytest.mark.parametrize("val", ["1", "true", "TRUE", "Yes", "on", " on "])
@@ -137,13 +133,11 @@ class TestResolveToolMode:
     """Mode resolution, with and without strict."""
 
     def test_default_is_blocking(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(_ENV, raising=False)
         assert (
             resolve_tool_mode("ty", CIConfig(_raw={}), language="python") == "blocking"
         )
 
     def test_configured_mode_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(_ENV, raising=False)
         warn_cfg = _config("ty", "warn")
         off_cfg = _config("vulture", "disabled")
         assert resolve_tool_mode("ty", warn_cfg, language="python") == "warn"
@@ -561,7 +555,6 @@ class TestQualitySkip:
     """HYPERCI_QUALITY_SKIP: the rare force-skip escape hatch."""
 
     def test_unset_is_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(_SKIP, raising=False)
         assert quality_skip() == frozenset()
 
     def test_parses_comma_separated_lowercased(
@@ -581,7 +574,6 @@ class TestQualitySkip:
     def test_skip_disables_even_a_blocking_tool(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv(_ENV, raising=False)
         monkeypatch.setenv(_SKIP, "ruff")
         assert resolve_tool_mode(
             "ruff", _config("ruff", "blocking"), language="python"

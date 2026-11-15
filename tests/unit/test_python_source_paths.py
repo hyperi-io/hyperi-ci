@@ -151,8 +151,6 @@ def _recorder_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         (bin_dir / name).write_text(recorder, encoding="utf-8")
         (bin_dir / name).chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
     return calls
 
 

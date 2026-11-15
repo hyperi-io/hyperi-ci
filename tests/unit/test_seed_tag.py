@@ -12,35 +12,21 @@ up holding, and a mocked `run_cmd` would prove only that the arguments looked
 plausible.
 """
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from hyperi_ci.seed import existing_version_tags, seed_tag
-
-
-def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=True,
-    )
+from tests.git_helpers import git, init_repo
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A git repo with one commit and no tags."""
-    _git(tmp_path, "init", "-q", "-b", "main")
-    _git(tmp_path, "config", "user.email", "test@example.com")
-    _git(tmp_path, "config", "user.name", "Test")
+    init_repo(tmp_path, branch="main")
     (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
-    _git(tmp_path, "add", "README.md")
-    _git(tmp_path, "commit", "-q", "-m", "chore: initial")
+    git(tmp_path, "add", "README.md")
+    git(tmp_path, "commit", "-q", "-m", "chore: initial")
     return tmp_path
 
 
@@ -58,14 +44,14 @@ class TestSeeding:
 
     def test_tags_head(self, repo: Path) -> None:
         seed_tag(project_dir=repo)
-        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
-        tagged = _git(repo, "rev-parse", "v0.1.0^{commit}").stdout.strip()
+        head = git(repo, "rev-parse", "HEAD")
+        tagged = git(repo, "rev-parse", "v0.1.0^{commit}")
         assert tagged == head
 
     def test_the_tag_says_it_is_not_a_release(self, repo: Path) -> None:
         """Tag-on-publish means a tag normally implies a published artefact."""
         seed_tag(project_dir=repo)
-        message = _git(repo, "tag", "-l", "v0.1.0", "-n99").stdout
+        message = git(repo, "tag", "-l", "v0.1.0", "-n99")
         assert "Not a published release" in message
 
     def test_ignores_a_stale_version_file(self, repo: Path) -> None:
@@ -76,7 +62,7 @@ class TestSeeding:
 
 class TestIdempotence:
     def test_declines_when_a_tag_already_exists(self, repo: Path) -> None:
-        _git(repo, "tag", "v7.0.0")
+        git(repo, "tag", "v7.0.0")
         assert seed_tag(project_dir=repo) == 0
         assert existing_version_tags(repo) == ["v7.0.0"]
 
@@ -87,7 +73,7 @@ class TestIdempotence:
 
     def test_a_non_version_tag_does_not_count(self, repo: Path) -> None:
         """`nightly` or `latest` is not a version -- the repo still needs one."""
-        _git(repo, "tag", "nightly")
+        git(repo, "tag", "nightly")
         assert seed_tag(project_dir=repo) == 0
         assert existing_version_tags(repo) == ["v0.1.0"]
 
@@ -101,14 +87,14 @@ class TestRefusals:
         assert seed_tag(project_dir=tmp_path) == 1
 
     def test_no_commits_yet(self, tmp_path: Path) -> None:
-        _git(tmp_path, "init", "-q", "-b", "main")
+        git(tmp_path, "init", "-q", "-b", "main")
         assert seed_tag(project_dir=tmp_path) == 1
 
 
 class TestExistingVersionTags:
     def test_sorted_newest_first(self, repo: Path) -> None:
         for tag in ("v1.0.0", "v1.10.0", "v1.2.0"):
-            _git(repo, "tag", tag)
+            git(repo, "tag", tag)
         assert existing_version_tags(repo)[0] == "v1.10.0"
 
     def test_empty_outside_a_repo(self, tmp_path: Path) -> None:

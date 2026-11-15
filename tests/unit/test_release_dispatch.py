@@ -193,42 +193,28 @@ class TestReleaseCliVersionFlag:
         assert exc.value.exit_code == 0
         assert seen == ["1.18.4"]  # leading v stripped, travels as bump
 
-    def test_version_with_tag_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = self._capture_from_head(monkeypatch)
-        with pytest.raises(typer.Exit) as exc:
-            _release_impl(
-                tag="v1.0.0",
-                list_tags=False,
-                dry_run=False,
-                bump=None,
-                version="1.18.4",
-            )
-        assert exc.value.exit_code == 1
-        assert seen == []  # never dispatched
-
-    def test_version_with_bump_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = self._capture_from_head(monkeypatch)
-        with pytest.raises(typer.Exit) as exc:
-            _release_impl(
-                tag=None,
-                list_tags=False,
-                dry_run=False,
-                bump="patch",
-                version="1.18.4",
-            )
-        assert exc.value.exit_code == 1
-        assert seen == []
-
-    def test_garbage_version_rejected_before_dispatch(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("tag", "bump", "version"),
+        [
+            pytest.param("v1.0.0", None, "1.18.4", id="with-a-tag"),
+            pytest.param(None, "patch", "1.18.4", id="with-a-bump"),
+            pytest.param(None, None, "1.2", id="garbage"),
+        ],
+    )
+    def test_a_bad_version_is_rejected_before_dispatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tag: str | None,
+        bump: str | None,
+        version: str,
     ) -> None:
         seen = self._capture_from_head(monkeypatch)
         with pytest.raises(typer.Exit) as exc:
             _release_impl(
-                tag=None, list_tags=False, dry_run=False, bump=None, version="1.2"
+                tag=tag, list_tags=False, dry_run=False, bump=bump, version=version
             )
         assert exc.value.exit_code == 1
-        assert seen == []
+        assert seen == []  # never dispatched
 
 
 class TestTagHead:

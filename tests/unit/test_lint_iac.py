@@ -24,6 +24,7 @@ from hyperi_ci.cli import app
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import checkov, lint_iac
 from hyperi_ci.quality import findings as fdg
+from tests.git_helpers import git, init_repo
 
 
 def _cfg(raw: dict | None = None) -> CIConfig:
@@ -178,17 +179,6 @@ class TestGeneratedEntries:
 
     def test_unset_is_nothing(self) -> None:
         assert lint_iac.generated_entries(None) == ([], [])
-
-
-def _git(root: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
 
 
 def _repo(tmp_path: Path, out: str) -> Path:
@@ -481,11 +471,9 @@ def _tree_state(root: Path) -> str:
 
 
 def _committed(root: Path) -> Path:
-    _git(root, "init", "-q")
-    _git(root, "config", "user.email", "t@example.invalid")
-    _git(root, "config", "user.name", "t")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "tree")
+    init_repo(root)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "tree")
     return root
 
 

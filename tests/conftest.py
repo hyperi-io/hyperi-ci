@@ -265,6 +265,16 @@ def isolated_channel_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> P
 
 
 @pytest.fixture(autouse=True)
+def no_auto_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop the CLI callback upgrading the installed tool inside a CliRunner test.
+
+    With the check timestamp redirected to tmp_path, every invocation asks PyPI,
+    and a host behind the latest release reinstalls and skips the command.
+    """
+    monkeypatch.setenv("HYPERCI_AUTO_UPDATE", "false")
+
+
+@pytest.fixture(autouse=True)
 def no_inherited_quality_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Drop the run-mode switches the calling shell or run set.
 

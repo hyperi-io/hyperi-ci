@@ -14,9 +14,10 @@ Uses a real git repo, no mocks.
 """
 
 import importlib.util
-import subprocess
 import sys
 from pathlib import Path
+
+from tests.git_helpers import commit, git, init_repo
 
 _SPEC = importlib.util.spec_from_file_location(
     "recover_tags",
@@ -45,30 +46,11 @@ def test_chore_re_ignores_unrelated_subjects():
     assert rt._CHORE_RE.match("feat: add 1.2.3 support") is None
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-
-
-def _commit(repo: Path, subject: str) -> str:
-    """Create an empty commit with `subject`, return its SHA."""
-    _git(repo, "commit", "--allow-empty", "-q", "-m", subject)
-    return _git(repo, "rev-parse", "HEAD")
-
-
 def test_release_commits_separates_ga_from_prerelease(tmp_path: Path):
-    repo = tmp_path / "r"
-    repo.mkdir()
-    _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "config", "user.email", "t@t")
-    _git(repo, "config", "user.name", "t")
-    _commit(repo, "feat: initial")
-    dev = _commit(repo, "chore: version 1.0.0-dev.1 [skip ci]")
-    ga = _commit(repo, "chore: version 1.0.0 [skip ci]")
+    repo = init_repo(tmp_path / "r", branch="main")
+    commit(repo, "feat: initial")
+    dev = commit(repo, "chore: version 1.0.0-dev.1 [skip ci]")
+    ga = commit(repo, "chore: version 1.0.0 [skip ci]")
 
     # no remotes -> falls back to scanning the named branch
     found = rt._release_commits(str(repo), "main")
@@ -79,16 +61,12 @@ def test_release_commits_separates_ga_from_prerelease(tmp_path: Path):
 
 
 def test_source_ref_restricts_to_that_line(tmp_path: Path):
-    repo = tmp_path / "r"
-    repo.mkdir()
-    _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "config", "user.email", "t@t")
-    _git(repo, "config", "user.name", "t")
-    _commit(repo, "feat: initial")
-    _commit(repo, "chore: version 1.0.0 [skip ci]")
-    _git(repo, "checkout", "-q", "-b", "side")
-    _commit(repo, "chore: version 2.0.0 [skip ci]")
-    _git(repo, "checkout", "-q", "main")
+    repo = init_repo(tmp_path / "r", branch="main")
+    commit(repo, "feat: initial")
+    commit(repo, "chore: version 1.0.0 [skip ci]")
+    git(repo, "checkout", "-q", "-b", "side")
+    commit(repo, "chore: version 2.0.0 [skip ci]")
+    git(repo, "checkout", "-q", "main")
 
     # source_ref="main" must not see the version only on the side branch.
     on_main = rt._release_commits(str(repo), "main", source_ref="main")
