@@ -56,7 +56,7 @@ _PLACE = [
 
 ALLOWED_USES = {
     "tag-and-release": (
-        "astral-sh/setup-uv@",
+        "hyperi-io/hyperi-ci/.github/actions/setup-uv@main",
         "dtolnay/rust-toolchain@",
         "actions/checkout@",
         "actions/download-artifact@",
@@ -67,7 +67,7 @@ ALLOWED_USES = {
         "hyperi-io/hyperi-ci/.github/actions/release-branch-guard@main",
     ),
     "prepare": (
-        "astral-sh/setup-uv@",
+        "hyperi-io/hyperi-ci/.github/actions/setup-uv@main",
         "actions/checkout@",
         "actions/download-artifact@",
         "actions/upload-artifact@",
@@ -75,7 +75,7 @@ ALLOWED_USES = {
         "hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main",
         "actions/setup-node@",
     ),
-    "prepare-failed": ("astral-sh/setup-uv@",),
+    "prepare-failed": ("hyperi-io/hyperi-ci/.github/actions/setup-uv@main",),
 }
 
 ALLOWED_RUN_LINES = {
@@ -440,11 +440,10 @@ class TestContainerRunsNoRepoCode:
         self, steps: list[dict[str, Any]]
     ) -> None:
         """setup-uv reads a checked-out repo's `required-version`."""
-        uv = self._index(steps, "astral-sh/setup-uv@")
+        uv = self._index(steps, "hyperi-io/hyperi-ci/.github/actions/setup-uv@")
         checkout = self._index(steps, "actions/checkout@")
-        # Three attempts of one install (see test_setup_runtime_uv.py).
-        assert len(uv) == 3 and len(checkout) == 1
-        assert uv[-1] < checkout[0]
+        assert len(uv) == 1 and len(checkout) == 1
+        assert uv[0] < checkout[0]
 
     def test_python_is_installed_without_the_repos_uv_config(
         self, steps: list[dict[str, Any]]

@@ -1,0 +1,54 @@
+# Project:   HyperI CI
+# File:      .github/actions/setup-uv/action.yml
+# Purpose:   Install uv, retrying twice on a network blip
+#
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# setup-uv fetches its version manifest on every cold runner, so one network
+# blip fails it. Call as hyperi-io/hyperi-ci/.github/actions/setup-uv@main.
+
+name: Setup uv
+description: Install uv with setup-uv, three attempts
+
+inputs:
+  enable-cache:
+    description: setup-uv enable-cache
+    required: false
+    default: "false"
+  save-cache:
+    description: setup-uv save-cache. Ignored unless enable-cache is true.
+    required: false
+    default: "true"
+  ignore-empty-workdir:
+    description: setup-uv ignore-empty-workdir, for a job that never checks out
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      id: uv_try1
+      continue-on-error: true
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        enable-cache: ${{ inputs.enable-cache }}
+        save-cache: ${{ inputs.save-cache }}
+        ignore-empty-workdir: ${{ inputs.ignore-empty-workdir }}
+    - name: Install uv (retry 1)
+      id: uv_try2
+      if: ${{ steps.uv_try1.outcome == 'failure' }}
+      continue-on-error: true
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        enable-cache: ${{ inputs.enable-cache }}
+        save-cache: ${{ inputs.save-cache }}
+        ignore-empty-workdir: ${{ inputs.ignore-empty-workdir }}
+    - name: Install uv (retry 2)
+      if: ${{ steps.uv_try2.outcome == 'failure' }}
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        enable-cache: ${{ inputs.enable-cache }}
+        save-cache: ${{ inputs.save-cache }}
+        ignore-empty-workdir: ${{ inputs.ignore-empty-workdir }}

@@ -7,10 +7,9 @@
 """The setup-uv install steps a consumer's run executes.
 
 setup-uv reads its version manifest from raw.githubusercontent.com on every
-cold runner, so one network blip fails the step. Each install is three
-attempts in pure YAML. Only the last may fail the job, so a persistent outage
-still goes red. An install that was already tolerant (predict-version) stays
-tolerant on every attempt.
+cold runner, so one network blip fails the step. The setup-uv composite makes
+three attempts in pure YAML, and only the last may fail the job, so a
+persistent outage still goes red. Every consumer-run install calls it.
 """
 
 from pathlib import Path
@@ -19,16 +18,20 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).parent.parent.parent / ".github"
+COMPOSITE = ROOT / "actions/setup-uv/action.yml"
+CALL = "hyperi-io/hyperi-ci/.github/actions/setup-uv@main"
+# predict-version is absent: ci.yml runs it from the PR's own tree, where a
+# reference to a composite main does not have yet fails Plan.
+PREDICT_VERSION = ROOT / "actions/predict-version/action.yml"
 SOURCES = (
     "actions/setup-runtime/action.yml",
-    "actions/predict-version/action.yml",
     "workflows/_release-tail.yml",
     "workflows/rust-ci.yml",
     "workflows/go-ci.yml",
     "workflows/python-ci.yml",
     "workflows/ts-ci.yml",
+    "workflows/iac-ci.yml",
 )
-SETUP_UV = "astral-sh/setup-uv@"
 
 
 def _step_lists(rel: str) -> list[tuple[str, list[dict]]]:
@@ -38,79 +41,68 @@ def _step_lists(rel: str) -> list[tuple[str, list[dict]]]:
     return [(rel, doc["runs"]["steps"])]
 
 
-def _installs(steps: list[dict]) -> list[list[dict]]:
-    """Group consecutive setup-uv steps into one install each."""
-    groups: list[list[dict]] = []
-    prev_uv = False
-    for step in steps:
-        is_uv = SETUP_UV in str(step.get("uses", ""))
-        if is_uv and prev_uv and "(retry" in str(step.get("name")):
-            groups[-1].append(step)
-        elif is_uv:
-            groups.append([step])
-        prev_uv = is_uv
-    return groups
-
-
-def _all() -> list[tuple[str, list[dict]]]:
+def _calls() -> list[tuple[str, dict]]:
     return [
-        (where, group)
+        (where, step)
         for rel in SOURCES
         for where, steps in _step_lists(rel)
-        for group in _installs(steps)
+        for step in steps
+        if str(step.get("name", "")).startswith("Install uv")
     ]
 
 
-def _ids() -> list[str]:
-    return [f"{w}#{g[0]['name']}" for w, g in _all()]
+class TestTheCompositeRetries:
+    @pytest.fixture
+    def attempts(self) -> list[dict]:
+        doc = yaml.safe_load(COMPOSITE.read_text(encoding="utf-8"))
+        return doc["runs"]["steps"]
 
-
-@pytest.mark.parametrize(("where", "group"), _all(), ids=_ids())
-class TestEveryInstallRetries:
-    def test_three_attempts(self, where: str, group: list[dict]) -> None:
-        assert len(group) == 3, where
-
-    def test_first_attempt_keeps_its_condition_and_is_tolerated(
-        self, where: str, group: list[dict]
+    def test_three_attempts_of_one_action_and_inputs(
+        self, attempts: list[dict]
     ) -> None:
-        assert group[0]["continue-on-error"] is True, where
-        assert group[0]["id"] == "uv_try1", where
+        assert len(attempts) == 3
+        assert all(a["uses"].startswith("astral-sh/setup-uv@") for a in attempts)
+        assert all(a["uses"] == attempts[0]["uses"] for a in attempts)
+        assert all(a["with"] == attempts[0]["with"] for a in attempts)
 
     def test_each_retry_runs_only_after_the_previous_failed(
-        self, where: str, group: list[dict]
+        self, attempts: list[dict]
     ) -> None:
-        for prev, step in zip(group, group[1:], strict=False):
-            assert str(step["if"]) == (
-                "${{ steps." + prev["id"] + ".outcome == 'failure' }}"
-            ), where
+        for prev, step in zip(attempts, attempts[1:], strict=False):
+            assert step["if"] == "${{ steps." + prev["id"] + ".outcome == 'failure' }}"
 
-    def test_only_the_last_attempt_can_fail_the_job(
-        self, where: str, group: list[dict]
-    ) -> None:
-        *tolerated, last = group
-        assert all(s["continue-on-error"] is True for s in tolerated), where
-        assert "id" not in last, where
-        # predict-version is tolerant by design: a missing uv falls back loudly.
-        if "predict-version" in where:
-            assert last["continue-on-error"] is True
-        else:
-            assert "continue-on-error" not in last, where
+    def test_only_the_last_attempt_can_fail(self, attempts: list[dict]) -> None:
+        *tolerated, last = attempts
+        assert all(s["continue-on-error"] is True for s in tolerated)
+        assert "continue-on-error" not in last
 
-    def test_attempts_use_the_same_action_and_inputs(
-        self, where: str, group: list[dict]
-    ) -> None:
-        for step in group[1:]:
-            assert step["uses"] == group[0]["uses"], where
-            assert step.get("with") == group[0].get("with"), where
+
+@pytest.mark.parametrize(("where", "step"), _calls(), ids=[w for w, _ in _calls()])
+def test_every_install_calls_the_composite(where: str, step: dict) -> None:
+    assert step["uses"] == CALL, where
 
 
 def test_the_expected_installs_are_all_found() -> None:
-    # setup-runtime, predict-version, 6 in the tail, 3 in each of 4 language CIs.
-    assert len(_all()) == 1 + 1 + 6 + 3 * 4
+    # setup-runtime, 6 in the tail, 3 in each of 4 language CIs, and iac-ci.
+    assert len(_calls()) == 1 + 6 + 3 * 4 + 1
 
 
 @pytest.mark.parametrize("rel", SOURCES)
-def test_attempt_ids_are_unique_per_job(rel: str) -> None:
+def test_no_source_calls_setup_uv_directly(rel: str) -> None:
     for where, steps in _step_lists(rel):
-        ids = [s["id"] for s in steps if "id" in s]
-        assert len(ids) == len(set(ids)), where
+        direct = [s for s in steps if "astral-sh/setup-uv@" in str(s.get("uses", ""))]
+        assert not direct, where
+
+
+def test_no_composite_call_tolerates_a_failed_install() -> None:
+    assert not [w for w, s in _calls() if s.get("continue-on-error") is True]
+
+
+def test_predict_version_tolerates_every_failed_attempt() -> None:
+    # A missing uv there falls back to python3, loudly.
+    steps = yaml.safe_load(PREDICT_VERSION.read_text(encoding="utf-8"))["runs"]["steps"]
+    attempts = [s for s in steps if "astral-sh/setup-uv@" in str(s.get("uses", ""))]
+    assert len(attempts) == 3
+    assert all(a["continue-on-error"] is True for a in attempts)
+    for prev, step in zip(attempts, attempts[1:], strict=False):
+        assert step["if"] == "${{ steps." + prev["id"] + ".outcome == 'failure' }}"
