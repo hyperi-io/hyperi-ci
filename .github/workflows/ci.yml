@@ -265,6 +265,11 @@ jobs:
     # ---------------------------------------------------------------------
     if: always() && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
+    # The fixtures are public, so the job token reads their PRs and runs.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -280,30 +285,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
-      - name: Scope the token to the fleet
-        id: fleet
-        run: uv run --no-sources python scripts/fixture_fleet.py >> "$GITHUB_OUTPUT"
-
-      - name: Mint a fleet read token
-        # The fixtures are private, so reading their records needs more than
-        # GITHUB_TOKEN. A fork PR cannot mint one and the gate stays red rather
-        # than passing on an unreadable fleet.
-        # This repo is in the list because the gate reads the PR's changed
-        # files from it.
-        id: bot
-        continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }},${{ steps.fleet.outputs.repos }}
-          permission-actions: read
-          permission-pull-requests: read
-
       - name: Hold the change to a fixture rehearsal
         env:
-          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
@@ -312,10 +296,6 @@ jobs:
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "Not a pull request - the fleet sweep covers what lands on main."
             exit 0
-          fi
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error::No fleet token. The ci-test-* fixtures are private, so this gate cannot read them from a fork PR - a maintainer must rehearse and re-run."
-            exit 2
           fi
           uv run --no-sources python scripts/rehearse-gate.py \
             --pr "$PR_NUMBER" --branch "$HEAD_REF" --head-sha "$HEAD_SHA"
