@@ -47,12 +47,6 @@ def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
 
 
-@pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-
-
 def _stub(
     monkeypatch: pytest.MonkeyPatch, sarif_text: str, *, has_tool: bool = True
 ) -> dict:
@@ -185,28 +179,33 @@ def _finding(path: str) -> fdg.Finding:
 class TestInTree:
     """A rendered-template finding points at the template in the repo."""
 
-    def test_a_chart_in_a_subdirectory(self, tmp_path: Path) -> None:
-        # helm template writes <chart dir>/<chart name>/templates/...
-        _chart(tmp_path, "chart")
-        found = checkov._in_tree(
-            _finding("tmps6jyk9ar/chart/web/templates/deployment.yaml"), tmp_path
-        )
-        assert found.path == "chart/templates/deployment.yaml"
-
-    def test_a_chart_at_the_root(self, tmp_path: Path) -> None:
-        _chart(tmp_path, "")
-        found = checkov._in_tree(
-            _finding("tmpab12cd34/web/templates/deployment.yaml"), tmp_path
-        )
-        assert found.path == "templates/deployment.yaml"
-
-    def test_a_nested_charts_directory(self, tmp_path: Path) -> None:
-        _chart(tmp_path, "charts/app")
-        found = checkov._in_tree(
-            _finding("/tmp/x/tmpab12cd34/charts/app/web/templates/deployment.yaml"),
-            tmp_path,
-        )
-        assert found.path == "charts/app/templates/deployment.yaml"
+    @pytest.mark.parametrize(
+        ("chart_dir", "reported", "expected"),
+        [
+            # helm template writes <chart dir>/<chart name>/templates/...
+            (
+                "chart",
+                "tmps6jyk9ar/chart/web/templates/deployment.yaml",
+                "chart/templates/deployment.yaml",
+            ),
+            (
+                "",
+                "tmpab12cd34/web/templates/deployment.yaml",
+                "templates/deployment.yaml",
+            ),
+            (
+                "charts/app",
+                "/tmp/x/tmpab12cd34/charts/app/web/templates/deployment.yaml",
+                "charts/app/templates/deployment.yaml",
+            ),
+        ],
+        ids=["a-subdirectory", "the-root", "a-nested-charts-directory"],
+    )
+    def test_a_chart_path(
+        self, tmp_path: Path, chart_dir: str, reported: str, expected: str
+    ) -> None:
+        _chart(tmp_path, chart_dir)
+        assert checkov._in_tree(_finding(reported), tmp_path).path == expected
 
     def test_a_repo_path_is_left_alone(self, tmp_path: Path) -> None:
         (tmp_path / "manifests").mkdir()

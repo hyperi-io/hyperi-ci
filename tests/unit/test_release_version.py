@@ -8,7 +8,6 @@
 being released. HYPERCI_VERSION (Plan's next-version) wins over the committed
 VERSION file, which is stale once stamping is central (#27 + zero-config)."""
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -21,24 +20,7 @@ from hyperi_ci.common import (
     newer_release_than,
     resolve_release_version,
 )
-
-
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _init_repo(tmp_path: Path) -> Path:
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "t@t.io")
-    _git(tmp_path, "config", "user.name", "t")
-    _git(tmp_path, "commit", "--allow-empty", "-m", "chore: seed")
-    return tmp_path
+from tests.git_helpers import git, init_repo
 
 
 def test_hyperci_version_wins_and_strips_v(monkeypatch, tmp_path) -> None:
@@ -132,9 +114,9 @@ class TestNewerReleaseThan:
 
     @staticmethod
     def _tagged(tmp_path: Path, monkeypatch, *tags: str) -> None:
-        _init_repo(tmp_path)
+        init_repo(tmp_path, seed=True)
         for tag in tags:
-            _git(tmp_path, "tag", tag)
+            git(tmp_path, "tag", tag)
         monkeypatch.chdir(tmp_path)
 
     def test_an_older_version_is_behind_the_newest_release(

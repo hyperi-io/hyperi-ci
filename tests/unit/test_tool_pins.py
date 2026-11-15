@@ -39,9 +39,7 @@ def _on_path(*present: str) -> Callable[[str], str | None]:
 
 @pytest.fixture(autouse=True)
 def _workstation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run as on a dev box, with no strict or skip override in force."""
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+    """Run as on a dev box."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 

@@ -87,8 +87,6 @@ class TestTyCommand:
         project.mkdir()
         monkeypatch.chdir(project)
         monkeypatch.setenv("PATH", str(bin_dir))
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
 
         quality.run(CIConfig(_raw={}))
 
@@ -172,11 +170,8 @@ def _passes(
     Returns each pass's argv, mode and ``via``, by pass name.
     """
     monkeypatch.setattr(quality, "_repo_ruff_ignores", lambda _root: repo_ignores or [])
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
     if strict:
         monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
-    else:
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
     monkeypatch.setattr(quality, "_ruff_format_takes_extend_exclude", lambda: True)
     seen: dict[str, tuple[list[str], str, str]] = {}
     default_via = inspect.signature(run_gate_tool).parameters["via"].default

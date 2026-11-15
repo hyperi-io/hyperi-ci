@@ -54,8 +54,6 @@ class _Recorder:
 
 @pytest.fixture(autouse=True)
 def _plain_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
     monkeypatch.setattr(common, "is_github_actions", lambda: False)
 
 

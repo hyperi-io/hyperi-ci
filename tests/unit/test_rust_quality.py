@@ -1185,14 +1185,12 @@ class TestFeatureMatrixWarningsMode:
         return modes
 
     def test_unset_is_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         assert self._modes(monkeypatch, None) == {"warn"}
 
     @pytest.mark.parametrize("mode", ["blocking", "warn", "disabled"])
     def test_configured_mode_is_used(
         self, monkeypatch: pytest.MonkeyPatch, mode: str
     ) -> None:
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         assert self._modes(monkeypatch, {"warnings": mode}) == {mode}
 
     def test_strict_upgrades_warn_to_blocking(
@@ -1208,7 +1206,6 @@ class TestFeatureMatrixWarningsMode:
         assert self._modes(monkeypatch, {"warnings": "disabled"}) == {"disabled"}
 
     def test_a_typo_falls_back_to_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         assert self._modes(monkeypatch, {"warnings": "block"}) == {"warn"}
 
 
@@ -1322,8 +1319,6 @@ class _GateCalls:
 
 @pytest.fixture
 def gate(monkeypatch: pytest.MonkeyPatch) -> _GateCalls:
-    monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
     rec = _GateCalls()
     monkeypatch.setattr(f"{_QUALITY}.run_gate_tool", rec.run)
     monkeypatch.setattr(f"{_QUALITY}._package_lib_map", lambda *_a: {})
@@ -1435,8 +1430,6 @@ class TestFeatureMatrixTestsPass:
     def test_a_failing_set_fails_only_under_blocking(
         self, monkeypatch: pytest.MonkeyPatch, mode: str, passes: bool
     ) -> None:
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
         monkeypatch.setattr(f"{_QUALITY}._package_lib_map", lambda *_a: {})
         monkeypatch.setattr(f"{_QUALITY}._has_lib_target", lambda *_a: True)
         monkeypatch.setattr(

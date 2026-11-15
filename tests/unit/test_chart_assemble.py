@@ -579,7 +579,6 @@ class TestLintSkip:
 
         monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
         monkeypatch.setattr(checkov, "run_cmd", _run)
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
         return cmds
 
     @staticmethod

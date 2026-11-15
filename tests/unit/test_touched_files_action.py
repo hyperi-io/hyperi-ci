@@ -17,20 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.git_helpers import commit, git, init_repo
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / ".github" / "actions" / "predict-version" / "touched_files.py"
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ).stdout.strip()
 
 
 def _run(cwd: Path, event: Path, script: Path = SCRIPT) -> dict[str, str]:
@@ -62,20 +52,15 @@ def _run(cwd: Path, event: Path, script: Path = SCRIPT) -> dict[str, str]:
 
 
 def _pushed(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-q")
-    _git(repo, "config", "user.email", "t@t.io")
-    _git(repo, "config", "user.name", "t")
-    _git(repo, "commit", "--allow-empty", "-q", "-m", "chore: seed")
-    base = _git(repo, "rev-parse", "HEAD")
+    repo = init_repo(tmp_path / "repo")
+    base = commit(repo, "chore: seed")
     for name, body in files.items():
         (repo / name).write_text(body, encoding="utf-8")
-        _git(repo, "add", name)
-    _git(repo, "commit", "-q", "-m", "chore: the change")
+        git(repo, "add", name)
+    git(repo, "commit", "-q", "-m", "chore: the change")
     event = tmp_path / "event.json"
     event.write_text(
-        json.dumps({"before": base, "after": _git(repo, "rev-parse", "HEAD")}),
+        json.dumps({"before": base, "after": git(repo, "rev-parse", "HEAD")}),
         encoding="utf-8",
     )
     return repo, event

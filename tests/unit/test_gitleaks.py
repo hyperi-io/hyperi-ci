@@ -95,14 +95,12 @@ def _relaxed(mode: str) -> dict[str, str]:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every test with skip, strict and the config overrides unset.
+    """Start every test with the config overrides unset.
 
     GITLEAKS_CONFIG* belongs here rather than only in TestEnvConfigOverride: a
     developer with one exported has a different config in play for every canary
     test, and the suite would pass or fail on their shell.
     """
-    monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.delenv(_STRICT, raising=False)
     for var in gitleaks._ENV_CONFIG_VARS:
         monkeypatch.delenv(var, raising=False)
 
@@ -168,72 +166,65 @@ def _write_config(tmp_path: Path, body: str) -> str:
 class TestDeclaresNoRuleset:
     """`_declares_no_ruleset` decides whether a config names any rule SOURCE."""
 
-    def test_allowlists_without_rules_or_extend_is_blind(self, tmp_path: Path) -> None:
-        # The exact shape reported in #64.
-        cfg = _write_config(
-            tmp_path,
-            "[[allowlists]]\ndescription = \"fixtures\"\npaths = ['''testdata/''']\n",
-        )
-        assert gitleaks._declares_no_ruleset(cfg) is True
-
-    def test_extend_use_default_is_not_blind(self, tmp_path: Path) -> None:
-        cfg = _write_config(tmp_path, "[extend]\nuseDefault = true\n")
-        assert gitleaks._declares_no_ruleset(cfg) is False
-
     @pytest.mark.parametrize(
-        "body",
+        ("body", "blind"),
         [
-            "[extend]\nusedefault = true\n",
-            "[extend]\nUseDefault = true\n",  # the natural spelling
-            "[extend]\nUSEDEFAULT = true\n",
-            "[Extend]\nuSeDeFaUlT = true\n",
-            "[EXTEND]\nUseDefault = true\n",
+            pytest.param(
+                # The exact shape reported in #64.
+                "[[allowlists]]\ndescription = \"fixtures\"\npaths = ['''testdata/''']\n",
+                True,
+                id="allowlists-without-rules-or-extend",
+            ),
+            pytest.param(
+                "[extend]\nuseDefault = true\n", False, id="extend-use-default"
+            ),
+            # viper folds key case COMPLETELY, so all of these are working
+            # configs. Calling one blind would hard-fail CI on a repo whose
+            # scanner is fine.
+            pytest.param("[extend]\nusedefault = true\n", False, id="usedefault"),
+            pytest.param("[extend]\nUseDefault = true\n", False, id="UseDefault"),
+            pytest.param("[extend]\nUSEDEFAULT = true\n", False, id="USEDEFAULT"),
+            pytest.param(
+                "[Extend]\nuSeDeFaUlT = true\n", False, id="Extend-uSeDeFaUlT"
+            ),
+            pytest.param(
+                "[EXTEND]\nUseDefault = true\n", False, id="EXTEND-UseDefault"
+            ),
+            pytest.param(
+                "[[Rules]]\nid = 'x'\nregex = '''s'''\n", False, id="Rules-key-case"
+            ),
+            pytest.param(
+                '[extend]\npath = "somewhere.toml"\n', False, id="extend-path"
+            ),
+            pytest.param(
+                '[extend]\nPath = "somewhere.toml"\n', False, id="extend-Path"
+            ),
+            pytest.param(
+                # gitleaks' extendURL() is an empty stub as of 8.30.1 and nothing
+                # reads Extend.URL, so a url-only extend loads ZERO rules. If
+                # upstream implements it, this case fails on purpose.
+                '[extend]\nurl = "https://example.test/x.toml"\n',
+                True,
+                id="extend-url-is-ignored-by-gitleaks",
+            ),
+            pytest.param(
+                "[[rules]]\nid = \"x\"\ndescription = \"x\"\nregex = '''secret'''\n",
+                False,
+                id="own-rules",
+            ),
+            pytest.param("[extend]\n", True, id="extend-present-but-empty"),
+            pytest.param(
+                # gitleaks reports malformed TOML better than we can.
+                "this is not = = toml\n",
+                False,
+                id="unparseable-config-is-not-flagged",
+            ),
         ],
     )
-    def test_extend_is_case_insensitive(self, tmp_path: Path, body: str) -> None:
-        # viper folds key case COMPLETELY, so all of these are working configs
-        # that really do find secrets. Calling any of them blind would hard-fail
-        # CI on a repo whose scanner is fine - a false positive, in the default
-        # blocking mode. Verified against the real binary during #64 review.
-        assert gitleaks._declares_no_ruleset(_write_config(tmp_path, body)) is False
-
-    @pytest.mark.parametrize("body", ["[[Rules]]\nid = 'x'\nregex = '''s'''\n"])
-    def test_rules_key_is_case_insensitive(self, tmp_path: Path, body: str) -> None:
-        assert gitleaks._declares_no_ruleset(_write_config(tmp_path, body)) is False
-
-    @pytest.mark.parametrize("key", ["path", "Path"])
-    def test_extend_path_is_a_rule_source(self, tmp_path: Path, key: str) -> None:
-        cfg = _write_config(tmp_path, f'[extend]\n{key} = "somewhere.toml"\n')
-        assert gitleaks._declares_no_ruleset(cfg) is False
-
-    def test_extend_url_is_blind_because_gitleaks_ignores_it(
-        self, tmp_path: Path
+    def test_whether_the_config_names_a_rule_source(
+        self, tmp_path: Path, body: str, blind: bool
     ) -> None:
-        # NOT an oversight. gitleaks' extendURL() is an empty `// TODO` stub as
-        # of 8.30.1 and nothing reads Extend.URL, so a url-only extend loads
-        # ZERO rules and reports "no leaks found" on a repo full of secrets.
-        # Blessing it would reintroduce the exact #64 failure this guard exists
-        # to catch. If upstream ever implements it, this test fails - on purpose.
-        cfg = _write_config(tmp_path, '[extend]\nurl = "https://example.test/x.toml"\n')
-        assert gitleaks._declares_no_ruleset(cfg) is True
-
-    def test_own_rules_are_not_blind(self, tmp_path: Path) -> None:
-        cfg = _write_config(
-            tmp_path,
-            "[[rules]]\nid = \"x\"\ndescription = \"x\"\nregex = '''secret'''\n",
-        )
-        assert gitleaks._declares_no_ruleset(cfg) is False
-
-    def test_extend_present_but_empty_is_blind(self, tmp_path: Path) -> None:
-        # `[extend]` with nothing in it pulls in no ruleset.
-        cfg = _write_config(tmp_path, "[extend]\n")
-        assert gitleaks._declares_no_ruleset(cfg) is True
-
-    def test_unparseable_config_is_not_flagged(self, tmp_path: Path) -> None:
-        # gitleaks reports malformed TOML better than we can - don't turn a
-        # syntax error into a spurious "your gate is blind".
-        cfg = _write_config(tmp_path, "this is not = = toml\n")
-        assert gitleaks._declares_no_ruleset(cfg) is False
+        assert gitleaks._declares_no_ruleset(_write_config(tmp_path, body)) is blind
 
     def test_missing_config_is_not_flagged(self, tmp_path: Path) -> None:
         assert gitleaks._declares_no_ruleset(str(tmp_path / "absent.toml")) is False

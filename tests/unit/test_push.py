@@ -170,33 +170,18 @@ class TestCheckDirtyTree:
 class TestCheckNotCICommit:
     """Test CI bot commit detection."""
 
-    def test_normal_commit_allowed(self) -> None:
-        with patch(
-            "hyperi_ci.push._get_last_commit_message",
-            return_value="fix: update config parser",
-        ):
-            assert _check_not_ci_commit(cwd=None) == 0
-
-    def test_version_commit_blocked(self) -> None:
-        with patch(
-            "hyperi_ci.push._get_last_commit_message",
-            return_value="chore: version 1.5.0 [skip ci]",
-        ):
-            assert _check_not_ci_commit(cwd=None) == 1
-
-    def test_release_commit_blocked(self) -> None:
-        with patch(
-            "hyperi_ci.push._get_last_commit_message",
-            return_value="chore(release): 2.0.0 [skip ci]",
-        ):
-            assert _check_not_ci_commit(cwd=None) == 1
-
-    def test_none_message_allowed(self) -> None:
-        with patch(
-            "hyperi_ci.push._get_last_commit_message",
-            return_value=None,
-        ):
-            assert _check_not_ci_commit(cwd=None) == 0
+    @pytest.mark.parametrize(
+        ("message", "rc"),
+        [
+            ("fix: update config parser", 0),
+            ("chore: version 1.5.0 [skip ci]", 1),
+            ("chore(release): 2.0.0 [skip ci]", 1),
+            (None, 0),
+        ],
+    )
+    def test_the_last_commit_decides(self, message: str | None, rc: int) -> None:
+        with patch("hyperi_ci.push._get_last_commit_message", return_value=message):
+            assert _check_not_ci_commit(cwd=None) == rc
 
 
 @pytest.mark.parametrize(

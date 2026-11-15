@@ -82,9 +82,6 @@ class _Harness:
         self.audits = 0
         self.sleeps: list[float] = []
         self.said: list[str] = []
-        # A strict or skip setting in the caller's shell would change the modes.
-        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
         monkeypatch.setattr(subprocess, "run", self._run)
         monkeypatch.setattr(time, "sleep", self.sleeps.append)
         monkeypatch.setattr(quality.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")

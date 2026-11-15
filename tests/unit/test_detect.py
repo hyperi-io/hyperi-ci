@@ -16,35 +16,29 @@ from hyperi_ci.detect import detect_language
 class TestDetectLanguage:
     """Language detection from file markers."""
 
-    def test_detects_python_from_pyproject(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_python_from_setup_py(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.py").write_text("from setuptools import setup\n")
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_rust_from_cargo(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text("[package]\nname = 'test'\n")
-        assert detect_language(tmp_path) == "rust"
-
-    def test_detects_typescript_from_tsconfig(self, tmp_path: Path) -> None:
-        (tmp_path / "tsconfig.json").write_text("{}")
-        (tmp_path / "package.json").write_text("{}")
-        assert detect_language(tmp_path) == "typescript"
-
-    def test_detects_javascript_from_package_json(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text("{}")
-        assert detect_language(tmp_path) == "javascript"
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            ({"pyproject.toml": "[project]\nname = 'test'\n"}, "python"),
+            ({"setup.py": "from setuptools import setup\n"}, "python"),
+            ({"Cargo.toml": "[package]\nname = 'test'\n"}, "rust"),
+            ({"tsconfig.json": "{}", "package.json": "{}"}, "typescript"),
+            ({"package.json": "{}"}, "javascript"),
+            ({"go.mod": "module example.com/test\n"}, "golang"),
+        ],
+        ids=["pyproject", "setup-py", "cargo", "tsconfig", "package-json", "go-mod"],
+    )
+    def test_detects_the_language_from_its_marker(
+        self, tmp_path: Path, files: dict[str, str], expected: str
+    ) -> None:
+        for name, text in files.items():
+            (tmp_path / name).write_text(text)
+        assert detect_language(tmp_path) == expected
 
     def test_typescript_wins_over_javascript(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text("{}")
         (tmp_path / "tsconfig.json").write_text("{}")
         assert detect_language(tmp_path) == "typescript"
-
-    def test_detects_golang_from_go_mod(self, tmp_path: Path) -> None:
-        (tmp_path / "go.mod").write_text("module example.com/test\n")
-        assert detect_language(tmp_path) == "golang"
 
     def test_bats_tests_alone_are_not_a_language(self, tmp_path: Path) -> None:
         tests_dir = tmp_path / "tests"

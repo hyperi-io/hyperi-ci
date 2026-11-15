@@ -14,9 +14,6 @@ same gate asks on a validate-only run.
 """
 
 import json
-import os
-import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -30,49 +27,7 @@ from hyperi_ci.commit_range import (
     unreleased_annotation,
     unreleased_since_tag,
 )
-
-_SECONDS_PER_DAY = 86400
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ).stdout.strip()
-
-
-def _repo(tmp_path: Path) -> Path:
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "t@t.io")
-    _git(tmp_path, "config", "user.name", "t")
-    return tmp_path
-
-
-def _commit(cwd: Path, msg: str) -> str:
-    _git(cwd, "commit", "--allow-empty", "-q", "-m", msg)
-    return _git(cwd, "rev-parse", "HEAD")
-
-
-def _commit_at(cwd: Path, msg: str, days_ago: int) -> str:
-    """Commit dated ``days_ago``, so the age a warning quotes is deterministic."""
-    stamp = f"{int(time.time()) - days_ago * _SECONDS_PER_DAY} +0000"
-    env = dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-q", "-m", msg],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-    )
-    return _git(cwd, "rev-parse", "HEAD")
+from tests.git_helpers import commit, commit_at, git, init_repo
 
 
 def _write_push_event(tmp_path: Path, before: str, after: str) -> Path:
@@ -91,10 +46,10 @@ class TestCommitsInRange:
     def test_push_range_uses_before_after(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "chore: seed")
-        _commit(repo, "fix: one")
-        head = _commit(repo, "feat: two")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "chore: seed")
+        commit(repo, "fix: one")
+        head = commit(repo, "feat: two")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
 
         commits, resolved = commits_in_range()
@@ -106,8 +61,8 @@ class TestCommitsInRange:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # before == after (e.g. a re-run): a legit "no new commits", resolved.
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: only")
+        repo = init_repo(tmp_path)
+        head = commit(repo, "fix: only")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, head, head))
 
         commits, resolved = commits_in_range()
@@ -119,8 +74,8 @@ class TestCommitsInRange:
     ) -> None:
         # A branch-creation push has an all-zeros `before` -> range can't be
         # derived from it -> unresolved (caller must not treat as success).
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: first")
+        repo = init_repo(tmp_path)
+        head = commit(repo, "fix: first")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, "0" * 40, head))
 
         _commits, resolved = commits_in_range()
@@ -131,9 +86,9 @@ class TestCommitsInRange:
     ) -> None:
         # `before` names a SHA not in the (shallow) clone -> git errors -> the
         # push path can't resolve, and with no origin/main it stays unresolved.
-        repo = _repo(tmp_path)
-        _commit(repo, "fix: a")
-        head = _commit(repo, "fix: b")
+        repo = init_repo(tmp_path)
+        commit(repo, "fix: a")
+        head = commit(repo, "fix: b")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, "deadbeef" * 5, head))
 
         _commits, resolved = commits_in_range()
@@ -142,16 +97,16 @@ class TestCommitsInRange:
 
 def _upstream_sync(tmp_path: Path) -> tuple[Path, str, str]:
     """A main that merges an upstream branch of non-conventional commits."""
-    repo = _repo(tmp_path)
-    base = _commit(repo, "chore: seed")
-    main = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    _git(repo, "checkout", "-q", "-b", "upstream")
-    _commit(repo, "Add a dashboard")
-    _commit(repo, "Bump deps (#123)")
-    _git(repo, "checkout", "-q", main)
-    _commit(repo, "fix: our own change")
-    _git(repo, "merge", "-q", "--no-ff", "-m", "Merge upstream into main", "upstream")
-    return repo, base, _git(repo, "rev-parse", "HEAD")
+    repo = init_repo(tmp_path)
+    base = commit(repo, "chore: seed")
+    main = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    git(repo, "checkout", "-q", "-b", "upstream")
+    commit(repo, "Add a dashboard")
+    commit(repo, "Bump deps (#123)")
+    git(repo, "checkout", "-q", main)
+    commit(repo, "fix: our own change")
+    git(repo, "merge", "-q", "--no-ff", "-m", "Merge upstream into main", "upstream")
+    return repo, base, git(repo, "rev-parse", "HEAD")
 
 
 class TestFirstParent:
@@ -204,11 +159,11 @@ class TestMergeGroupRange:
     def test_range_is_base_sha_to_head_sha(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        _commit(repo, "chore: already on main")
-        base = _commit(repo, "fix: the base the queue built on")
-        head = _commit(repo, "fix: the squash that lands (#7)")
-        _commit(repo, "feat: past head, not in the group")
+        repo = init_repo(tmp_path)
+        commit(repo, "chore: already on main")
+        base = commit(repo, "fix: the base the queue built on")
+        head = commit(repo, "fix: the squash that lands (#7)")
+        commit(repo, "feat: past head, not in the group")
         _on_merge_group(
             monkeypatch, repo, tmp_path, {"base_sha": base, "head_sha": head}
         )
@@ -224,8 +179,8 @@ class TestMergeGroupRange:
     ) -> None:
         # A base the clone lacks must degrade loudly, never fall through to a
         # generic range that validates some other set of commits.
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: head")
+        repo = init_repo(tmp_path)
+        head = commit(repo, "fix: head")
         _on_merge_group(
             monkeypatch, repo, tmp_path, {"base_sha": "deadbeef" * 5, "head_sha": head}
         )
@@ -240,11 +195,11 @@ class TestIsReleaseWorthy:
     def _worthy(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *subjects: str
     ) -> tuple[bool, str]:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "chore: seed")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "chore: seed")
         for subject in subjects:
-            _commit(repo, subject)
-        head = _git(repo, "rev-parse", "HEAD")
+            commit(repo, subject)
+        head = git(repo, "rev-parse", "HEAD")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
         return is_release_worthy()
 
@@ -295,8 +250,8 @@ class TestIsReleaseWorthy:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Resolved-and-empty is a real answer, not a degradation.
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: only")
+        repo = init_repo(tmp_path)
+        head = commit(repo, "fix: only")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, head, head))
 
         worthy, _reason = is_release_worthy()
@@ -307,9 +262,9 @@ class TestIsReleaseWorthy:
     ) -> None:
         # THE fail-safe: a shallow clone must open the gate, never close it.
         # Closing it is the silent skip design principle 3 forbids.
-        repo = _repo(tmp_path)
-        _commit(repo, "chore: nothing release-worthy here")
-        head = _git(repo, "rev-parse", "HEAD")
+        repo = init_repo(tmp_path)
+        commit(repo, "chore: nothing release-worthy here")
+        head = git(repo, "rev-parse", "HEAD")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, "deadbeef" * 5, head))
 
         worthy, reason = is_release_worthy()
@@ -321,7 +276,7 @@ class TestIsReleaseWorthy:
     ) -> None:
         # CI tags with the central config, so a repo promoting docs: must not
         # make the gate expect a release the tag step will not cut.
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         (repo / ".releaserc.json").write_text(
             json.dumps(
                 {
@@ -335,10 +290,10 @@ class TestIsReleaseWorthy:
             ),
             encoding="utf-8",
         )
-        _git(repo, "add", ".releaserc.json")
-        base = _commit(repo, "chore: add releaserc")
-        _commit(repo, "docs: rewrite the readme")
-        head = _git(repo, "rev-parse", "HEAD")
+        git(repo, "add", ".releaserc.json")
+        base = commit(repo, "chore: add releaserc")
+        commit(repo, "docs: rewrite the readme")
+        head = git(repo, "rev-parse", "HEAD")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
 
         worthy, _reason = is_release_worthy()
@@ -356,11 +311,11 @@ class TestUnreleasedWarning:
 
     def _repo_at(self, tmp_path: Path, days_ago: int, *subjects: str) -> Path:
         """A repo tagged v1.2.3 ``days_ago``, with ``subjects`` landed since."""
-        repo = _repo(tmp_path)
-        _commit_at(repo, "chore: seed", days_ago)
-        _git(repo, "tag", "v1.2.3")
+        repo = init_repo(tmp_path)
+        commit_at(repo, "chore: seed", days_ago)
+        git(repo, "tag", "v1.2.3")
         for subject in subjects:
-            _commit(repo, subject)
+            commit(repo, subject)
         return repo
 
     def test_releasable_work_waiting_warns(
@@ -414,8 +369,8 @@ class TestUnreleasedWarning:
         # The third outcome. A tag-less repo cannot be behind anything, and
         # folding that into either of the other two destroys the distinction
         # (docs/lessons.md, "A check has THREE outcomes").
-        repo = _repo(tmp_path)
-        _commit(repo, "fix: the very first commit")
+        repo = init_repo(tmp_path)
+        commit(repo, "fix: the very first commit")
         monkeypatch.chdir(repo)
 
         level, message = unreleased_annotation(warn_days=0)
@@ -449,7 +404,7 @@ class TestUnreleasedWarning:
     ) -> None:
         # The central config decides what is releasable, so a docs: commit is
         # not waiting on a release whatever the repo's own config says.
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         (repo / ".releaserc.json").write_text(
             json.dumps(
                 {
@@ -464,10 +419,10 @@ class TestUnreleasedWarning:
             encoding="utf-8",
             newline="\n",
         )
-        _git(repo, "add", ".releaserc.json")
-        _commit(repo, "chore: add releaserc")
-        _git(repo, "tag", "v0.1.0")
-        _commit(repo, "docs: rewrite the readme")
+        git(repo, "add", ".releaserc.json")
+        commit(repo, "chore: add releaserc")
+        git(repo, "tag", "v0.1.0")
+        commit(repo, "docs: rewrite the readme")
         monkeypatch.chdir(repo)
 
         level, message = unreleased_annotation(warn_days=0)
@@ -479,11 +434,11 @@ class TestUnreleasedWarning:
     ) -> None:
         # Releases are v* tags; a `nightly` or `latest` marker is not one, and
         # measuring from it would report the backlog as already shipped.
-        repo = _repo(tmp_path)
-        _commit(repo, "fix: shipped long ago")
-        _git(repo, "tag", "v1.0.0")
-        _commit(repo, "fix: waiting")
-        _git(repo, "tag", "nightly")
+        repo = init_repo(tmp_path)
+        commit(repo, "fix: shipped long ago")
+        git(repo, "tag", "v1.0.0")
+        commit(repo, "fix: waiting")
+        git(repo, "tag", "nightly")
         monkeypatch.chdir(repo)
 
         tag, releasable = unreleased_since_tag()
@@ -505,21 +460,21 @@ class TestUnreleasedAge:
 
     def _repo(self, tmp_path: Path, *ages: int) -> Path:
         """A repo tagged v1.2.3 26 days ago, then one fix: per age in days."""
-        repo = _repo(tmp_path)
-        _commit_at(repo, "chore: seed", 26)
-        _git(repo, "tag", "v1.2.3")
+        repo = init_repo(tmp_path)
+        commit_at(repo, "chore: seed", 26)
+        git(repo, "tag", "v1.2.3")
         for index, age in enumerate(ages):
-            _commit_at(repo, f"fix: waiting {index}", age)
+            commit_at(repo, f"fix: waiting {index}", age)
         return repo
 
     def test_old_work_warns_with_the_pinned_text(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        _commit_at(repo, "chore: seed", 26)
-        _git(repo, "tag", "v1.2.3")
-        _commit_at(repo, "fix: an off-by-one", 20)
-        _commit_at(repo, "feat: a new source", 20)
+        repo = init_repo(tmp_path)
+        commit_at(repo, "chore: seed", 26)
+        git(repo, "tag", "v1.2.3")
+        commit_at(repo, "fix: an off-by-one", 20)
+        commit_at(repo, "feat: a new source", 20)
         monkeypatch.chdir(repo)
 
         assert unreleased_annotation(warn_days=7) == ("warning", self.PINNED)
@@ -566,9 +521,9 @@ def _commit_files(repo: Path, msg: str, files: dict[str, str]) -> str:
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8", newline="\n")
-        _git(repo, "add", name)
-    _git(repo, "commit", "-q", "-m", msg)
-    return _git(repo, "rev-parse", "HEAD")
+        git(repo, "add", name)
+    git(repo, "commit", "-q", "-m", msg)
+    return git(repo, "rev-parse", "HEAD")
 
 
 class TestTouchesCode:
@@ -585,7 +540,7 @@ class TestTouchesCode:
         msg: str,
         files: dict[str, str],
     ) -> tuple[bool, str]:
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         base = _commit_files(repo, "chore: seed", {"seed.txt": "seed\n"})
         head = _commit_files(repo, msg, files)
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
@@ -634,12 +589,12 @@ class TestTouchesCode:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Rename detection would list only the new docs/ path.
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         base = _commit_files(repo, "chore: seed", {"src/app.py": "x = 1\n"})
         (repo / "docs").mkdir()
-        _git(repo, "mv", "src/app.py", "docs/app.md")
-        _git(repo, "commit", "-q", "-m", "docs: keep it as an example")
-        head = _git(repo, "rev-parse", "HEAD")
+        git(repo, "mv", "src/app.py", "docs/app.md")
+        git(repo, "commit", "-q", "-m", "docs: keep it as an example")
+        head = git(repo, "rev-parse", "HEAD")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, base, head))
 
         touched, reason = touches_code()
@@ -649,7 +604,7 @@ class TestTouchesCode:
     def test_an_unresolvable_range_runs_the_checks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         head = _commit_files(repo, "docs: only", {"README.md": "x\n"})
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, "deadbeef" * 5, head))
 
@@ -662,7 +617,7 @@ class TestTouchesCode:
     ) -> None:
         # A force-push back to an older tip adds no commits, and says nothing
         # about what main now holds.
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         older = _commit_files(repo, "chore: seed", {"app.py": "x = 1\n"})
         newer = _commit_files(repo, "docs: later", {"README.md": "x\n"})
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, newer, older))
@@ -674,8 +629,8 @@ class TestTouchesCode:
     def test_a_re_run_of_the_same_tip_runs_the_checks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: only")
+        repo = init_repo(tmp_path)
+        head = commit(repo, "fix: only")
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, head, head))
 
         assert touches_code()[0] is True
@@ -685,7 +640,7 @@ class TestTouchesCode:
     ) -> None:
         # An all-zeros `before` falls through to origin/main..HEAD, which says
         # nothing about the push.
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         head = _commit_files(repo, "docs: only", {"README.md": "x\n"})
         _on_push(monkeypatch, repo, _write_push_event(tmp_path, "0" * 40, head))
 

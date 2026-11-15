@@ -47,25 +47,49 @@ class TestLinkDestinations:
         assert found[0].level == "error"
         assert found[0].line == 1
 
-    def test_existing_link_is_silent(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("name", "text"),
+        [
+            pytest.param(
+                "README.md", "See [the guide](docs/guide.md).\n", id="existing"
+            ),
+            pytest.param(
+                "README.md",
+                # A C++ lambda capture and a Python generic are valid link syntax.
+                "```cpp\n"
+                ".or_else([](const std::string & err) { return err; });\n"
+                "```\n"
+                "```python\n"
+                "def first[T](items: list[T]) -> T | None: ...\n"
+                "```\n",
+                id="code-in-a-fence",
+            ),
+            pytest.param(
+                "README.md",
+                "[x](docs/guide.md#a-heading)\n",
+                id="fragment-and-query-are-stripped",
+            ),
+            pytest.param(
+                "README.md",
+                "[a](https://example.com/x) [b](#section) [c](mailto:x@y.z)\n",
+                id="external-and-anchor-destinations",
+            ),
+            pytest.param(
+                "docs/index.md", "[sibling](guide.md)\n", id="relative-to-the-doc"
+            ),
+            pytest.param(
+                "README.md",
+                "See [the guide](docs/gone.md) <!-- doc-paths: ignore -->.\n",
+                id="a-marked-bad-link",
+            ),
+        ],
+    )
+    def test_a_link_that_is_not_a_missing_path_is_silent(
+        self, tmp_path: Path, name: str, text: str
+    ) -> None:
         root = _repo(tmp_path)
-        doc = root / "README.md"
-        doc.write_text("See [the guide](docs/guide.md).\n", encoding="utf-8")
-        assert doc_paths.scan_links(doc, root) == []
-
-    def test_code_in_a_fence_is_not_a_link(self, tmp_path: Path) -> None:
-        """A C++ lambda capture and a Python generic are valid link syntax."""
-        root = _repo(tmp_path)
-        doc = root / "README.md"
-        doc.write_text(
-            "```cpp\n"
-            ".or_else([](const std::string & err) { return err; });\n"
-            "```\n"
-            "```python\n"
-            "def first[T](items: list[T]) -> T | None: ...\n"
-            "```\n",
-            encoding="utf-8",
-        )
+        doc = root / name
+        doc.write_text(text, encoding="utf-8")
         assert doc_paths.scan_links(doc, root) == []
 
     def test_a_link_after_a_fence_still_reports(self, tmp_path: Path) -> None:
@@ -80,25 +104,6 @@ class TestLinkDestinations:
         assert [f.rule for f in found] == ["docs/link-missing"]
         assert found[0].line == 4
 
-    def test_fragment_and_query_are_stripped_before_resolving(
-        self, tmp_path: Path
-    ) -> None:
-        root = _repo(tmp_path)
-        doc = root / "README.md"
-        doc.write_text("[x](docs/guide.md#a-heading)\n", encoding="utf-8")
-        assert doc_paths.scan_links(doc, root) == []
-
-    def test_external_and_anchor_destinations_are_not_paths(
-        self, tmp_path: Path
-    ) -> None:
-        root = _repo(tmp_path)
-        doc = root / "README.md"
-        doc.write_text(
-            "[a](https://example.com/x) [b](#section) [c](mailto:x@y.z)\n",
-            encoding="utf-8",
-        )
-        assert doc_paths.scan_links(doc, root) == []
-
     def test_reference_style_link_is_covered(self, tmp_path: Path) -> None:
         root = _repo(tmp_path)
         doc = root / "README.md"
@@ -106,12 +111,6 @@ class TestLinkDestinations:
         assert [f.rule for f in doc_paths.scan_links(doc, root)] == [
             "docs/link-missing"
         ]
-
-    def test_link_relative_to_the_doc_resolves(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "docs" / "index.md"
-        doc.write_text("[sibling](guide.md)\n", encoding="utf-8")
-        assert doc_paths.scan_links(doc, root) == []
 
 
 class TestInlineCodePaths:
@@ -189,15 +188,6 @@ class TestIgnoreMarker:
         assert [f.message for f in found] == [
             "names `config/org.yaml`, which is no longer in the repo"
         ]
-
-    def test_a_marked_bad_link_is_not_reported(self, tmp_path: Path) -> None:
-        root = _repo(tmp_path)
-        doc = root / "README.md"
-        doc.write_text(
-            "See [the guide](docs/gone.md) <!-- doc-paths: ignore -->.\n",
-            encoding="utf-8",
-        )
-        assert doc_paths.scan_links(doc, root) == []
 
     def test_a_later_unmarked_occurrence_of_a_marked_path_still_reports(
         self, tmp_path: Path
@@ -277,17 +267,17 @@ class TestLooksLikeAFile:
     def test_two_segments_with_an_extension_qualify(self) -> None:
         assert doc_paths.looks_like_a_file("config/org.yaml")
 
-    def test_a_single_segment_does_not(self) -> None:
-        assert not doc_paths.looks_like_a_file("/metrics")
-
-    def test_a_trailing_slash_does_not(self) -> None:
-        assert not doc_paths.looks_like_a_file("src/hyperi_ci/")
-
-    def test_no_extension_does_not(self) -> None:
-        assert not doc_paths.looks_like_a_file("scripts/dfe-stack")
-
-    def test_a_leading_dot_slash_is_stripped_before_counting(self) -> None:
-        assert not doc_paths.looks_like_a_file("./Chart.yaml")
+    @pytest.mark.parametrize(
+        "token",
+        [
+            pytest.param("/metrics", id="a-single-segment"),
+            pytest.param("src/hyperi_ci/", id="a-trailing-slash"),
+            pytest.param("scripts/dfe-stack", id="no-extension"),
+            pytest.param("./Chart.yaml", id="a-leading-dot-slash-is-stripped-first"),
+        ],
+    )
+    def test_a_token_that_does_not_qualify(self, token: str) -> None:
+        assert not doc_paths.looks_like_a_file(token)
 
 
 class TestRun:

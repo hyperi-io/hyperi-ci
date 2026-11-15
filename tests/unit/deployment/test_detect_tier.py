@@ -162,57 +162,51 @@ class TestSelfMatchExclusion:
     Tier 1/2 producer, which then fails with "no binary found".
     """
 
-    def test_scalo_rust_own_repo_is_not_rust(self, tmp_path: Path) -> None:
-        # scalo-rs's own Cargo.toml has `name = "scalo"` in [package] but
-        # no `scalo = ...` dep line -- must not self-detect as Tier RUST.
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "scalo"\nversion = "2.9.0"\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_hyperi_rustlib_own_repo_is_not_rust(self, tmp_path: Path) -> None:
-        # The legacy library's own Cargo.toml has `name = "hyperi-rustlib"`
-        # in [package] but no `hyperi-rustlib = ...` dep line.
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "hyperi-rustlib"\nversion = "2.7.0"\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_hyperi_rustlib_with_self_in_dev_deps_still_excluded(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("filename", "text"),
+        [
+            pytest.param(
+                "Cargo.toml",
+                '[package]\nname = "scalo"\nversion = "2.9.0"\n',
+                id="scalo-rs-own-repo",
+            ),
+            pytest.param(
+                "Cargo.toml",
+                '[package]\nname = "hyperi-rustlib"\nversion = "2.7.0"\n',
+                id="rustlib-own-repo",
+            ),
+            pytest.param(
+                "Cargo.toml",
+                '[package]\nname = "hyperi-rustlib"\nversion = "2.7.0"\n'
+                '[dev-dependencies]\nhyperi-rustlib = { path = "." }\n',
+                id="rustlib-self-in-dev-deps",
+            ),
+            pytest.param(
+                "pyproject.toml",
+                '[project]\nname = "scalo"\nversion = "2.29.0"\n',
+                id="scalo-py-own-repo",
+            ),
+            pytest.param(
+                "pyproject.toml",
+                '[tool.poetry]\nname = "scalo"\nversion = "2.29.0"\n',
+                id="poetry-section",
+            ),
+            pytest.param(
+                "Cargo.toml",
+                "[package]\nname = 'hyperi-rustlib'\nversion = '2.7.0'\n",
+                id="single-quoted-name",
+            ),
+            pytest.param(
+                "Cargo.toml",
+                '[package]\nname = "hyperi-rustlib"  # the library itself\n',
+                id="trailing-comment",
+            ),
+        ],
+    )
+    def test_a_librarys_own_repo_is_not_a_consumer(
+        self, tmp_path: Path, filename: str, text: str
     ) -> None:
-        # Hypothetical: library lists its own name in [dev-dependencies]
-        # for an example-binary workspace pattern. Still not a consumer.
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "hyperi-rustlib"\nversion = "2.7.0"\n'
-            '[dev-dependencies]\nhyperi-rustlib = { path = "." }\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_scalo_own_repo_is_not_python(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "scalo"\nversion = "2.29.0"\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_scalo_poetry_section_also_excluded(self, tmp_path: Path) -> None:
-        # Poetry-managed projects use [tool.poetry] instead of [project].
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.poetry]\nname = "scalo"\nversion = "2.29.0"\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_single_quoted_name_excluded(self, tmp_path: Path) -> None:
-        # TOML allows single-quoted strings -- must still match.
-        (tmp_path / "Cargo.toml").write_text(
-            "[package]\nname = 'hyperi-rustlib'\nversion = '2.7.0'\n",
-            encoding="utf-8",
-        )
+        (tmp_path / filename).write_text(text, encoding="utf-8")
         assert detect_tier(tmp_path) == Tier.NONE
 
     def test_consumer_with_real_dep_still_detected(self, tmp_path: Path) -> None:
@@ -237,14 +231,6 @@ class TestSelfMatchExclusion:
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.RUST
-
-    def test_name_with_trailing_comment_handled(self, tmp_path: Path) -> None:
-        # Inline comments after the name field shouldn't break parsing.
-        (tmp_path / "Cargo.toml").write_text(
-            '[package]\nname = "hyperi-rustlib"  # the library itself\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
 
     def test_name_outside_recognised_section_not_self_match(
         self, tmp_path: Path

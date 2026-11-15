@@ -5,35 +5,19 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import pytest
+
 from hyperi_ci.dispatch import _find_handler_module
 
 
 class TestJavascriptAliasesToTypescript:
     """JS projects with no tsconfig.json route through the TS handler package."""
 
-    def test_quality_stage_maps_to_typescript_quality_module(self) -> None:
-        js_mod = _find_handler_module("javascript", "quality")
-        ts_mod = _find_handler_module("typescript", "quality")
+    @pytest.mark.parametrize("stage", ["quality", "test", "build", "release"])
+    def test_a_stage_maps_to_the_typescript_module(self, stage: str) -> None:
+        js_mod = _find_handler_module("javascript", stage)
         assert js_mod is not None
-        assert js_mod is ts_mod
-
-    def test_test_stage_maps_to_typescript_test_module(self) -> None:
-        js_mod = _find_handler_module("javascript", "test")
-        ts_mod = _find_handler_module("typescript", "test")
-        assert js_mod is not None
-        assert js_mod is ts_mod
-
-    def test_build_stage_maps_to_typescript_build_module(self) -> None:
-        js_mod = _find_handler_module("javascript", "build")
-        ts_mod = _find_handler_module("typescript", "build")
-        assert js_mod is not None
-        assert js_mod is ts_mod
-
-    def test_release_stage_maps_to_typescript_release_module(self) -> None:
-        js_mod = _find_handler_module("javascript", "release")
-        ts_mod = _find_handler_module("typescript", "release")
-        assert js_mod is not None
-        assert js_mod is ts_mod
+        assert js_mod is _find_handler_module("typescript", stage)
 
     def test_typescript_still_resolves_to_itself(self) -> None:
         """Alias doesn't affect canonical names."""

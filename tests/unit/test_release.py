@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci.config import CIConfig, load_config, shipped_default
+from tests.git_helpers import git, init_repo
 
 
 def _make_config(legacy_target: str = "oss") -> CIConfig:
@@ -507,45 +508,36 @@ class TestReleaseAssets:
 class TestReleaseTargetsHead:
     """Refuse to overwrite a release whose tag is not HEAD (issue #105)."""
 
-    @staticmethod
-    def _git(cwd: Path, *args: str) -> None:
-        subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-        )
-
     def test_tag_at_head_is_true(self, tmp_path, monkeypatch) -> None:
-        self._git(tmp_path, "init")
+        init_repo(tmp_path)
         (tmp_path / "f").write_text("a")
-        self._git(tmp_path, "add", "-A")
-        self._git(tmp_path, "commit", "-m", "one")
-        self._git(tmp_path, "tag", "v1.0.0")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-m", "one")
+        git(tmp_path, "tag", "v1.0.0")
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_targets_head
 
         assert _release_targets_head("v1.0.0") is True
 
     def test_tag_off_head_is_false(self, tmp_path, monkeypatch) -> None:
-        self._git(tmp_path, "init")
+        init_repo(tmp_path)
         (tmp_path / "f").write_text("a")
-        self._git(tmp_path, "add", "-A")
-        self._git(tmp_path, "commit", "-m", "one")
-        self._git(tmp_path, "tag", "v1.0.0")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-m", "one")
+        git(tmp_path, "tag", "v1.0.0")
         (tmp_path / "f").write_text("b")
-        self._git(tmp_path, "add", "-A")
-        self._git(tmp_path, "commit", "-m", "two")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-m", "two")
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_targets_head
 
         assert _release_targets_head("v1.0.0") is False
 
     def test_missing_tag_is_false(self, tmp_path, monkeypatch) -> None:
-        self._git(tmp_path, "init")
+        init_repo(tmp_path)
         (tmp_path / "f").write_text("a")
-        self._git(tmp_path, "add", "-A")
-        self._git(tmp_path, "commit", "-m", "one")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-m", "one")
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_targets_head
 

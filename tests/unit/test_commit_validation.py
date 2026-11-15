@@ -20,6 +20,7 @@ from hyperi_ci.quality.commit_validation import (
     format_type_list,
     validate_message,
 )
+from tests.git_helpers import commit, git, init_repo
 
 
 @pytest.mark.parametrize(
@@ -47,288 +48,101 @@ def test_check_commit_reads_a_message_file(
 # ---------------------------------------------------------------------------
 
 
-class TestValidMessages:
-    def test_fix_prefix(self) -> None:
-        result = validate_message("fix: correct null pointer in parser")
-        assert result.valid is True
-        assert result.error_type == ""
+@pytest.mark.parametrize(
+    "message",
+    [
+        "fix: correct null pointer in parser",
+        "sec: patch SQL injection vulnerability",
+        "security: patch SQL injection vulnerability",
+        "spike: evaluate new serialisation library",
+        "chore: update dependencies",
+        "docs: update README",
+        "test: add integration tests for parser",
+        "refactor: extract validation helper",
+        "ci: add matrix builds for multiple Python versions",
+        "infra: provision new k8s nodes",
+        "ops: rotate API keys",
+        "cleanup: remove deprecated handler",
+        "data: migrate events schema to v3",
+        "debt: address legacy timeout handling",
+        "design: update component interaction diagram",
+        "meta: update team contribution process",
+        "review: audit logging configuration",
+        "ui: align button styles with design system",
+        "perf: optimise batch processing throughput",
+        "hotfix: prevent crash on empty payload",
+        "fix: abc",
+        "fix: " + "a" * 100,
+        "fix: handle empty config",
+        "Merge branch 'main' into feature/something",
+        "chore: version 1.2.3 [skip ci]",
+        "chore: version 1.2.3-dev.4 [skip ci]",
+    ],
+    ids=lambda message: message[:40],
+)
+def test_valid_message(message: str) -> None:
+    result = validate_message(message)
+    assert result.valid is True
+    assert result.error_type == ""
 
-    def test_feat_with_scope_requires_opt_in(self, monkeypatch) -> None:
-        """`feat:` is gated behind HYPERCI_ALLOW_FEAT to enforce HyperI policy.
 
-        feat: triggers a MINOR semver bump, but HyperI policy is to use feat:
-        rarely (genuinely new user-facing features only). The gate forces
-        the operator to opt in deliberately.
-        """
-        # Without opt-in: rejected. Explicitly clear the env var in case
-        # the calling shell has it set (e.g. from `hyperi-ci push --allow-feat`
-        # which exports HYPERCI_ALLOW_FEAT=1 to the test phase too).
-        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        result = validate_message("feat(auth): add OAuth2 support")
-        assert result.valid is False
-        assert result.error_type == "feat_without_opt_in"
+def test_feat_with_scope_requires_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`feat:` is gated behind HYPERCI_ALLOW_FEAT: a MINOR bump needs a deliberate opt-in."""
+    # `hyperi-ci push --allow-feat` exports the variable to the test phase too.
+    monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+    result = validate_message("feat(auth): add OAuth2 support")
+    assert result.valid is False
+    assert result.error_type == "feat_without_opt_in"
 
-        # With opt-in: accepted
-        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
-        result = validate_message("feat(auth): add OAuth2 support")
-        assert result.valid is True
-        assert result.error_type == ""
-
-    def test_sec_alias(self) -> None:
-        """sec is an alias for security and must be accepted."""
-        result = validate_message("sec: patch SQL injection vulnerability")
-        assert result.valid is True
-
-    def test_security_full_name(self) -> None:
-        result = validate_message("security: patch SQL injection vulnerability")
-        assert result.valid is True
-
-    def test_spike_no_release_type(self) -> None:
-        result = validate_message("spike: evaluate new serialisation library")
-        assert result.valid is True
-
-    def test_chore(self) -> None:
-        result = validate_message("chore: update dependencies")
-        assert result.valid is True
-
-    def test_docs(self) -> None:
-        result = validate_message("docs: update README")
-        assert result.valid is True
-
-    def test_test_type(self) -> None:
-        result = validate_message("test: add integration tests for parser")
-        assert result.valid is True
-
-    def test_refactor(self) -> None:
-        result = validate_message("refactor: extract validation helper")
-        assert result.valid is True
-
-    def test_ci_type(self) -> None:
-        result = validate_message("ci: add matrix builds for multiple Python versions")
-        assert result.valid is True
-
-    def test_infra(self) -> None:
-        result = validate_message("infra: provision new k8s nodes")
-        assert result.valid is True
-
-    def test_ops(self) -> None:
-        result = validate_message("ops: rotate API keys")
-        assert result.valid is True
-
-    def test_cleanup(self) -> None:
-        result = validate_message("cleanup: remove deprecated handler")
-        assert result.valid is True
-
-    def test_data(self) -> None:
-        result = validate_message("data: migrate events schema to v3")
-        assert result.valid is True
-
-    def test_debt(self) -> None:
-        result = validate_message("debt: address legacy timeout handling")
-        assert result.valid is True
-
-    def test_design(self) -> None:
-        result = validate_message("design: update component interaction diagram")
-        assert result.valid is True
-
-    def test_meta(self) -> None:
-        result = validate_message("meta: update team contribution process")
-        assert result.valid is True
-
-    def test_review(self) -> None:
-        result = validate_message("review: audit logging configuration")
-        assert result.valid is True
-
-    def test_ui(self) -> None:
-        result = validate_message("ui: align button styles with design system")
-        assert result.valid is True
-
-    def test_perf(self) -> None:
-        result = validate_message("perf: optimise batch processing throughput")
-        assert result.valid is True
-
-    def test_hotfix(self) -> None:
-        result = validate_message("hotfix: prevent crash on empty payload")
-        assert result.valid is True
-
-    def test_description_at_minimum_length(self) -> None:
-        """Exactly 3 characters in the description is acceptable."""
-        result = validate_message("fix: abc")
-        assert result.valid is True
-
-    def test_description_at_maximum_length(self) -> None:
-        """Exactly 100 characters in the description is acceptable."""
-        description = "a" * 100
-        result = validate_message(f"fix: {description}")
-        assert result.valid is True
+    monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
+    result = validate_message("feat(auth): add OAuth2 support")
+    assert result.valid is True
+    assert result.error_type == ""
 
 
 # ---------------------------------------------------------------------------
-# Skipped messages (should return valid=True without validation)
+# Rejections: each message and the error types it may carry
 # ---------------------------------------------------------------------------
 
 
-class TestSkippedMessages:
-    def test_merge_commit_is_skipped(self) -> None:
-        result = validate_message("Merge branch 'main' into feature/something")
-        assert result.valid is True
-
-    def test_version_bump_skip_ci_is_skipped(self) -> None:
-        result = validate_message("chore: version 1.2.3 [skip ci]")
-        assert result.valid is True
-
-    def test_version_bump_dev_skip_ci_is_skipped(self) -> None:
-        result = validate_message("chore: version 1.2.3-dev.4 [skip ci]")
-        assert result.valid is True
-
-
-# ---------------------------------------------------------------------------
-# Rejections: no_prefix
-# ---------------------------------------------------------------------------
-
-
-class TestNoPrefixRejection:
-    def test_plain_sentence_rejected(self) -> None:
-        result = validate_message("updated the readme file")
-        assert result.valid is False
-        assert result.error_type == "no_prefix"
-
-    def test_empty_message_rejected(self) -> None:
-        result = validate_message("")
-        assert result.valid is False
-        assert result.error_type == "no_prefix"
-
-    def test_colon_only_no_type_rejected(self) -> None:
-        result = validate_message(": missing type")
-        assert result.valid is False
-        assert result.error_type == "no_prefix"
-
-    def test_whitespace_only_rejected(self) -> None:
-        result = validate_message("   ")
-        assert result.valid is False
-        assert result.error_type == "no_prefix"
-
-
-# ---------------------------------------------------------------------------
-# Rejections: unknown_type
-# ---------------------------------------------------------------------------
-
-
-class TestUnknownTypeRejection:
-    def test_made_up_type_rejected(self) -> None:
-        result = validate_message("update: something useful")
-        assert result.valid is False
-        assert result.error_type == "unknown_type"
-
-    def test_typo_close_to_known_type(self) -> None:
-        """A typo near a known type should still be rejected as unknown_type."""
-        result = validate_message("fixx: close to fix but not quite")
-        assert result.valid is False
-        assert result.error_type == "unknown_type"
-
-    def test_capitalised_known_type_rejected(self) -> None:
-        """Fix: (capital F) is not a valid type prefix."""
-        result = validate_message("Fix: capitalised prefix should fail")
-        assert result.valid is False
-        # Should be no_prefix or unknown_type -- either is acceptable as long
-        # as it is invalid.
-        assert result.error_type in ("no_prefix", "unknown_type")
-
-
-# ---------------------------------------------------------------------------
-# Rejections: description_too_short
-# ---------------------------------------------------------------------------
-
-
-class TestDescriptionTooShort:
-    def test_two_character_description_rejected(self) -> None:
-        result = validate_message("fix: ab")
-        assert result.valid is False
-        assert result.error_type == "description_too_short"
-
-    def test_one_character_description_rejected(self) -> None:
-        result = validate_message("fix: a")
-        assert result.valid is False
-        assert result.error_type == "description_too_short"
-
-    def test_empty_description_after_colon_rejected(self) -> None:
-        result = validate_message("fix: ")
-        assert result.valid is False
-        assert result.error_type in ("description_too_short", "no_prefix")
-
-
-# ---------------------------------------------------------------------------
-# Rejections: description_too_long
-# ---------------------------------------------------------------------------
-
-
-class TestDescriptionTooLong:
-    def test_101_character_description_rejected(self) -> None:
-        description = "a" * 101
-        result = validate_message(f"fix: {description}")
-        assert result.valid is False
-        assert result.error_type == "description_too_long"
-
-    def test_200_character_description_rejected(self) -> None:
-        description = "a" * 200
-        result = validate_message(f"fix: {description}")
-        assert result.valid is False
-        assert result.error_type == "description_too_long"
-
-
-# ---------------------------------------------------------------------------
-# Rejections: uppercase_description
-# ---------------------------------------------------------------------------
-
-
-class TestUppercaseDescription:
-    def test_capitalised_first_word_rejected(self) -> None:
-        result = validate_message("fix: This starts with a capital letter")
-        assert result.valid is False
-        assert result.error_type == "uppercase_description"
-
-    def test_all_caps_description_rejected(self) -> None:
-        result = validate_message("fix: ALL CAPS DESCRIPTION")
-        assert result.valid is False
-        assert result.error_type == "uppercase_description"
-
-
-# ---------------------------------------------------------------------------
-# Rejections: ai_attribution
-# ---------------------------------------------------------------------------
-
-
-class TestAiAttribution:
-    def test_generated_with_rejected(self) -> None:
-        result = validate_message("fix: fix bug\n\nGenerated with Claude Code")
-        assert result.valid is False
-        assert result.error_type == "ai_attribution"
-
-    def test_co_authored_by_claude_rejected(self) -> None:
-        result = validate_message(
-            "fix: add feature\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
-        )
-        assert result.valid is False
-        assert result.error_type == "ai_attribution"
-
-    def test_co_authored_by_copilot_rejected(self) -> None:
-        result = validate_message(
-            "feat: new feature\n\nCo-Authored-By: Copilot <noreply@github.com>"
-        )
-        assert result.valid is False
-        assert result.error_type == "ai_attribution"
-
-    def test_co_authored_by_gemini_rejected(self) -> None:
-        result = validate_message(
-            "fix: patch\n\nCo-Authored-By: Gemini <noreply@google.com>"
-        )
-        assert result.valid is False
-        assert result.error_type == "ai_attribution"
-
-    def test_assisted_by_cursor_rejected(self) -> None:
-        result = validate_message("chore: update config\n\nAssisted by Cursor IDE")
-        assert result.valid is False
-        assert result.error_type == "ai_attribution"
+@pytest.mark.parametrize(
+    ("message", "error_types"),
+    [
+        ("updated the readme file", ("no_prefix",)),
+        ("", ("no_prefix",)),
+        (": missing type", ("no_prefix",)),
+        ("   ", ("no_prefix",)),
+        ("update: something useful", ("unknown_type",)),
+        ("fixx: close to fix but not quite", ("unknown_type",)),
+        ("Fix: capitalised prefix should fail", ("no_prefix", "unknown_type")),
+        ("fix: ab", ("description_too_short",)),
+        ("fix: a", ("description_too_short",)),
+        ("fix: ", ("description_too_short", "no_prefix")),
+        ("fix: " + "a" * 101, ("description_too_long",)),
+        ("fix: " + "a" * 200, ("description_too_long",)),
+        ("fix: This starts with a capital letter", ("uppercase_description",)),
+        ("fix: ALL CAPS DESCRIPTION", ("uppercase_description",)),
+        ("fix: fix bug\n\nGenerated with Claude Code", ("ai_attribution",)),
+        (
+            "fix: add feature\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+            ("ai_attribution",),
+        ),
+        (
+            "feat: new feature\n\nCo-Authored-By: Copilot <noreply@github.com>",
+            ("ai_attribution",),
+        ),
+        (
+            "fix: patch\n\nCo-Authored-By: Gemini <noreply@google.com>",
+            ("ai_attribution",),
+        ),
+        ("chore: update config\n\nAssisted by Cursor IDE", ("ai_attribution",)),
+    ],
+    ids=lambda value: value[:40] if isinstance(value, str) else "",
+)
+def test_rejected_message(message: str, error_types: tuple[str, ...]) -> None:
+    result = validate_message(message)
+    assert result.valid is False
+    assert result.error_type in error_types
 
 
 # ---------------------------------------------------------------------------
@@ -345,72 +159,59 @@ class TestFeatGate:
     """
 
     def test_feat_without_opt_in_rejected(self, monkeypatch) -> None:
-        # Same env-leak guard as above -- `--allow-feat` exports the env
-        # var to the test phase, masking this gate's behaviour.
         monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
         result = validate_message("feat: add new endpoint")
         assert result.valid is False
         assert result.error_type == "feat_without_opt_in"
-        # Reason mentions both the policy and the opt-in env var
         assert "MINOR bump" in result.reason
         assert "HYPERCI_ALLOW_FEAT" in result.reason
 
-    def test_feat_with_opt_in_accepted(self, monkeypatch) -> None:
-        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
+    @pytest.mark.parametrize(
+        ("value", "valid"), [("1", True), ("true", True), ("0", False)]
+    )
+    def test_the_env_var_spellings(self, monkeypatch, value: str, valid: bool) -> None:
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", value)
         result = validate_message("feat: add daemon mode")
-        assert result.valid is True
-
-    def test_feat_with_opt_in_true_accepted(self, monkeypatch) -> None:
-        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "true")
-        result = validate_message("feat: add daemon mode")
-        assert result.valid is True
-
-    def test_feat_with_falsy_opt_in_rejected(self, monkeypatch) -> None:
-        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "0")
-        result = validate_message("feat: add new endpoint")
-        assert result.valid is False
-        assert result.error_type == "feat_without_opt_in"
-
-    def test_fix_not_gated(self) -> None:
-        # Default fix: stays the easy path; no env var required.
-        result = validate_message("fix: handle empty config")
-        assert result.valid is True
+        assert result.valid is valid
+        assert result.error_type == ("" if valid else "feat_without_opt_in")
 
 
 class TestFeatTrailerSurvivesTheSquash:
     """The env var dies at the squash button; the trailer rides the message (#131)."""
 
-    def test_trailer_confirms_without_the_env_var(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        ("message", "valid"),
+        [
+            pytest.param(
+                "feat: add daemon mode\n\nWhy it exists.\n\nAllow-Feat: true\n",
+                True,
+                id="trailer",
+            ),
+            pytest.param(
+                "feat: add daemon mode (#209)\n\n"
+                "* feat: add daemon mode\n\n"
+                "Allow-Feat: true\n\n"
+                "* fix: tidy the helper\n",
+                True,
+                id="squashed-shape",
+            ),
+            pytest.param(
+                "feat: add daemon mode\n\nallow-feat:   TRUE\n",
+                True,
+                id="case-and-spacing",
+            ),
+            pytest.param("feat: add daemon mode\n\nAllow-Feat: yes\n", True, id="yes"),
+            pytest.param("feat: add daemon mode\n\nAllow-Feat: 1\n", True, id="one"),
+            pytest.param(
+                "feat: add daemon mode\n\nAllow-Feat: false\n", False, id="falsy"
+            ),
+        ],
+    )
+    def test_the_trailer_decides(self, monkeypatch, message: str, valid: bool) -> None:
         monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        msg = "feat: add daemon mode\n\nWhy it exists.\n\nAllow-Feat: true\n"
-        assert validate_message(msg).valid is True
-
-    def test_the_squashed_shape_still_confirms(self, monkeypatch) -> None:
-        # What the squash button writes: the branch commits concatenated.
-        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        msg = (
-            "feat: add daemon mode (#209)\n\n"
-            "* feat: add daemon mode\n\n"
-            "Allow-Feat: true\n\n"
-            "* fix: tidy the helper\n"
-        )
-        assert validate_message(msg).valid is True
-
-    def test_case_and_spacing_are_forgiven(self, monkeypatch) -> None:
-        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        msg = "feat: add daemon mode\n\nallow-feat:   TRUE\n"
-        assert validate_message(msg).valid is True
-
-    @pytest.mark.parametrize("value", ["yes", "1"])
-    def test_the_other_truthy_spellings(self, monkeypatch, value: str) -> None:
-        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        assert validate_message(f"feat: add daemon mode\n\nAllow-Feat: {value}\n").valid
-
-    def test_a_falsy_trailer_does_not_confirm(self, monkeypatch) -> None:
-        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
-        result = validate_message("feat: add daemon mode\n\nAllow-Feat: false\n")
-        assert result.valid is False
-        assert result.error_type == "feat_without_opt_in"
+        result = validate_message(message)
+        assert result.valid is valid
+        assert result.error_type == ("" if valid else "feat_without_opt_in")
 
     def test_the_rejection_names_the_trailer(self, monkeypatch) -> None:
         monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
@@ -504,7 +305,7 @@ class TestBreakingChangeGate:
 
 
 # ---------------------------------------------------------------------------
-# format_rejection
+# format_rejection and format_type_list
 # ---------------------------------------------------------------------------
 
 
@@ -532,30 +333,23 @@ class TestFormatRejection:
         # At minimum, the most common types should appear
         assert "fix:" in output or "feat:" in output or "chore:" in output
 
-    def test_unknown_type_output(self) -> None:
-        result = ValidationResult(
-            valid=False, reason="unknown type: xyz", error_type="unknown_type"
-        )
-        output = format_rejection(result, "xyz: do something")
-        assert "Computer says no." in output
-
-    def test_description_too_long_output(self) -> None:
-        result = ValidationResult(
-            valid=False,
-            reason="description too long",
-            error_type="description_too_long",
-        )
-        output = format_rejection(result, "fix: " + "a" * 120)
-        assert "Computer says no." in output
-
-    def test_ai_attribution_output(self) -> None:
-        result = ValidationResult(
-            valid=False,
-            reason="AI attribution found",
-            error_type="ai_attribution",
-        )
-        output = format_rejection(result, "fix: thing\n\nGenerated with Claude Code")
-        assert "Computer says no." in output
+    @pytest.mark.parametrize(
+        ("reason", "error_type", "original"),
+        [
+            ("unknown type: xyz", "unknown_type", "xyz: do something"),
+            ("description too long", "description_too_long", "fix: " + "a" * 120),
+            (
+                "AI attribution found",
+                "ai_attribution",
+                "fix: thing\n\nGenerated with Claude Code",
+            ),
+        ],
+    )
+    def test_every_error_type_says_no(
+        self, reason: str, error_type: str, original: str
+    ) -> None:
+        result = ValidationResult(valid=False, reason=reason, error_type=error_type)
+        assert "Computer says no." in format_rejection(result, original)
 
     @pytest.mark.parametrize("original", ["", "\n", "   \n\n"])
     def test_an_empty_message_is_rejected_not_crashed(self, original: str) -> None:
@@ -565,56 +359,10 @@ class TestFormatRejection:
         assert f"Reason: {result.reason}" in output
 
 
-# ---------------------------------------------------------------------------
-# format_type_list
-# ---------------------------------------------------------------------------
-
-
-class TestFormatTypeList:
-    def test_returns_string(self) -> None:
-        output = format_type_list()
-        assert isinstance(output, str)
-
-    def test_contains_fix(self) -> None:
-        output = format_type_list()
-        assert "fix" in output
-
-    def test_contains_feat(self) -> None:
-        output = format_type_list()
-        assert "feat" in output
-
-    def test_contains_chore(self) -> None:
-        output = format_type_list()
-        assert "chore" in output
-
-    def test_contains_all_release_types(self) -> None:
-        output = format_type_list()
-        for t in ("fix", "feat", "perf", "hotfix", "sec", "security"):
-            assert t in output, f"Expected '{t}' in format_type_list() output"
-
-    def test_not_empty(self) -> None:
-        output = format_type_list()
-        assert len(output) > 0
-
-
-# ---------------------------------------------------------------------------
-# ValidationResult dataclass
-# ---------------------------------------------------------------------------
-
-
-class TestValidationResult:
-    def test_valid_result_has_empty_error_type(self) -> None:
-        result = ValidationResult(valid=True, reason="", error_type="")
-        assert result.valid is True
-        assert result.error_type == ""
-
-    def test_invalid_result_fields(self) -> None:
-        result = ValidationResult(
-            valid=False, reason="bad prefix", error_type="no_prefix"
-        )
-        assert result.valid is False
-        assert result.reason == "bad prefix"
-        assert result.error_type == "no_prefix"
+def test_the_type_list_names_every_release_type() -> None:
+    output = format_type_list()
+    for t in ("fix", "feat", "chore", "perf", "hotfix", "sec", "security"):
+        assert t in output, f"Expected '{t}' in format_type_list() output"
 
 
 # ---------------------------------------------------------------------------
@@ -623,24 +371,6 @@ class TestValidationResult:
 # Resolving the range itself is tested in test_commit_range.py, where the
 # resolver lives.
 # ---------------------------------------------------------------------------
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def _repo(tmp_path: Path) -> Path:
-    _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.email", "t@t.io")
-    _git(tmp_path, "config", "user.name", "t")
-    return tmp_path
-
-
-def _commit(cwd: Path, msg: str) -> str:
-    _git(cwd, "commit", "--allow-empty", "-q", "-m", msg)
-    return _git(cwd, "rev-parse", "HEAD")
 
 
 def _write_push_event(tmp_path: Path, before: str, after: str) -> Path:
@@ -655,10 +385,10 @@ class TestRunDegraded:
     def test_degraded_validates_head_and_warns(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         # HEAD is a BAD commit; degraded path must still catch it.
-        _commit(repo, "seed proper base commit")  # non-conventional but skipped? no
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken Subject No Prefix")
+        commit(repo, "seed proper base commit")  # non-conventional but skipped? no
+        git(repo, "commit", "--allow-empty", "-q", "-m", "Broken Subject No Prefix")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
         # Unresolvable: zeros before, no origin.
@@ -680,8 +410,8 @@ class TestRunDegraded:
     def test_degraded_head_valid_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        _commit(repo, "fix: a good head commit")
+        repo = init_repo(tmp_path)
+        commit(repo, "fix: a good head commit")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
         payload = _write_push_event(tmp_path, "0" * 40, "HEAD")
@@ -709,10 +439,10 @@ class TestRunAdvisoryOnPR:
     def test_pr_failure_is_advisory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "fix: base")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "fix: base")
         # GitHub branch-normalised squashy subject -> no valid prefix.
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "Feat/bad squashy subject")
+        git(repo, "commit", "--allow-empty", "-q", "-m", "Feat/bad squashy subject")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
         monkeypatch.setenv("GITHUB_EVENT_PATH", str(_write_pr_event(tmp_path, base)))
@@ -734,9 +464,9 @@ class TestRunAdvisoryOnPR:
     def test_pr_all_valid_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "fix: base")
-        _commit(repo, "fix: good change")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "fix: base")
+        commit(repo, "fix: good change")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
         monkeypatch.setenv("GITHUB_EVENT_PATH", str(_write_pr_event(tmp_path, base)))
@@ -764,9 +494,9 @@ class TestRunFatalInMergeQueue:
     def test_queue_failure_is_fatal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "fix: base")
-        head = _commit(repo, "Bad squash subject (#12)")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "fix: base")
+        head = commit(repo, "Bad squash subject (#12)")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
         monkeypatch.setenv(
@@ -784,11 +514,11 @@ class TestRunFatalInMergeQueue:
     def test_queue_valid_squash_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         # A bad commit BEFORE base is outside the queue's range and must not count.
-        _commit(repo, "Old bad subject already on main")
-        base = _commit(repo, "fix: base")
-        head = _commit(repo, "fix: the squash that lands (#12)")
+        commit(repo, "Old bad subject already on main")
+        base = commit(repo, "fix: base")
+        head = commit(repo, "fix: the squash that lands (#12)")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
         monkeypatch.setenv(
@@ -871,9 +601,9 @@ def pr_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     Returns a callable taking the payload title, the fake `gh`, and whether
     a token is present; it returns the fake so a test can read its calls.
     """
-    repo = _repo(tmp_path)
-    base = _commit(repo, "fix: base")
-    _commit(repo, "fix: good branch commit")
+    repo = init_repo(tmp_path)
+    base = commit(repo, "fix: base")
+    commit(repo, "fix: good branch commit")
     monkeypatch.chdir(repo)
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
     monkeypatch.setenv("GITHUB_REPOSITORY", _REPO)
@@ -995,7 +725,7 @@ class TestRunPrTitle:
         self, pr_run, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         log = _Log(monkeypatch)
-        _git(Path.cwd(), "commit", "--allow-empty", "-q", "-m", "WIP Bad Subject")
+        git(Path.cwd(), "commit", "--allow-empty", "-q", "-m", "WIP Bad Subject")
         pr_run("fix: good title", _FakeGh(pr=_pr("fix: good title")))
 
         assert cv.run() == 0
@@ -1015,7 +745,7 @@ class TestRunPrTitle:
         self, pr_run, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         log = _Log(monkeypatch)
-        _git(
+        git(
             Path.cwd(),
             "commit",
             "--allow-empty",
@@ -1045,9 +775,9 @@ class TestRunPrTitle:
     def test_other_events_never_read_a_title(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, event: str
     ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "fix: base")
-        head = _commit(repo, "fix: the change that lands")
+        repo = init_repo(tmp_path)
+        base = commit(repo, "fix: base")
+        head = commit(repo, "fix: the change that lands")
         monkeypatch.chdir(repo)
         monkeypatch.setenv("GITHUB_EVENT_NAME", event)
         payload = (
@@ -1109,11 +839,11 @@ class TestTheSquashSuffixCounts:
 
 
 def _head() -> str:
-    return _git(Path.cwd(), "rev-parse", "HEAD")
+    return git(Path.cwd(), "rev-parse", "HEAD")
 
 
 def _reword_head(message: str) -> None:
-    _git(Path.cwd(), "commit", "--amend", "--allow-empty", "-q", "-m", message)
+    git(Path.cwd(), "commit", "--amend", "--allow-empty", "-q", "-m", message)
 
 
 class TestRunSquashSubject:
@@ -1167,7 +897,7 @@ class TestRunSquashSubject:
     ) -> None:
         _Log(monkeypatch)
         for n in range(extra_commits):
-            _commit(Path.cwd(), f"fix: extra commit {n}")
+            commit(Path.cwd(), f"fix: extra commit {n}")
         pr = _pr("fix: GA public tree", commits=None, head={"sha": _head()})
         pr_run("fix: GA public tree", _FakeGh(pr=pr))
 
@@ -1193,11 +923,11 @@ class TestRunLocal:
     def test_local_validates_range_and_is_fatal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
+        repo = init_repo(tmp_path)
         # Simulate origin/main at the base, one unpushed bad commit on top.
-        _commit(repo, "fix: base")
-        _git(repo, "branch", "origin/main")  # local ref standing in for origin
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
+        commit(repo, "fix: base")
+        git(repo, "branch", "origin/main")  # local ref standing in for origin
+        git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
         monkeypatch.chdir(repo)
         monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
         monkeypatch.setattr(cv, "is_ci", lambda: False)
@@ -1210,8 +940,8 @@ class TestRunLocal:
     def test_not_local_and_not_ci_is_noop(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _repo(tmp_path)
-        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
+        repo = init_repo(tmp_path)
+        git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
         monkeypatch.chdir(repo)
         monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
         monkeypatch.setattr(cv, "is_ci", lambda: False)

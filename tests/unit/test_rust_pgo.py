@@ -419,6 +419,10 @@ def _bolt_cargo_calls(
             return_value=True,
         ),
         patch(
+            "hyperi_ci.languages.rust.pgo._ensure_llvm_profdata_available",
+            return_value=True,
+        ),
+        patch(
             "hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0
         ) as mock_cargo,
         patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),

@@ -22,89 +22,94 @@ def _write(path: Path, text: str) -> None:
 
 
 class TestConfigFileAddopts:
-    def test_no_config_file_means_no_addopts(self, tmp_path: Path) -> None:
-        assert config_file_addopts(tmp_path) == []
-
-    def test_pyproject_ini_options_string(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "pyproject.toml",
-            "[tool.pytest.ini_options]\naddopts = \"-ra -m 'not slow'\"\n",
-        )
-        assert config_file_addopts(tmp_path) == ["-ra", "-m", "not slow"]
-
-    def test_pyproject_ini_options_list(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest.ini_options]\naddopts = ["-n", "4"]\n',
-        )
-        assert config_file_addopts(tmp_path) == ["-n", "4"]
-
-    def test_pyproject_native_table(self, tmp_path: Path) -> None:
-        """pytest 9 reads ``[tool.pytest]`` with native TOML types."""
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest]\naddopts = ["--durations=5"]\n',
-        )
-        assert config_file_addopts(tmp_path) == ["--durations=5"]
-
-    def test_pytest_toml(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.toml", '[pytest]\naddopts = ["-rA"]\n')
-        assert config_file_addopts(tmp_path) == ["-rA"]
-
-    def test_hidden_pytest_toml(self, tmp_path: Path) -> None:
-        _write(tmp_path / ".pytest.toml", '[pytest]\naddopts = ["-rA"]\n')
-        assert config_file_addopts(tmp_path) == ["-rA"]
-
-    def test_pytest_ini(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.ini", "[pytest]\naddopts = -n 8\n")
-        assert config_file_addopts(tmp_path) == ["-n", "8"]
-
-    def test_hidden_pytest_ini(self, tmp_path: Path) -> None:
-        _write(tmp_path / ".pytest.ini", "[pytest]\naddopts = -n 8\n")
-        assert config_file_addopts(tmp_path) == ["-n", "8"]
-
-    def test_tox_ini(self, tmp_path: Path) -> None:
-        _write(tmp_path / "tox.ini", "[pytest]\naddopts = --durations 10\n")
-        assert config_file_addopts(tmp_path) == ["--durations", "10"]
-
-    def test_setup_cfg(self, tmp_path: Path) -> None:
-        _write(tmp_path / "setup.cfg", "[tool:pytest]\naddopts = -rs\n")
-        assert config_file_addopts(tmp_path) == ["-rs"]
-
-    def test_a_percent_sign_is_not_interpolation(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.ini", "[pytest]\naddopts = -k 'not 100%'\n")
-        assert config_file_addopts(tmp_path) == ["-k", "not 100%"]
-
-    def test_multi_line_ini_value(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.ini", "[pytest]\naddopts =\n    -v\n    -n 2\n")
-        assert config_file_addopts(tmp_path) == ["-v", "-n", "2"]
-
-    def test_only_the_file_pytest_picks_is_read(self, tmp_path: Path) -> None:
-        """pytest.ini outranks pyproject.toml even when it has no addopts."""
-        _write(tmp_path / "pytest.ini", "[pytest]\ntestpaths = tests\n")
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest.ini_options]\naddopts = "-n 4"\n',
-        )
-        assert config_file_addopts(tmp_path) == []
-
-    def test_a_tox_ini_without_pytest_section_is_passed_over(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("case", "files", "expected"),
+        [
+            ("no-config-file", {}, []),
+            (
+                "pyproject-ini-options-string",
+                {
+                    "pyproject.toml": "[tool.pytest.ini_options]\naddopts = \"-ra -m 'not slow'\"\n"
+                },
+                ["-ra", "-m", "not slow"],
+            ),
+            (
+                "pyproject-ini-options-list",
+                {
+                    "pyproject.toml": '[tool.pytest.ini_options]\naddopts = ["-n", "4"]\n'
+                },
+                ["-n", "4"],
+            ),
+            (
+                "pyproject-native-table (pytest 9)",
+                {"pyproject.toml": '[tool.pytest]\naddopts = ["--durations=5"]\n'},
+                ["--durations=5"],
+            ),
+            ("pytest-toml", {"pytest.toml": '[pytest]\naddopts = ["-rA"]\n'}, ["-rA"]),
+            (
+                "hidden-pytest-toml",
+                {".pytest.toml": '[pytest]\naddopts = ["-rA"]\n'},
+                ["-rA"],
+            ),
+            ("pytest-ini", {"pytest.ini": "[pytest]\naddopts = -n 8\n"}, ["-n", "8"]),
+            (
+                "hidden-pytest-ini",
+                {".pytest.ini": "[pytest]\naddopts = -n 8\n"},
+                ["-n", "8"],
+            ),
+            (
+                "tox-ini",
+                {"tox.ini": "[pytest]\naddopts = --durations 10\n"},
+                ["--durations", "10"],
+            ),
+            ("setup-cfg", {"setup.cfg": "[tool:pytest]\naddopts = -rs\n"}, ["-rs"]),
+            (
+                "a-percent-sign-is-not-interpolation",
+                {"pytest.ini": "[pytest]\naddopts = -k 'not 100%'\n"},
+                ["-k", "not 100%"],
+            ),
+            (
+                "multi-line-ini-value",
+                {"pytest.ini": "[pytest]\naddopts =\n    -v\n    -n 2\n"},
+                ["-v", "-n", "2"],
+            ),
+            (
+                "pytest-ini-outranks-pyproject-even-without-addopts",
+                {
+                    "pytest.ini": "[pytest]\ntestpaths = tests\n",
+                    "pyproject.toml": '[tool.pytest.ini_options]\naddopts = "-n 4"\n',
+                },
+                [],
+            ),
+            (
+                "a-tox-ini-without-a-pytest-section-is-passed-over",
+                {
+                    "tox.ini": "[tox]\nenvlist = py314\n",
+                    "setup.cfg": "[tool:pytest]\naddopts = -n 3\n",
+                },
+                ["-n", "3"],
+            ),
+            (
+                "a-pyproject-without-pytest-tables-is-passed-over",
+                {
+                    "pyproject.toml": '[project]\nname = "x"\n',
+                    "tox.ini": "[pytest]\naddopts = -n 3\n",
+                },
+                ["-n", "3"],
+            ),
+            (
+                "a-broken-pyproject-reads-as-nothing",
+                {"pyproject.toml": "this is not toml [[["},
+                [],
+            ),
+        ],
+    )
+    def test_the_addopts_read(
+        self, tmp_path: Path, case: str, files: dict[str, str], expected: list[str]
     ) -> None:
-        _write(tmp_path / "tox.ini", "[tox]\nenvlist = py314\n")
-        _write(tmp_path / "setup.cfg", "[tool:pytest]\naddopts = -n 3\n")
-        assert config_file_addopts(tmp_path) == ["-n", "3"]
-
-    def test_a_pyproject_without_pytest_tables_is_passed_over(
-        self, tmp_path: Path
-    ) -> None:
-        _write(tmp_path / "pyproject.toml", '[project]\nname = "x"\n')
-        _write(tmp_path / "tox.ini", "[pytest]\naddopts = -n 3\n")
-        assert config_file_addopts(tmp_path) == ["-n", "3"]
-
-    def test_a_broken_pyproject_reads_as_nothing(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pyproject.toml", "this is not toml [[[")
-        assert config_file_addopts(tmp_path) == []
+        for name, text in files.items():
+            _write(tmp_path / name, text)
+        assert config_file_addopts(tmp_path) == expected
 
     def test_an_unbalanced_quote_still_splits(self, tmp_path: Path) -> None:
         _write(tmp_path / "pytest.ini", "[pytest]\naddopts = -n 2 -k 'oops\n")
@@ -112,39 +117,52 @@ class TestConfigFileAddopts:
 
 
 class TestIniValue:
-    def test_no_config_file_means_unset(self, tmp_path: Path) -> None:
-        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
-
-    def test_pytest_ini_key(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.ini", "[pytest]\ntmp_path_retention_policy = all\n")
-        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
-
-    def test_pyproject_ini_options_key(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest.ini_options]\ntmp_path_retention_policy = "all"\n',
-        )
-        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
-
-    def test_pyproject_native_table_key(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest]\ntmp_path_retention_policy = "all"\n',
-        )
-        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
-
-    def test_a_key_the_file_does_not_set_is_none(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pytest.ini", "[pytest]\ntestpaths = tests\n")
-        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
-
-    def test_reads_only_the_file_pytest_picks(self, tmp_path: Path) -> None:
-        """pytest.ini outranks pyproject.toml even when it sets a different key."""
-        _write(tmp_path / "pytest.ini", "[pytest]\ntestpaths = tests\n")
-        _write(
-            tmp_path / "pyproject.toml",
-            '[tool.pytest.ini_options]\ntmp_path_retention_policy = "all"\n',
-        )
-        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
+    @pytest.mark.parametrize(
+        ("case", "files", "expected"),
+        [
+            ("no-config-file", {}, None),
+            (
+                "pytest-ini-key",
+                {"pytest.ini": "[pytest]\ntmp_path_retention_policy = all\n"},
+                "all",
+            ),
+            (
+                "pyproject-ini-options-key",
+                {
+                    "pyproject.toml": "[tool.pytest.ini_options]\n"
+                    'tmp_path_retention_policy = "all"\n'
+                },
+                "all",
+            ),
+            (
+                "pyproject-native-table-key",
+                {
+                    "pyproject.toml": '[tool.pytest]\ntmp_path_retention_policy = "all"\n'
+                },
+                "all",
+            ),
+            (
+                "a-key-the-file-does-not-set",
+                {"pytest.ini": "[pytest]\ntestpaths = tests\n"},
+                None,
+            ),
+            (
+                "reads-only-the-file-pytest-picks",
+                {
+                    "pytest.ini": "[pytest]\ntestpaths = tests\n",
+                    "pyproject.toml": "[tool.pytest.ini_options]\n"
+                    'tmp_path_retention_policy = "all"\n',
+                },
+                None,
+            ),
+        ],
+    )
+    def test_the_value_read(
+        self, tmp_path: Path, case: str, files: dict[str, str], expected: str | None
+    ) -> None:
+        for name, text in files.items():
+            _write(tmp_path / name, text)
+        assert ini_value(tmp_path, "tmp_path_retention_policy") == expected
 
     def test_a_non_string_toml_value_is_stringified(self, tmp_path: Path) -> None:
         _write(

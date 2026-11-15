@@ -355,38 +355,48 @@ class TestScriptTools:
 class TestScriptLabels:
     """A lint or format script is reported under the tools it runs."""
 
-    def test_vite_plus_scripts_report_oxlint_and_oxfmt(self, gates: _Gates) -> None:
-        _write_manifest(
-            Path.cwd(),
-            {"lint": "vp lint src/", "format:check": "vp fmt --check src/"},
-            {"vite-plus": "1.1.0", "oxlint": "1.87.0", "oxfmt": "0.72.0"},
-        )
+    @pytest.mark.parametrize(
+        ("scripts", "deps", "expected"),
+        [
+            pytest.param(
+                {"lint": "vp lint src/", "format:check": "vp fmt --check src/"},
+                {"vite-plus": "1.1.0", "oxlint": "1.87.0", "oxfmt": "0.72.0"},
+                [
+                    ("oxlint", ["npm", "run", "lint"], "blocking"),
+                    ("oxfmt", ["npm", "run", "format:check"], "warn"),
+                ],
+                id="vite-plus-scripts-report-oxlint-and-oxfmt",
+            ),
+            pytest.param(
+                {"lint": "oxlint src/"},
+                None,
+                [("oxlint", ["npm", "run", "lint"], "blocking")],
+                id="plain-oxlint-script",
+            ),
+            pytest.param(
+                {"lint": "vp check"},
+                None,
+                [("oxlint+oxfmt", ["npm", "run", "lint"], "blocking")],
+                id="vp-check-reports-both-tools",
+            ),
+            pytest.param(
+                {"lint": "oxlint && eslint ."},
+                None,
+                [("oxlint+eslint", ["npm", "run", "lint"], "blocking")],
+                id="oxlint-beside-eslint-reports-both",
+            ),
+        ],
+    )
+    def test_script_labels(
+        self,
+        gates: _Gates,
+        scripts: dict[str, str],
+        deps: dict[str, str] | None,
+        expected: list[tuple[str, list[str], str]],
+    ) -> None:
+        _write_manifest(Path.cwd(), scripts, deps)
         quality.run(_shipped_config())
-        assert gates.lint_and_format() == [
-            ("oxlint", ["npm", "run", "lint"], "blocking"),
-            ("oxfmt", ["npm", "run", "format:check"], "warn"),
-        ]
-
-    def test_plain_oxlint_script(self, gates: _Gates) -> None:
-        _write_manifest(Path.cwd(), {"lint": "oxlint src/"})
-        quality.run(_shipped_config())
-        assert gates.lint_and_format() == [
-            ("oxlint", ["npm", "run", "lint"], "blocking")
-        ]
-
-    def test_vp_check_reports_both_tools(self, gates: _Gates) -> None:
-        _write_manifest(Path.cwd(), {"lint": "vp check"})
-        quality.run(_shipped_config())
-        assert gates.lint_and_format() == [
-            ("oxlint+oxfmt", ["npm", "run", "lint"], "blocking")
-        ]
-
-    def test_oxlint_beside_eslint_reports_both(self, gates: _Gates) -> None:
-        _write_manifest(Path.cwd(), {"lint": "oxlint && eslint ."})
-        quality.run(_shipped_config())
-        assert gates.lint_and_format() == [
-            ("oxlint+eslint", ["npm", "run", "lint"], "blocking")
-        ]
+        assert gates.lint_and_format() == expected
 
     @pytest.mark.parametrize(
         ("oxlint", "eslint", "expected"),

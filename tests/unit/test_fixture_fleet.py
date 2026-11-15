@@ -185,41 +185,59 @@ class TestSelectingWhatToRehearse:
         chosen = fixture_fleet.select_for_paths(list(paths), self.FLEET, self.TEXTS)
         return [entry["name"] for entry in chosen]
 
-    def test_a_language_workflow_selects_its_own_target(self) -> None:
-        assert self._select(".github/workflows/rust-ci.yml") == ["ci-test-rs-app"]
-
-    def test_a_shared_workflow_selects_the_canary(self) -> None:
-        assert self._select(".github/workflows/_release-tail.yml") == ["ci-test-go-app"]
-
-    def test_an_action_every_language_calls_selects_the_canary(self) -> None:
-        assert self._select(".github/actions/predict-version/action.yml") == [
-            "ci-test-go-app"
-        ]
-
-    def test_an_action_one_language_calls_selects_that_language(self) -> None:
-        assert self._select(".github/actions/setup-rust-tools/action.yml") == [
-            "ci-test-rs-app"
-        ]
-
-    def test_an_action_only_the_shared_tail_calls_selects_the_canary(self) -> None:
-        assert self._select(".github/actions/setup-semantic-release/action.yml") == [
-            "ci-test-go-app"
-        ]
-
-    def test_a_non_consumer_workflow_selects_nothing(self) -> None:
-        """hyperi-ci's own CI and its audits are not on anyone's @main path."""
-        assert self._select(".github/workflows/versions-audit.yml") == []
-
-    def test_source_and_docs_select_nothing(self) -> None:
-        assert self._select("src/hyperi_ci/cli.py", "docs/lessons.md") == []
-
-    def test_two_changes_select_both_without_duplicates(self) -> None:
-        assert self._select(
-            ".github/workflows/rust-ci.yml",
-            ".github/workflows/python-ci.yml",
-            ".github/workflows/_release-tail.yml",
-            ".github/actions/setup-rust-tools/action.yml",
-        ) == ["ci-test-go-app", "ci-test-py-app", "ci-test-rs-app"]
+    @pytest.mark.parametrize(
+        ("paths", "expected"),
+        [
+            pytest.param(
+                (".github/workflows/rust-ci.yml",),
+                ["ci-test-rs-app"],
+                id="a-language-workflow-selects-its-own-target",
+            ),
+            pytest.param(
+                (".github/workflows/_release-tail.yml",),
+                ["ci-test-go-app"],
+                id="a-shared-workflow-selects-the-canary",
+            ),
+            pytest.param(
+                (".github/actions/predict-version/action.yml",),
+                ["ci-test-go-app"],
+                id="an-action-every-language-calls-selects-the-canary",
+            ),
+            pytest.param(
+                (".github/actions/setup-rust-tools/action.yml",),
+                ["ci-test-rs-app"],
+                id="an-action-one-language-calls-selects-that-language",
+            ),
+            pytest.param(
+                (".github/actions/setup-semantic-release/action.yml",),
+                ["ci-test-go-app"],
+                id="an-action-only-the-shared-tail-calls-selects-the-canary",
+            ),
+            pytest.param(
+                # hyperi-ci's own CI and its audits are not on anyone's @main path.
+                (".github/workflows/versions-audit.yml",),
+                [],
+                id="a-non-consumer-workflow-selects-nothing",
+            ),
+            pytest.param(
+                ("src/hyperi_ci/cli.py", "docs/lessons.md"),
+                [],
+                id="source-and-docs-select-nothing",
+            ),
+            pytest.param(
+                (
+                    ".github/workflows/rust-ci.yml",
+                    ".github/workflows/python-ci.yml",
+                    ".github/workflows/_release-tail.yml",
+                    ".github/actions/setup-rust-tools/action.yml",
+                ),
+                ["ci-test-go-app", "ci-test-py-app", "ci-test-rs-app"],
+                id="two-changes-select-both-without-duplicates",
+            ),
+        ],
+    )
+    def test_the_selection(self, paths: tuple[str, ...], expected: list[str]) -> None:
+        assert self._select(*paths) == expected
 
     def test_a_non_target_fixture_is_never_selected(self) -> None:
         """python-ci.yml has three fixtures; a PR rehearses ONE of them."""

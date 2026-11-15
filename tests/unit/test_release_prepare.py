@@ -223,26 +223,22 @@ class TestRestoreStamped:
 
 
 class TestTheUploadChecksWhatItWasHanded:
-    def test_a_version_mismatch_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("version", "language", "rc"),
+        [("1.2.4", "rust", 1), ("1.2.3", "python", 1), ("1.2.3", "rust", 0)],
+        ids=["a-version-mismatch", "a-language-mismatch", "a-match"],
+    )
+    def test_the_check(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        version: str,
+        language: str,
+        rc: int,
     ) -> None:
         monkeypatch.setenv(PREPARED_ENV, str(_write_prepared(tmp_path)))
-        monkeypatch.setenv("HYPERCI_VERSION", "1.2.4")
-        assert dispatch.check_prepared("rust") == 1
-
-    def test_a_language_mismatch_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(PREPARED_ENV, str(_write_prepared(tmp_path)))
-        monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
-        assert dispatch.check_prepared("python") == 1
-
-    def test_a_match_passes(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(PREPARED_ENV, str(_write_prepared(tmp_path)))
-        monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
-        assert dispatch.check_prepared("rust") == 0
+        monkeypatch.setenv("HYPERCI_VERSION", version)
+        assert dispatch.check_prepared(language) == rc
 
     def test_another_commit_is_refused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
