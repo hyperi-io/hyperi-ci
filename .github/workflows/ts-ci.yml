@@ -108,55 +108,6 @@ on:
       GH_APP_PRIVATE_KEY:
         required: false
 
-  workflow_dispatch:
-    inputs:
-      tag:
-        type: string
-        required: false
-        default: ""
-        description: "Tag to re-publish (existing tag). Omit + set from-head to release HEAD."
-      from-head:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to release/retry the current HEAD -- the CI creates the tag (issue #35). Mutually exclusive with `tag`."
-      bump:
-        type: string
-        required: false
-        default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
-      test-tier:
-        type: choice
-        required: false
-        default: "core"
-        options: [core, full]
-        description: "core | full. full runs the full test tier on this run; core never lowers a tier."
-      runner-mode:
-        type: string
-        default: ""
-      publish-target:
-        type: string
-        default: "oss"
-      node-version:
-        type: string
-        # hyperi-ci:pin runtimes.node
-        default: "24"
-      skip-optimize:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to skip the optimisation stage for this release. No-op for TypeScript today, kept for parity. Empty = optimisation on."
-      release-unoptimized:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for TypeScript today, kept for parity."
-      optimize-tier:
-        type: string
-        required: false
-        default: ""
-        description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for TypeScript today, kept for parity."
-
 concurrency:
   # A schedule and a no-publish dispatch get their own group: sharing main's, either
   # could cancel a release in flight or be cancelled by the next push.

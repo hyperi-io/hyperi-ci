@@ -145,9 +145,7 @@ def test_every_workflow_declares_both_inputs_identically() -> None:
 def test_the_dispatch_schema_is_untouched() -> None:
     # Both are per-repo settings a caller writes in `with:`, never per-run
     # dispatch inputs, so no consumer's dispatch schema has to grow.
-    for name in LANGUAGE_WORKFLOWS:
-        wf = _load(name)
-        on = wf.get("on") or wf.get(True, {})
-        dispatch = on["workflow_dispatch"]["inputs"]
-        assert "test-github-token" not in dispatch
-        assert "test-timeout-minutes" not in dispatch
+    from hyperi_ci.caller_audit import CALLER_INPUTS
+
+    assert "test-github-token" not in CALLER_INPUTS
+    assert "test-timeout-minutes" not in CALLER_INPUTS

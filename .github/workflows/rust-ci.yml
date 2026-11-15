@@ -126,62 +126,6 @@ on:
       GH_APP_PRIVATE_KEY:
         required: false
 
-  workflow_dispatch:
-    inputs:
-      tag:
-        type: string
-        required: false
-        default: ""
-        description: "Tag to re-publish (existing tag). Omit + set from-head to release HEAD."
-      from-head:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to release/retry the current HEAD -- the CI creates the tag (issue #35). Mutually exclusive with `tag`."
-      bump:
-        type: string
-        required: false
-        default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
-      test-tier:
-        type: choice
-        required: false
-        default: "core"
-        options: [core, full]
-        description: "core | full. full runs the full test tier on this run; core never lowers a tier."
-      runner-mode:
-        type: string
-        default: ""
-        description: "Runner mode override"
-      publish-target:
-        type: string
-        default: "oss"
-        description: "Publish destination (legacy field, ignored -- every publish goes to OSS registries)"
-      rust-toolchain:
-        type: string
-        default: "stable"
-        description: "Rust toolchain version"
-      skip-optimize:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to skip the optimisation stage for this release (Rust: no PGO, no BOLT). Empty = optimisation on."
-      release-unoptimized:
-        type: string
-        required: false
-        default: ""
-        description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. Without it a release that would have run PGO/BOLT refuses skip-optimize."
-      optimize-tier:
-        type: string
-        required: false
-        default: ""
-        description: "'release' to build the release optimisation tier (PGO + BOLT) on a run that publishes nothing. Per run only. Empty = the tier follows whether the run ships."
-      bolt-optimize-args:
-        type: string
-        required: false
-        default: ""
-        description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
-
 concurrency:
   # A schedule and a no-publish dispatch get their own group: sharing main's, either
   # could cancel a release in flight or be cancelled by the next push.
