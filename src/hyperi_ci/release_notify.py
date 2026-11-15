@@ -60,6 +60,9 @@ _RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 _MARKER = "<!-- hyperi-ci:release-notify -->"
 _HOTFIX_MARKER = "<!-- hyperi-ci:hotfix -->"
 
+# Each POST carries a secret: the Slack webhook URL or the bridge's bearer token.
+_CURL_PROTOCOLS = "=https"
+
 _FAILURE_TITLE = "Release v{version} failed"
 
 COMMIT_BACK_TITLE = "Release commit-back to main is failing"
@@ -619,6 +622,8 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         [
             "curl",
             "-fsS",
+            "--proto",
+            _CURL_PROTOCOLS,
             "-X",
             "POST",
             "-K",
@@ -671,6 +676,8 @@ def _post_alert(config: CIConfig, payload: dict[str, str]) -> None:
         [
             "curl",
             "-sS",
+            "--proto",
+            _CURL_PROTOCOLS,
             "--max-time",
             "20",
             "-X",

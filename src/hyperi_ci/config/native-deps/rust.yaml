@@ -10,7 +10,7 @@
 #   dpkg_min_version: Optional minimum version -- upgrades if installed version is too old
 #   apt_packages:   Packages to install on Linux (apt-get)
 #   apt_repos:      Optional APT repositories to add before installing (for newer versions)
-#                   Each entry may carry key_fingerprint: the primary-key
+#                   Each entry must carry key_fingerprint: the primary-key
 #                   fingerprint the downloaded key must match, else refuse
 #
 # All apt_packages are arch-agnostic names -- apt resolves them to the correct
@@ -139,6 +139,9 @@
   apt_repos:
     - key_url: https://packages.confluent.io/clients/deb/archive.key
       keyring: /usr/share/keyrings/confluent-clients.gpg
+      # Published at https://docs.confluent.io/platform/current/installation/overview.html
+      # -- a mismatch refuses the install.
+      key_fingerprint: CBBB821E8FAF364F79835C438B1DA6120C2BF624
       url: https://packages.confluent.io/clients/deb
       codename: auto
   apt_packages:

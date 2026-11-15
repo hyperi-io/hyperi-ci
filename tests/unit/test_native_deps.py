@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from hyperi_ci import common, llvm_version, native_deps
 from hyperi_ci.llvm_version import LLVMVersionError
@@ -31,6 +32,7 @@ from hyperi_ci.versions import runtime_version, tool_version
 
 # second-primary-key.asc is a throwaway public key with no private half anywhere.
 DATA_DIR = Path(__file__).parent / "data"
+_LLVM_FPR = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
 
 
 def _seed_apt_tree(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
@@ -254,6 +256,7 @@ class TestAddAptRepoIdempotency:
             url="https://apt.llvm.org/noble/",
             codename="llvm-toolchain-noble-22",
             components="main",
+            key_fingerprint=_LLVM_FPR,
         )
 
         with patch("hyperi_ci.native_deps.subprocess.run") as mock_run:
@@ -322,6 +325,7 @@ class TestAddAptRepoIdempotency:
                 url="https://apt.llvm.org/noble/",
                 codename=f"llvm-toolchain-noble-{version}",
                 components="main",
+                key_fingerprint=_LLVM_FPR,
             )
             rc = _add_apt_repo(repo)
             assert rc == 0, f"failed adding v{version}"
@@ -364,6 +368,7 @@ class TestAddAptRepoIdempotency:
             url="https://apt.llvm.org/noble/",
             codename="llvm-toolchain-noble-22",
             components="main",
+            key_fingerprint=_LLVM_FPR,
         )
         assert _add_apt_repo(repo) == 0
         assert _add_apt_repo(repo) == 0  # no-op
@@ -459,6 +464,7 @@ class TestAptKeyFingerprint:
             keyring=str(tmp_path / "llvm.gpg"),
             url="https://apt.llvm.org/noble/",
             codename="llvm-toolchain-noble-23",
+            key_fingerprint=_LLVM_FPR,
         )
         assert _add_apt_repo(repo) == 22
         assert not (tmp_path / "llvm.gpg").exists()
@@ -486,12 +492,30 @@ class TestAptKeyFingerprint:
         assert rc != 0
         assert not any(cmd[0] == "tee" for cmd in invoked)
 
-    def test_no_fingerprint_declared_skips_the_check(
+    def test_no_fingerprint_declared_is_refused_before_any_download(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         rc, invoked = self._install(tmp_path, monkeypatch, "")
-        assert rc == 0
-        assert not any(cmd[:2] == ["gpg", "--show-keys"] for cmd in invoked)
+        assert rc == 1
+        assert invoked == []
+        assert not (tmp_path / "llvm.gpg").exists()
+
+    @pytest.mark.parametrize(
+        "yaml_path",
+        sorted(
+            [
+                *native_deps._NATIVE_DEPS_DIR.glob("*.yaml"),
+                *native_deps._TOOLCHAINS_DIR.glob("*.yaml"),
+            ]
+        ),
+        ids=lambda p: f"{p.parent.name}/{p.name}",
+    )
+    def test_every_shipped_apt_repo_pins_its_key(self, yaml_path: Path) -> None:
+        """A repo without a pin would now fail every install that matches it."""
+        entries = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
+        repos = [r for e in entries for r in e.get("apt_repos", [])]
+        unpinned = [r["key_url"] for r in repos if not r.get("key_fingerprint")]
+        assert unpinned == []
 
     def test_a_second_primary_beside_the_pinned_one_is_refused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

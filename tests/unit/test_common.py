@@ -703,6 +703,38 @@ class TestEscapeCommandData:
         assert common.escape_command_data("plain-value") == "plain-value"
 
 
+class TestSetGithubOutput:
+    """One ``key=value`` line per output, and never a second smuggled in."""
+
+    @pytest.mark.parametrize(
+        ("value", "written"),
+        [
+            ("1.2.3", "tag=1.2.3\n"),
+            ("", "tag=\n"),
+            ("v1.2.3\nimage=evil", None),
+            ("v1.2.3\rimage=evil", None),
+        ],
+        ids=["plain", "empty", "newline", "carriage-return"],
+    )
+    def test_writes_or_refuses(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+        written: str | None,
+    ) -> None:
+        out = tmp_path / "github_output"
+        out.write_text("", encoding="utf-8")
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        if written is None:
+            with pytest.raises(ValueError, match="'tag'"):
+                common.set_github_output(digest="sha256:abc", tag=value)
+            assert out.read_text(encoding="utf-8") == ""
+        else:
+            common.set_github_output(tag=value)
+            assert out.read_text(encoding="utf-8") == written
+
+
 class TestStripAnsi:
     """Terminal escapes come out; the text around them stays."""
 

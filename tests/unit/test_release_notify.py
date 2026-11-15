@@ -678,6 +678,8 @@ class TestARejectedWebhookIsReportedAsAFailure:
     def webhook(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
             monkeypatch.delenv(proxy, raising=False)
+        # The loopback server speaks plain http.
+        monkeypatch.setattr(release_notify, "_CURL_PROTOCOLS", "=http,https")
         server = HTTPServer(("127.0.0.1", 0), _RejectingWebhook)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -732,6 +734,8 @@ class TestAHotfixIsReported:
     def bridge(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
             monkeypatch.delenv(proxy, raising=False)
+        # The loopback bridge speaks plain http.
+        monkeypatch.setattr(release_notify, "_CURL_PROTOCOLS", "=http,https")
         _AlertBridge.seen = []
         server = HTTPServer(("127.0.0.1", 0), _AlertBridge)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -867,3 +871,14 @@ class TestAHotfixIsReported:
         assert bool(posted) is alerted
         if said:
             assert any(said in line for line in warned), warned
+
+    def test_a_plain_http_bridge_never_receives_the_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bridge: str
+    ) -> None:
+        monkeypatch.setattr(release_notify, "_CURL_PROTOCOLS", "=https")
+        root = self._repo(
+            tmp_path, candidates=True, trailer="Release: true\nHotfix: CVE-2026-1"
+        )
+        _warned, posted, _calls = self._run(monkeypatch, root, bridge)
+        assert _AlertBridge.seen == []
+        assert posted == []

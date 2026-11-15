@@ -20,7 +20,6 @@ cannot reach them: GitHub validates a reusable workflow's INPUT before our code
 runs, and passing one the callee does not declare is a hard error.
 """
 
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -209,12 +208,13 @@ def report_deprecated_config(keys: list[str]) -> None:
     """
     if not keys:
         return
-    from hyperi_ci.common import warn
+    from hyperi_ci.common import announce
 
-    message = deprecated_config_message(keys)
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        print(f"::warning::{message}")
-    warn(message)
+    announce(
+        deprecated_config_message(keys),
+        "Deprecated config key in .hyperi-ci.yaml",
+        level="warning",
+    )
 
 
 # Keys nothing reads, each naming its subtree: setting one warns, never fails.

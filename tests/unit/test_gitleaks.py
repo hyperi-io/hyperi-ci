@@ -259,6 +259,10 @@ class TestScanCommand:
         assert cmd[:3] == ["gitleaks", "git", "."]
         assert "--source" not in cmd
 
+    def test_redacts_secrets_from_the_log(self, captured: list[list[str]]) -> None:
+        assert gitleaks.run(_cfg()) == 0
+        assert "--redact" in _scan_cmd(captured)
+
     def test_restricts_to_current_branch(self, captured: list[list[str]]) -> None:
         assert gitleaks.run(_cfg()) == 0
         cmd = _scan_cmd(captured)

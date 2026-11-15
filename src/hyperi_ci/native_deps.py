@@ -80,7 +80,7 @@ class AptRepo:
     If the repo doesn't support it, LTS codenames are tried in reverse order.
 
     `key_fingerprint` is the primary-key fingerprint the download must carry
-    (spaces optional, case-insensitive); empty means no check.
+    (spaces optional, case-insensitive). Empty is refused at install.
     """
 
     key_url: str
@@ -412,7 +412,8 @@ def _verify_pinned_key(key_bytes: bytes, expected: str) -> bool:
 def _add_apt_repo(repo: AptRepo) -> int:
     """Add a GPG key and APT sources entry for a repo. Returns exit code.
 
-    A declared ``key_fingerprint`` is checked before the key reaches the keyring.
+    A repo with no ``key_fingerprint`` is refused, and the downloaded key is
+    checked against it before it reaches the keyring.
 
     Idempotent on three levels:
       1. Skips the download if the keyring file exists.
@@ -425,6 +426,13 @@ def _add_apt_repo(repo: AptRepo) -> int:
     keyring stem, so writes APPEND: several `deb` lines against one keyring is
     valid apt syntax.
     """
+    if not repo.key_fingerprint:
+        logger.error(
+            f"Refusing APT repo {repo.url}: it declares no key_fingerprint, so "
+            f"any key {repo.key_url} serves would be trusted"
+        )
+        return 1
+
     keyring_path = Path(repo.keyring)
     if keyring_path.exists():
         logger.info(f"APT keyring already exists: {repo.keyring}")
@@ -445,9 +453,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
             return dearmor.returncode
         keyring = dearmor.stdout
 
-        if repo.key_fingerprint and not _verify_pinned_key(
-            keyring, repo.key_fingerprint
-        ):
+        if not _verify_pinned_key(keyring, repo.key_fingerprint):
             logger.error(f"Refusing to install the APT key from {repo.key_url}")
             return 1
 

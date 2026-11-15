@@ -70,6 +70,8 @@ The fields that say what it installs:
     - clang-${HYPERCI_LLVM_VERSION}
 ```
 
+Every `apt_repos` entry needs `key_fingerprint`. A repo without one, or whose key does not match it, is refused before the key reaches the keyring.
+
 One optional field: `bake: false` (below).
 
 | Placeholder | Source | Example |
