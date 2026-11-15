@@ -163,6 +163,29 @@ def _jobs_saving_the_uv_cache(workflow_name: str) -> list[str]:
     return saving
 
 
+@pytest.mark.parametrize(
+    "rel",
+    [
+        *(f"workflows/{name}" for name in LANGUAGE_WORKFLOWS),
+        "workflows/iac-ci.yml",
+        "workflows/_release-tail.yml",
+        "actions/setup-runtime/action.yml",
+    ],
+)
+def test_the_cli_install_holds_third_party_deps_to_the_cooldown(rel: str) -> None:
+    from hyperi_ci.channel import COOLDOWN_DAYS
+
+    text = (WORKFLOW_DIR.parent / rel).read_text(encoding="utf-8")
+    commands = re.findall(r"uvx [^'\"]*--no-cache --refresh [^'\"]*hyperi-ci", text)
+    assert len(commands) == 1, rel
+    flags = commands[0].split()
+    assert flags[flags.index("--exclude-newer") + 1] == f"P{COOLDOWN_DAYS}D", rel
+    exempt = {
+        flags[i + 1] for i, f in enumerate(flags) if f == "--exclude-newer-package"
+    }
+    assert exempt == {"hyperi-ci=P0D", "scalo=P0D"}, rel
+
+
 class TestOneJobSavesTheUvCache:
     """Parallel jobs of one run share a setup-uv cache key, so a second saver
     warns "Unable to reserve cache ... another job may be creating this cache"
