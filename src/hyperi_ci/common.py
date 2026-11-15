@@ -191,7 +191,16 @@ def is_github_actions() -> bool:
 
 
 def set_github_output(**pairs: str) -> None:
-    """Append ``key=value`` lines to ``$GITHUB_OUTPUT`` when it is set."""
+    """Append ``key=value`` lines to ``$GITHUB_OUTPUT`` when it is set.
+
+    Raises:
+        ValueError: A value holds a line break, which would write a second
+            output the caller never set. Nothing is written.
+
+    """
+    for key, value in pairs.items():
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"GitHub output {key!r} holds a line break")
     gh_out = os.environ.get("GITHUB_OUTPUT")
     if not gh_out:
         return

@@ -362,7 +362,8 @@ def run(config: CIConfig) -> int:
         return _report_unusable(mode)
 
     # `git` replaced the deprecated `detect`, and takes the path positionally.
-    cmd: list[str] = ["gitleaks", "git", ".", "--verbose"]
+    # `--redact` keeps the secret out of the CI log, which a public repo exposes.
+    cmd: list[str] = ["gitleaks", "git", ".", "--verbose", "--redact"]
 
     # Current branch only. A detached HEAD prints nothing with exit 0, and an
     # empty `--log-opts` would scan every ref.

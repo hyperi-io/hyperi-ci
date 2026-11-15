@@ -223,6 +223,18 @@ class TestDeprecationMessage:
         assert "publish.channel -> release.channel" in message
         assert "REMOVED" in message
 
+    def test_a_key_carrying_a_newline_cannot_start_a_workflow_command(
+        self, capsys, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        vocabulary.report_deprecated_config(["publish.x\n::error::planted"])
+        commands = [
+            line for line in capsys.readouterr().out.splitlines() if "::" in line
+        ]
+        assert len(commands) == 1, commands
+        assert commands[0].startswith("::warning title=")
+        assert "%0A::error::planted" in commands[0]
+
     def test_the_reversal_is_stated_rather_than_left_to_look_like_a_flip_flop(
         self,
     ) -> None:
