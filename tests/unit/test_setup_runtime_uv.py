@@ -20,11 +20,9 @@ import yaml
 ROOT = Path(__file__).parent.parent.parent / ".github"
 COMPOSITE = ROOT / "actions/setup-uv/action.yml"
 CALL = "hyperi-io/hyperi-ci/.github/actions/setup-uv@main"
-# predict-version is absent: ci.yml runs it from the PR's own tree, where a
-# reference to a composite main does not have yet fails Plan.
-PREDICT_VERSION = ROOT / "actions/predict-version/action.yml"
 SOURCES = (
     "actions/setup-runtime/action.yml",
+    "actions/predict-version/action.yml",
     "workflows/_release-tail.yml",
     "workflows/rust-ci.yml",
     "workflows/go-ci.yml",
@@ -83,8 +81,9 @@ def test_every_install_calls_the_composite(where: str, step: dict) -> None:
 
 
 def test_the_expected_installs_are_all_found() -> None:
-    # setup-runtime, 6 in the tail, 3 in each of 4 language CIs, and iac-ci.
-    assert len(_calls()) == 1 + 6 + 3 * 4 + 1
+    # setup-runtime, predict-version, 6 in the tail, 3 in each of 4 language
+    # CIs, and iac-ci.
+    assert len(_calls()) == 1 + 1 + 6 + 3 * 4 + 1
 
 
 @pytest.mark.parametrize("rel", SOURCES)
@@ -94,15 +93,7 @@ def test_no_source_calls_setup_uv_directly(rel: str) -> None:
         assert not direct, where
 
 
-def test_no_composite_call_tolerates_a_failed_install() -> None:
-    assert not [w for w, s in _calls() if s.get("continue-on-error") is True]
-
-
-def test_predict_version_tolerates_every_failed_attempt() -> None:
+def test_only_predict_version_tolerates_a_failed_install() -> None:
     # A missing uv there falls back to python3, loudly.
-    steps = yaml.safe_load(PREDICT_VERSION.read_text(encoding="utf-8"))["runs"]["steps"]
-    attempts = [s for s in steps if "astral-sh/setup-uv@" in str(s.get("uses", ""))]
-    assert len(attempts) == 3
-    assert all(a["continue-on-error"] is True for a in attempts)
-    for prev, step in zip(attempts, attempts[1:], strict=False):
-        assert step["if"] == "${{ steps." + prev["id"] + ".outcome == 'failure' }}"
+    tolerant = [w for w, s in _calls() if s.get("continue-on-error") is True]
+    assert tolerant == ["actions/predict-version/action.yml"]
