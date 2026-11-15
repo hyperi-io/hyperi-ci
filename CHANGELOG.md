@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.68](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.67...v2.14.68) (2026-11-15)
+
+### Bug Fixes
+
+* **core:** cut dead code and duplicate helpers ([6dce355](https://github.com/hyperi-io/hyperi-ci/commit/6dce3559effc5803c17dd9c79206d2e5950dd263))
+
 ## [2.14.67](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.66...v2.14.67) (2026-11-14)
 
 ### Bug Fixes
