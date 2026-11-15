@@ -393,16 +393,35 @@ class TestLicenceCopy:
             True,
             "FROM scratch\nCOPY dist/THIRD-PARTY-NOTICES /app/\n",
             False,
-            id="dockerfile-copies-it-already",
+            id="final-stage-copies-it-already",
         ),
+        pytest.param(
+            True,
+            "FROM scratch\n# ships THIRD-PARTY-NOTICES\n",
+            True,
+            id="a-comment-does-not-count",
+        ),
+        pytest.param(
+            True,
+            "FROM rust AS b\nCOPY dist/THIRD-PARTY-NOTICES /x\nFROM scratch\n",
+            True,
+            id="an-earlier-stage-copy-does-not-count",
+        ),
+        pytest.param(True, "FROM scratch\n", False, id="dockerignore-excludes-dist"),
     ],
 )
 def test_notices_copy(
-    cwd_tmp: Path, notices: bool, dockerfile: str, copied: bool
+    cwd_tmp: Path,
+    request: pytest.FixtureRequest,
+    notices: bool,
+    dockerfile: str,
+    copied: bool,
 ) -> None:
     if notices:
         (cwd_tmp / "dist").mkdir()
         (cwd_tmp / "dist" / "THIRD-PARTY-NOTICES").write_text("n\n", encoding="utf-8")
+    if request.node.callspec.id == "dockerignore-excludes-dist":
+        (cwd_tmp / ".dockerignore").write_text("dist\n", encoding="utf-8")
     df = _write_dockerfile(cwd_tmp, dockerfile)
     result = stage_binary_dockerfile(df, context=cwd_tmp)
     line = "COPY dist/THIRD-PARTY-NOTICES /licenses/THIRD-PARTY-NOTICES"
@@ -412,6 +431,16 @@ def test_notices_copy(
     rewritten = result.read_text(encoding="utf-8")
     result.unlink()
     assert rewritten.splitlines()[-1] == line
+
+
+def test_notices_outside_the_context_are_not_copied(
+    cwd_tmp: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    (cwd_tmp / "dist").mkdir()
+    (cwd_tmp / "dist" / "THIRD-PARTY-NOTICES").write_text("n\n", encoding="utf-8")
+    df = _write_dockerfile(cwd_tmp, "FROM scratch\n")
+    elsewhere = tmp_path_factory.mktemp("context")
+    assert stage_binary_dockerfile(df, context=elsewhere) == df
 
 
 class TestDockerignoreMatch:

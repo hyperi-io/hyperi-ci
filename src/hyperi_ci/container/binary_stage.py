@@ -86,7 +86,7 @@ def stage_binary_dockerfile(
 
     rewrites = _find_binary_copy_rewrites(original, dist)
     licence = find_licence_file(context or Path("."))
-    notices = (dist / NOTICES_NAME).is_file() and NOTICES_NAME not in original
+    notices = _notices_source(original, dist, context or Path("."))
     if not rewrites and licence is None and not notices:
         return dockerfile_path
 
@@ -104,9 +104,7 @@ def stage_binary_dockerfile(
         rewritten = _append_copy(rewritten, licence, LICENCE_DEST)
         info(f"Container: copying {licence} into the image at {LICENCE_DEST}")
     if notices:
-        rewritten = _append_copy(
-            rewritten, f"{dist.as_posix()}/{NOTICES_NAME}", NOTICES_DEST
-        )
+        rewritten = _append_copy(rewritten, notices, NOTICES_DEST)
         info(f"Container: copying {NOTICES_NAME} into the image at {NOTICES_DEST}")
 
     with tempfile.NamedTemporaryFile(
@@ -119,6 +117,43 @@ def stage_binary_dockerfile(
     ) as f:
         f.write(rewritten)
         return Path(f.name)
+
+
+def _notices_source(dockerfile: str, dist: Path, context: Path) -> str | None:
+    """Return the notices path to COPY, relative to ``context``, or None.
+
+    None when the Build stage wrote none, the final stage already copies it,
+    or the file sits outside the context or under a ``.dockerignore`` exclude.
+    """
+    notices = dist / NOTICES_NAME
+    if not notices.is_file() or _final_stage_copies(dockerfile, NOTICES_NAME):
+        return None
+    try:
+        relative = notices.resolve().relative_to(context.resolve()).as_posix()
+    except ValueError:
+        warn(f"Container: {notices} is outside the build context, so it is not copied")
+        return None
+    parent = relative.rpartition("/")[0]
+    if _dockerignore_excludes(context, relative) or (
+        parent and _dockerignore_excludes(context, parent)
+    ):
+        warn(f"Container: {relative} is excluded by .dockerignore, so it is not copied")
+        return None
+    return relative
+
+
+def _final_stage_copies(dockerfile: str, name: str) -> bool:
+    """True when a COPY or ADD in the final stage, outside a comment, names ``name``."""
+    final: list[str] = []
+    for line in dockerfile.splitlines():
+        if _FROM_LINE.match(line):
+            final = []
+        else:
+            final.append(line)
+    return any(
+        re.match(r"^\s*(COPY|ADD)\b", line, re.IGNORECASE) and name in line
+        for line in final
+    )
 
 
 def find_licence_file(context: Path) -> str | None:
