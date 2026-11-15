@@ -66,6 +66,6 @@ def test_every_workflow_declares_the_input_identically() -> None:
 def test_the_dispatch_schema_is_untouched() -> None:
     # A per-repo setting a caller writes in `with:`, never a per-run dispatch
     # input, so no consumer's dispatch schema has to grow.
-    for name in LANGUAGE_WORKFLOWS:
-        dispatch = _on(_load(name))["workflow_dispatch"]["inputs"]
-        assert "build-timeout-minutes" not in dispatch
+    from hyperi_ci.caller_audit import CALLER_INPUTS
+
+    assert "build-timeout-minutes" not in CALLER_INPUTS

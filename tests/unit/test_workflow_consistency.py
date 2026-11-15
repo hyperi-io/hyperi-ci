@@ -300,19 +300,24 @@ class TestFromHeadThreading:
         )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    def test_dispatch_tag_is_optional(self, workflow_name: str) -> None:
-        # from-head dispatch has no tag; tag must be optional (else `gh
-        # workflow run` errors before the plan job even starts).
+    def test_call_tag_is_optional(self, workflow_name: str) -> None:
+        # A from-head release passes no tag, so a required tag fails the call.
         wf = _load_workflow(workflow_name)
         on = wf.get("on") or wf.get(True, {})
-        dispatch_inputs = on.get("workflow_dispatch", {}).get("inputs", {})
-        assert dispatch_inputs.get("tag", {}).get("required") is not True, (
-            f"{workflow_name}: workflow_dispatch.tag must be optional for "
-            "from-head dispatch (issue #35)"
+        call_inputs = on["workflow_call"]["inputs"]
+        assert call_inputs.get("tag", {}).get("required") is not True, (
+            f"{workflow_name}: workflow_call.tag must be optional (issue #35)"
         )
-        assert "from-head" in dispatch_inputs and "bump" in dispatch_inputs, (
-            f"{workflow_name}: workflow_dispatch missing from-head/bump"
+        assert "from-head" in call_inputs and "bump" in call_inputs, (
+            f"{workflow_name}: workflow_call missing from-head/bump"
         )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_no_dispatch_trigger(self, workflow_name: str) -> None:
+        # Consumers dispatch their own ci.yml, so a callee's dispatch block is dead.
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        assert "workflow_dispatch" not in on
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_predict_version_receives_from_head_and_bump(
@@ -1567,19 +1572,6 @@ class TestSkipOptimizeThreading:
         )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    def test_dispatch_accepts_skip_optimize(self, workflow_name: str) -> None:
-        wf = _load_workflow(workflow_name)
-        on = wf.get("on") or wf.get(True, {})
-        spec = on.get("workflow_dispatch", {}).get("inputs", {}).get("skip-optimize")
-        assert spec is not None, (
-            f"{workflow_name}: workflow_dispatch missing skip-optimize"
-        )
-        assert spec.get("type") == "string"
-        assert spec.get("required") is not True, (
-            f"{workflow_name}: skip-optimize must be optional"
-        )
-
-    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_env_carries_skip_optimize_to_every_stage(self, workflow_name: str) -> None:
         # Workflow-level env: the build stage reads it through
         # hyperi_ci.common.skip_optimize and a later stage inherits it.
@@ -1607,13 +1599,12 @@ class TestReleaseUnoptimizedThreading:
     consent, threaded through every language workflow like skip-optimize."""
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
-    def test_accepts_the_input(self, workflow_name: str, trigger: str) -> None:
+    def test_accepts_the_input(self, workflow_name: str) -> None:
         wf = _load_workflow(workflow_name)
         on = wf.get("on") or wf.get(True, {})
-        spec = on.get(trigger, {}).get("inputs", {}).get("release-unoptimized")
+        spec = on["workflow_call"]["inputs"].get("release-unoptimized")
         assert spec is not None, (
-            f"{workflow_name}: {trigger} missing release-unoptimized"
+            f"{workflow_name}: workflow_call missing release-unoptimized"
         )
         assert spec.get("type") == "string"
         assert spec.get("default") == "", "consent must be off unless a run asks"
@@ -1675,12 +1666,11 @@ class TestOptimizeTierThreading:
     tail like release-unoptimized."""
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
-    def test_accepts_the_input(self, workflow_name: str, trigger: str) -> None:
+    def test_accepts_the_input(self, workflow_name: str) -> None:
         wf = _load_workflow(workflow_name)
         on = wf.get("on") or wf.get(True, {})
-        spec = on.get(trigger, {}).get("inputs", {}).get("optimize-tier")
-        assert spec is not None, f"{workflow_name}: {trigger} missing optimize-tier"
+        spec = on["workflow_call"]["inputs"].get("optimize-tier")
+        assert spec is not None, f"{workflow_name}: workflow_call missing optimize-tier"
         assert spec.get("type") == "string"
         assert spec.get("default") == "", "the tier must follow the run unless asked"
         assert spec.get("required") is not True
@@ -1721,12 +1711,11 @@ class TestBoltOptimizeArgsThreading:
     so a flag bisect is one dispatch per attempt. Rust only: no other language
     runs BOLT, and the build stage alone reads the value."""
 
-    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
-    def test_rust_accepts_the_input(self, trigger: str) -> None:
+    def test_rust_accepts_the_input(self) -> None:
         wf = _load_workflow("rust-ci.yml")
         on = wf.get("on") or wf.get(True, {})
-        spec = on.get(trigger, {}).get("inputs", {}).get("bolt-optimize-args")
-        assert spec is not None, f"rust-ci.yml: {trigger} missing bolt-optimize-args"
+        spec = on["workflow_call"]["inputs"].get("bolt-optimize-args")
+        assert spec is not None, "rust-ci.yml: workflow_call missing bolt-optimize-args"
         assert spec.get("type") == "string"
         assert spec.get("default") == "", "unset must mean the reviewed defaults"
         assert spec.get("required") is not True
@@ -2698,13 +2687,6 @@ class TestTestTierThreading:
         inputs = self._on(_load_workflow(workflow_name))["workflow_call"]["inputs"]
         assert inputs["test-tier"].get("default") == "core"
         assert inputs["test-tier"].get("required") is not True
-
-    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    def test_the_dispatch_input_is_a_choice(self, workflow_name: str) -> None:
-        inputs = self._on(_load_workflow(workflow_name))["workflow_dispatch"]["inputs"]
-        assert inputs["test-tier"]["type"] == "choice"
-        assert inputs["test-tier"]["options"] == ["core", "full"]
-        assert inputs["test-tier"]["default"] == "core"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_plan_passes_the_input_and_exports_the_tier(
