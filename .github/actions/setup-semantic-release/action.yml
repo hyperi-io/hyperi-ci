@@ -21,7 +21,7 @@
 # installed. @semantic-release/github is, because core depends on it, but the
 # central config does not load it.
 #
-# Callers run the global `semantic-release` binary, never `npx`: npx prefers a
+# Callers run the `semantic-release` this puts on PATH, never `npx`: npx prefers a
 # checkout's node_modules/.bin and applies its .npmrc.
 
 name: Setup semantic-release
@@ -42,36 +42,18 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: Install semantic-release + plugins (pinned)
+    - name: Install semantic-release + plugins (locked)
       shell: bash
       # Outside the checkout, so a repo .npmrc cannot redirect the registry.
+      # npm ci installs the whole tree from the lock beside this file, which
+      # scripts/relock-node-tools.py writes from versions.yaml.
       working-directory: ${{ runner.temp }}
-      # scripts/update-versions.py rewrites each marked value from the `tools:`
-      # entry of the same name in versions.yaml -- edit it there, not here.
-      env:
-        # hyperi-ci:pin tools.semantic-release
-        SR_CORE: "25.0.9"
-        # hyperi-ci:pin tools.semantic-release-commit-analyzer
-        SR_COMMIT_ANALYZER: "13.0.1"
-        # hyperi-ci:pin tools.semantic-release-release-notes-generator
-        SR_RELEASE_NOTES_GENERATOR: "14.1.1"
-        # hyperi-ci:pin tools.semantic-release-changelog
-        SR_CHANGELOG: "7.0.0"
-        # hyperi-ci:pin tools.semantic-release-exec
-        SR_EXEC: "7.1.0"
-        # hyperi-ci:pin tools.semantic-release-github
-        SR_GITHUB: "12.0.10"
-        # hyperi-ci:pin tools.conventional-changelog-conventionalcommits
-        SR_CONVENTIONALCOMMITS: "9.3.1"
       run: |
-        npm install -g \
-          "semantic-release@$SR_CORE" \
-          "@semantic-release/commit-analyzer@$SR_COMMIT_ANALYZER" \
-          "@semantic-release/release-notes-generator@$SR_RELEASE_NOTES_GENERATOR" \
-          "@semantic-release/changelog@$SR_CHANGELOG" \
-          "@semantic-release/exec@$SR_EXEC" \
-          "@semantic-release/github@$SR_GITHUB" \
-          "conventional-changelog-conventionalcommits@$SR_CONVENTIONALCOMMITS"
+        mkdir -p semantic-release
+        cp "$GITHUB_ACTION_PATH/package.json" "$GITHUB_ACTION_PATH/package-lock.json" semantic-release/
+        cd semantic-release
+        npm ci --ignore-scripts --no-audit --no-fund
+        echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Provide the release config (central only, never the repo's)
       shell: bash

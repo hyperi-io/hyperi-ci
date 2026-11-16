@@ -64,6 +64,19 @@ def tool_version(name: str) -> str:
     return version
 
 
+def tool_npm(name: str) -> str:
+    """Return the npm package ``name`` is published as.
+
+    Raises:
+        KeyError: No such tool, or no ``npm`` on it.
+
+    """
+    package = _tool(name).get("npm")
+    if not isinstance(package, str) or not package:
+        raise KeyError(f"`tools.{name}.npm` is missing from {VERSIONS_FILE.name}")
+    return package
+
+
 def _sha256(spec: object, key: str, arch: str) -> str:
     """Return ``spec``'s ``sha256.<arch>``, or raise naming ``key`` (fail closed)."""
     digests = spec.get("sha256") if isinstance(spec, dict) else None
