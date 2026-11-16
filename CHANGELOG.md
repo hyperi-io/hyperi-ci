@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.71](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.70...v2.14.71) (2026-11-16)
+
+### Bug Fixes
+
+* **ci:** mirror a repo's Docker Hub pins before its tests run ([#889](https://github.com/hyperi-io/hyperi-ci/issues/889)) ([2a13520](https://github.com/hyperi-io/hyperi-ci/commit/2a13520fbfa7aad200d05787e7634aebeb65d9a3))
+* **ci:** run this repo's maintenance jobs on free runners ([2e8cc4a](https://github.com/hyperi-io/hyperi-ci/commit/2e8cc4aafadb5584ef89166168b665b441505f06))
+* **quality:** check mermaid diagrams against the HyperI diagram standard ([fb4b5f0](https://github.com/hyperi-io/hyperi-ci/commit/fb4b5f0b7d00264730557aff321ac5c945ce62c4))
+* **quality:** honour the root markdownlint-cli2 ignores ([e095c30](https://github.com/hyperi-io/hyperi-ci/commit/e095c30f5095b19be4c20e96788a9f63f54b92ea))
+* **quality:** skip releaserc warnings for repo-run releases ([6b48194](https://github.com/hyperi-io/hyperi-ci/commit/6b48194e3ead23bbf8aee33b6c400910e8377479))
+
 ## [2.14.70](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.69...v2.14.70) (2026-11-16)
 
 ### Bug Fixes
