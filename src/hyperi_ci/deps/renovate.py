@@ -17,6 +17,7 @@ uncovered when the repo has no Renovate config, no manager exists for it
 import json
 from pathlib import Path
 
+from hyperi_ci import jsonc
 from hyperi_ci.deps.surfaces import ABSENT, INERT
 
 # Renovate's own lookup order, first match wins. package.json's deprecated
@@ -41,53 +42,6 @@ CONFIG_NAMES: tuple[str, ...] = (
 _COMMENTED_SUFFIXES = (".json5", ".jsonc")
 
 
-def _strip_comments_and_trailing_commas(text: str) -> str:
-    """Drop ``//`` and ``/* */`` comments and trailing commas outside strings.
-
-    Covers the JSON5 features Renovate configs use. Single-quoted strings and
-    unquoted keys are not handled, and fail the parse.
-    """
-    out: list[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        ch = text[i]
-        if ch == '"':
-            j = i + 1
-            while j < n and text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i : j + 1])
-            i = j + 1
-        elif text.startswith("//", i):
-            while i < n and text[i] != "\n":
-                i += 1
-        elif text.startswith("/*", i):
-            end = text.find("*/", i + 2)
-            i = n if end == -1 else end + 2
-            out.append(" ")
-        elif ch == ",":
-            j = i + 1
-            while j < n:
-                if text[j].isspace():
-                    j += 1
-                elif text.startswith("//", j):
-                    while j < n and text[j] != "\n":
-                        j += 1
-                elif text.startswith("/*", j):
-                    end = text.find("*/", j + 2)
-                    j = n if end == -1 else end + 2
-                else:
-                    break
-            if j < n and text[j] in "}]":
-                i += 1
-            else:
-                out.append(ch)
-                i += 1
-        else:
-            out.append(ch)
-            i += 1
-    return "".join(out)
-
-
 def _load_config(path: Path) -> object:
     """Parse a Renovate config, tolerating comments in ``.json5``/``.jsonc``."""
     text = path.read_text(encoding="utf-8")
@@ -96,7 +50,7 @@ def _load_config(path: Path) -> object:
     except json.JSONDecodeError:
         if path.suffix not in _COMMENTED_SUFFIXES:
             raise
-        return json.loads(_strip_comments_and_trailing_commas(text))
+        return jsonc.loads(text)
 
 
 def gaps(root: Path, scan_result: dict) -> dict:

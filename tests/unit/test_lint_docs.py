@@ -234,6 +234,58 @@ class TestMarkdownlintParsing:
         (tmp_path / ".markdownlint.yaml").write_text("MD013: false\n", encoding="utf-8")
         assert markdownlint.repo_config(tmp_path) == tmp_path / ".markdownlint.yaml"
 
+    @pytest.mark.parametrize(
+        ("name", "text", "expected"),
+        [
+            (
+                ".markdownlint-cli2.jsonc",
+                '{\n  // vendored\n  "ignores": ["ref/**", "CHANGELOG.md",],\n}\n',
+                ["ref/**", "CHANGELOG.md"],
+            ),
+            (".markdownlint-cli2.yaml", "ignores:\n  - ref/**\n", ["ref/**"]),
+            (".markdownlint-cli2.jsonc", '{"config": {"MD013": false}}', []),
+            (".markdownlint-cli2.jsonc", "{ not json", []),
+            (".markdownlint-cli2.jsonc", '{"ignores": "ref/**"}', []),
+            (".markdownlint.json", '{"ignores": ["ref/**"]}', []),
+        ],
+    )
+    def test_root_ignores(
+        self, tmp_path: Path, name: str, text: str, expected: list[str]
+    ) -> None:
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        assert markdownlint.root_ignores(tmp_path) == expected
+
+    def test_a_root_ignored_file_is_not_passed_to_cli2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # cli2 applies root ignores only to globs it expands, never to a
+        # literal `:path`, so hyperi-ci drops them from the list itself.
+        (tmp_path / ".markdownlint-cli2.jsonc").write_text(
+            '{"ignores": ["ref/**", "CHANGELOG.md"]}', encoding="utf-8"
+        )
+        for rel in (
+            "README.md",
+            "ref/aip/0193.md",
+            "CHANGELOG.md",
+            "docs/CHANGELOG.md",
+        ):
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text("# T\n", encoding="utf-8")
+        seen: list[list[str]] = []
+
+        def capture(_tool, args, _mode, _parse, **_kw):  # noqa: ANN001, ANN202
+            seen.append(args)
+            return []
+
+        monkeypatch.setattr(markdownlint.shutil, "which", lambda _exe: "cli2")
+        monkeypatch.setattr(markdownlint.fdg, "run_check", capture)
+        files = sorted(tmp_path.rglob("*.md"))
+        markdownlint.run(files, CIConfig(), root=tmp_path)
+        assert [a for a in seen[0] if a.startswith(":")] == [
+            ":README.md",
+            ":docs/CHANGELOG.md",
+        ]
+
     def test_the_shipped_default_exists_and_disables_the_width_rule(self) -> None:
         # The house style has no markdown width limit, so a line-length rule
         # would report every correctly written paragraph.
