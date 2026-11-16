@@ -276,5 +276,5 @@ Two hygiene nudges run in the quality stage. Neither can fail a build.
 ## See also
 
 - [quality-gate.md](quality-gate.md) -- mode resolution and the override mechanisms
-- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) -- the five doc checks in `lint-docs`
+- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) -- the six doc checks in `lint-docs`
 - [quality-gate-overrides.md](quality-gate-overrides.md) -- `--strict`, `HYPERCI_QUALITY_SKIP`, `quality.ignore`

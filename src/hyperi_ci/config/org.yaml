@@ -24,6 +24,13 @@ mirror:
   workflow: mirror-images.yml
   renovate_config: https://raw.githubusercontent.com/hyperi-io/renovate-config/HEAD/default.json
 
+# hyperi-ai's diagram checker, fetched at run time at this commit with a token
+# that can read the private repo. Never copied here, because hyperi-ci is public.
+diagram_check:
+  repo: hyperi-ai
+  path: tools/diagram_check.py
+  ref: 4292a6c4c02c3cca2b930be29f619bcf2a3af61f
+
 # Cloudflare R2 binary repository. Credentials stay in the environment
 # (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY).
 r2:

@@ -398,6 +398,22 @@ def lint_compose_cmd(
     raise typer.Exit(_lint_iac(directory, sarif, lint_iac.COMPOSE_DIMENSIONS))
 
 
+@app.command(name="fetch-diagram-check")
+def fetch_diagram_check_cmd(
+    dest: Annotated[
+        Path, typer.Option("--dest", help="Directory to write the checker into")
+    ],
+) -> None:
+    """Download hyperi-ai's diagram checker at the pinned commit, with GH_TOKEN.
+
+    lint-docs runs it when HYPERCI_DIAGRAM_CHECK names the downloaded file.
+    """
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.quality.diagram_check import fetch
+
+    raise typer.Exit(0 if fetch(load_org_config(), dest) else 1)
+
+
 @app.command(name="lint-docs")
 def lint_docs_cmd(
     directory: Annotated[
@@ -408,14 +424,15 @@ def lint_docs_cmd(
 ) -> None:
     """Check the markdown documentation in this repo.
 
-    Runs five checks: doc-paths (a doc naming a file the repo no longer has),
+    Runs six checks: doc-paths (a doc naming a file the repo no longer has),
     doc-links (lychee over internal links and anchors, offline), mermaid-parse
-    (every fenced block against mermaid's own grammar), markdownlint (mechanical
-    syntax) and the docs-untouched nudge.
+    (every fenced block against mermaid's own grammar), diagram-check (the
+    HyperI diagram standard, when fetch-diagram-check has run), markdownlint
+    (mechanical syntax) and the docs-untouched nudge.
 
-    All five start at ``warn`` and gate only where a repo has promoted them, so
+    All six start at ``warn`` and gate only where a repo has promoted them, so
     adopting this does not turn an existing docs tree red. The same checks run
-    inside ``hyperi-ci run quality``; this verb is for a docs repo that has no
+    inside ``hyperi-ci run quality``. This verb is for a docs repo that has no
     language pipeline to hang them off.
     """
     from hyperi_ci.quality import lint_docs

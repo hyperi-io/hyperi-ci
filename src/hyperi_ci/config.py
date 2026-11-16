@@ -70,6 +70,9 @@ class OrgConfig:
     mirror_renovate_config: str = (
         "https://raw.githubusercontent.com/hyperi-io/renovate-config/HEAD/default.json"
     )
+    diagram_check_repo: str = "hyperi-ai"
+    diagram_check_path: str = "tools/diagram_check.py"
+    diagram_check_ref: str = "4292a6c4c02c3cca2b930be29f619bcf2a3af61f"
 
     @property
     def r2_endpoint(self) -> str:
@@ -282,6 +285,7 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     ghcr = raw.get("ghcr", {})
     r2 = raw.get("r2", {})
     mirror = raw.get("mirror", {})
+    diagram = raw.get("diagram_check", {})
     fallback = OrgConfig()
 
     _org_cache = OrgConfig(
@@ -297,6 +301,9 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
         mirror_renovate_config=mirror.get(
             "renovate_config", fallback.mirror_renovate_config
         ),
+        diagram_check_repo=diagram.get("repo", fallback.diagram_check_repo),
+        diagram_check_path=diagram.get("path", fallback.diagram_check_path),
+        diagram_check_ref=diagram.get("ref", fallback.diagram_check_ref),
     )
     return _org_cache
 
