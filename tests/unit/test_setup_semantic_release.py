@@ -232,6 +232,12 @@ class TestNothingRunsFromTheCheckout:
         (step,) = [s for s in _steps() if s.get("name", "").startswith("Install")]
         assert step["working-directory"] == "${{ runner.temp }}"
 
+    def test_npx_still_resolves_the_locked_plugins(self) -> None:
+        # npx ignores PATH and fetches its own semantic-release, which resolves
+        # plugins from the checkout plus NODE_PATH.
+        (step,) = [s for s in _steps() if s.get("name", "").startswith("Install")]
+        assert 'echo "NODE_PATH=$PWD/node_modules" >> "$GITHUB_ENV"' in step["run"]
+
     @pytest.mark.parametrize(
         "path",
         [
