@@ -27,51 +27,52 @@ _SPEC.loader.exec_module(update_versions)
 
 
 class TestSemanticReleaseInstall:
-    """The release tagger installs only versions the SSOT holds.
+    """The release tagger installs exactly the tree the committed lock holds.
 
     `semantic-release@25` once floated on its major, so an upstream 25.x
-    reached every repo's release tagging with no cooldown, and no audit read
-    the plugin pins. Each package is now a `tools:` entry, mirrored by marker.
+    reached every repo's release tagging with no cooldown. The direct pins are
+    `tools:` entries, and `npm ci` installs the whole tree from the lock.
     """
 
     ROOT = Path(__file__).resolve().parents[2]
-    ACTION = ROOT / ".github" / "actions" / "setup-semantic-release" / "action.yml"
+    ACTION_DIR = ROOT / ".github" / "actions" / "setup-semantic-release"
 
-    def _install_step(self) -> dict:
-        action = yaml.safe_load(self.ACTION.read_text(encoding="utf-8"))
-        steps = [
-            s for s in action["runs"]["steps"] if "npm install" in s.get("run", "")
-        ]
-        assert len(steps) == 1, "expected exactly one npm install step"
-        return steps[0]
+    def _lock(self) -> dict:
+        return json.loads((self.ACTION_DIR / "package-lock.json").read_text("utf-8"))
 
-    def test_every_package_takes_its_version_from_a_marked_env_value(self) -> None:
-        step = self._install_step()
-        specs = re.findall(r'"((?:@[\w.-]+/)?[\w.-]+)@\$(\w+)"', step["run"])
-        assert specs, "no package@$VAR spec found; this guard would test nothing"
-        assert not re.search(r"@v?\d", step["run"]), "a package carries a literal"
+    def test_the_action_installs_from_the_lock(self) -> None:
+        action = yaml.safe_load((self.ACTION_DIR / "action.yml").read_text("utf-8"))
+        runs = " ".join(s.get("run", "") for s in action["runs"]["steps"])
+        assert "npm ci --ignore-scripts" in runs
+        assert "npm install" not in runs
+
+    def test_the_committed_manifest_is_the_rendered_one(self) -> None:
+        from hyperi_ci.release import semantic_release
+
+        committed = json.loads((self.ACTION_DIR / "package.json").read_text("utf-8"))
+        assert committed == semantic_release.manifest(), (
+            "run `uv run scripts/relock-node-tools.py`"
+        )
+
+    def test_the_lock_root_matches_the_manifest(self) -> None:
+        from hyperi_ci.release import semantic_release
+
+        root = self._lock()["packages"][""]
+        assert root["name"] == semantic_release.MANIFEST_NAME
+        assert root["dependencies"] == semantic_release.manifest()["dependencies"]
+
+    def test_each_pin_names_this_lock(self) -> None:
+        from hyperi_ci.release import semantic_release
+
         tools = update_versions._load_versions()["tools"]
-        npm_to_key = {spec.get("npm"): key for key, spec in tools.items()}
-        text = self.ACTION.read_text(encoding="utf-8")
-        for package, var in specs:
-            key = npm_to_key.get(package)
-            assert key, f"{package} is installed but has no `tools:` entry"
-            assert re.search(
-                rf"#\s*hyperi-ci:pin\s+tools\.{re.escape(key)}\s*\n\s*{var}:", text
-            ), f"{var} is not marked `# hyperi-ci:pin tools.{key}`"
+        for name in semantic_release.TOOLS:
+            assert self.ROOT / tools[name]["lockfile"] == self.ACTION_DIR / (
+                "package-lock.json"
+            ), name
 
     def test_the_37_git_plugin_is_not_installed(self) -> None:
         # Nothing depends on it and no honoured config loads it (issue #37).
-        assert "@semantic-release/git@" not in self._install_step()["run"]
-
-    def test_the_shipped_action_matches_the_shipped_ssot(self) -> None:
-        """The real files, so a hand-edited pin fails here rather than in CI."""
-        problems = [
-            p
-            for p in update_versions._pin_mismatches(update_versions._load_versions())
-            if "setup-semantic-release" in p
-        ]
-        assert not problems
+        assert "node_modules/@semantic-release/git" not in self._lock()["packages"]
 
 
 class TestMajorHold:

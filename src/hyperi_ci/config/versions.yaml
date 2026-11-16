@@ -430,34 +430,34 @@ tools:
   semantic-release:
     version: 25.0.9
     npm: semantic-release
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   semantic-release-commit-analyzer:
     version: 13.0.1
     npm: "@semantic-release/commit-analyzer"
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   semantic-release-release-notes-generator:
     version: 14.1.1
     npm: "@semantic-release/release-notes-generator"
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   semantic-release-changelog:
     version: 7.0.0
     npm: "@semantic-release/changelog"
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   semantic-release-exec:
     version: 7.1.0
     npm: "@semantic-release/exec"
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   semantic-release-github:
     version: 12.0.10
     npm: "@semantic-release/github"
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
   # v10 broke the dry-run in every repo at once: release-notes-generator 14 and
   # commit-analyzer 13 drive conventional-changelog-writer ^8. See `watch:`.
   conventional-changelog-conventionalcommits:
     version: 9.3.1
     major: 9
     npm: conventional-changelog-conventionalcommits
-    pin: .github/actions/setup-semantic-release/action.yml
+    lockfile: .github/actions/setup-semantic-release/package-lock.json
 
 # C libraries `hyperi-ci static-libs build` compiles into one static-only
 # prefix, which a Rust app links through rdkafka-sys's pkg-config path. Built in

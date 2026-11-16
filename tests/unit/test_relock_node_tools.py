@@ -61,8 +61,35 @@ def npm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Npm:
     fake = _Npm()
     monkeypatch.setattr(relock.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(relock, "LOCKFILE", tmp_path / "lock" / "package-lock.json")
+    monkeypatch.setattr(
+        relock, "SEMANTIC_RELEASE_LOCKFILE", tmp_path / "sr" / "package-lock.json"
+    )
     monkeypatch.setattr(relock, "run_cmd", fake.run)
     return fake
+
+
+def test_every_ssot_lockfile_has_a_lock_entry() -> None:
+    tools = yaml.safe_load(versions.VERSIONS_FILE.read_text("utf-8"))["tools"]
+    named = {
+        str(spec["lockfile"])
+        for spec in tools.values()
+        if isinstance(spec, dict) and spec.get("lockfile")
+    }
+    assert named == set(relock._locks())
+
+
+def test_a_plain_relock_writes_both_locks_and_the_tagger_manifest(
+    npm: _Npm, tmp_path: Path
+) -> None:
+    assert relock._relock_all(TODAY.date()) == 0
+    assert len(npm.calls) == 2
+    assert relock.LOCKFILE.is_file()
+    assert relock.SEMANTIC_RELEASE_LOCKFILE.is_file()
+    committed = json.loads(
+        relock.SEMANTIC_RELEASE_LOCKFILE.with_name("package.json").read_text("utf-8")
+    )
+    assert committed["name"] == "hyperi-ci-semantic-release"
+    assert not relock.LOCKFILE.with_name("package.json").exists()
 
 
 def _registry(
