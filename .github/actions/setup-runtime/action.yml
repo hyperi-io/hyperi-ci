@@ -44,7 +44,7 @@ inputs:
   hyperci-install:
     description: How to invoke the hyperi-ci CLI
     required: false
-    default: "uvx --no-cache --refresh hyperi-ci"
+    default: "uvx --no-cache --refresh --exclude-newer P7D --exclude-newer-package hyperi-ci=P0D --exclude-newer-package scalo=P0D hyperi-ci"
 
 runs:
   using: composite
