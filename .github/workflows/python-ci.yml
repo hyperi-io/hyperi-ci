@@ -311,6 +311,30 @@ jobs:
           UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
 
+      - name: Mint a token to read the diagram checker
+        # contents:read on hyperi-ai alone. A fork PR has no secrets, so it
+        # skips this and diagram-check skips with a note.
+        id: diagram-token
+        if: github.event.pull_request.head.repo.fork != true
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: hyperi-ai
+          permission-contents: read
+
+      - name: Fetch the diagram checker
+        # The checker is private hyperi-ai code, fetched here and never copied
+        # into hyperi-ci. Only this step sees the token.
+        id: diagram
+        if: steps.diagram-token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.diagram-token.outputs.token }}
+        run: ${{ env.HYPERCI_INSTALL }} fetch-diagram-check --dest "$RUNNER_TEMP/hyperi-ai-tools"
+
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log, which a depth-1 checkout cuts to HEAD,
         # so deepen to cover the pushed range. The checkout keeps no credential, so
@@ -333,6 +357,7 @@ jobs:
       - name: Run quality checks
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
+          HYPERCI_DIAGRAM_CHECK: ${{ steps.diagram.outputs.path }}
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:
