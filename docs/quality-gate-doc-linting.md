@@ -64,6 +64,16 @@ Every tool parses its output into one shared surface (`quality/findings.py`):
 
 ## Config
 
+A page diagram-check should skip, such as a verbatim copy of someone else's document, goes in `quality.ignore` with its repo-relative path as the `id`:
+
+```yaml
+quality:
+  ignore:
+    - tool: diagram-check
+      id: standards/references/rust-memory-tier-list.md
+      reason: "Verbatim copy of an external document"
+```
+
 Modes are the usual `blocking` / `warn` / `disabled` under `quality.<tool>`
 (cross-language, top-level - not per-language). `quality.<tool>` may also be a
 **dict** carrying a `mode` plus tool options:

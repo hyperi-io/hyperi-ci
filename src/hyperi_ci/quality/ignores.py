@@ -31,6 +31,7 @@ Tool slugs in use:
 * Python:   ``pip-audit``, ``semgrep``, ``ruff``
 * Rust:     ``cargo-audit``
 * Go:       ``govulncheck``, ``golangci-lint``
+* Docs:     ``diagram-check`` (``id`` is a repo-relative page path)
 * TypeScript: ``pnpm-audit`` (``npm audit`` has no CLI ignore flag;
   use ``package.json`` ``overrides`` instead)
 
