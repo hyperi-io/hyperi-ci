@@ -9,6 +9,7 @@ CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Cont
 - arm64 always runs on `ubuntu-26.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
 - A public repo whose build outgrows a free runner, or the 6-hour job limit, moves to ARC with `runner-mode: self-hosted`. Every ARC set but the two 4-CPU ones scales to zero, so the big runners hold no RAM until a job asks for one.
+- The default is right for nearly every repo, so a new repo sets nothing. No org-wide `GH_RUNNER_MODE` is set. A `runner-mode`, a `runner-*` input or a `runs-on` label in a repo marks an exception, with its reason on the same line. The org's `GH_RUNNER_*` variables pick the ARC size per language in self-hosted mode and are not exceptions.
 
 The org has 60 concurrent GitHub-hosted jobs on its plan, shared by every repo. Each Rust Build's runner-fit record (below) says whether its runner is the right size.
 
