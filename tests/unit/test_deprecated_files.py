@@ -98,3 +98,34 @@ def test_non_mapping_table_is_nonfatal(
     listy.write_text("- a\n- b\n", encoding="utf-8")
     monkeypatch.setattr(dep, "_TABLE_PATH", listy)
     assert dep.scan(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("workflow", "warned"),
+    [
+        # hyperi-ai: installs and runs its own semantic-release on its config.
+        (
+            "      - name: Run semantic-release\n        run: npx semantic-release\n",
+            False,
+        ),
+        # dfe-docker: predict-version installs the central config first.
+        (
+            "      - uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main\n"
+            "      - run: semantic-release --repository-url x\n",
+            True,
+        ),
+        # A consumer calling a language workflow runs nothing itself.
+        ("    uses: hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main\n", True),
+        # A comment naming semantic-release is not a run.
+        ("      # semantic-release tags main\n      - run: make test\n", True),
+    ],
+)
+def test_releaserc_is_live_when_a_workflow_runs_its_own_release(
+    tmp_path: Path, workflow: str, warned: bool
+) -> None:
+    (tmp_path / ".releaserc.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "release.yml").write_text(
+        "jobs:\n  r:\n    steps:\n" + workflow, encoding="utf-8"
+    )
+    assert (".releaserc.json" in dep.scan(tmp_path)) is warned

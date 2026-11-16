@@ -16,23 +16,25 @@
 
 files:
   # Every file semantic-release reads its config from. CI deletes them all and
-  # releases with the central config, so each one is dead weight.
+  # releases with the central config, so each one is dead weight. `unless`
+  # skips the nudge where a workflow runs semantic-release on the repo's config.
   - path: .releaserc
     level: warn
+    unless: own-semantic-release
     message: &releaserc >-
       CI ignores this semantic-release config: every repo releases with
       hyperi-ci's central config and semantic-release's default bump rules.
       Delete it. Per-repo version stamping is release.stamp_cmd in
       .hyperi-ci.yaml.
-  - {path: .releaserc.json, level: warn, message: *releaserc}
-  - {path: .releaserc.yaml, level: warn, message: *releaserc}
-  - {path: .releaserc.yml, level: warn, message: *releaserc}
-  - {path: .releaserc.js, level: warn, message: *releaserc}
-  - {path: .releaserc.cjs, level: warn, message: *releaserc}
-  - {path: .releaserc.mjs, level: warn, message: *releaserc}
-  - {path: release.config.js, level: warn, message: *releaserc}
-  - {path: release.config.cjs, level: warn, message: *releaserc}
-  - {path: release.config.mjs, level: warn, message: *releaserc}
+  - {path: .releaserc.json, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: .releaserc.yaml, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: .releaserc.yml, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: .releaserc.js, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: .releaserc.cjs, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: .releaserc.mjs, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: release.config.js, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: release.config.cjs, level: warn, unless: own-semantic-release, message: *releaserc}
+  - {path: release.config.mjs, level: warn, unless: own-semantic-release, message: *releaserc}
   - path: .hypersec-ci.yaml
     level: warn
     message: >-
