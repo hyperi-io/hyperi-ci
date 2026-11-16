@@ -93,6 +93,9 @@ quality:
   values only** - the real cluster manifest depends on an external overlay, so a
   passing kubeconform gate validates the chart-under-defaults, not the deployed
   result.
+- The quality stage lints the markdown under the directory it runs in. A repo
+  that runs `hyperi-ci run quality -C <component>` per component never reaches
+  its root `docs/`, so its quality step adds `hyperi-ci lint-docs docs`.
 
 ## Does this break existing projects?
 
