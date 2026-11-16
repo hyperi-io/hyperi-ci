@@ -284,6 +284,7 @@ resolves to `release`.
 | `hyperi-ci init` | Scaffold a new project |
 | `hyperi-ci update` | Update to the channel's release (see `autoupdate`) |
 | `hyperi-ci autoupdate [status\|channel live\|stable\|freeze\|unfreeze]` | Show/set how the CLI updates itself |
+| `hyperi-ci mirror list\|ensure` | List the Docker Hub images a checkout pins, or copy any the GHCR mirror lacks - see [docs/test-tiers.md](docs/test-tiers.md#the-docker-hub-mirror) |
 
 `watch` and `logs` resolve the run built from the commit at HEAD, pinned
 to the workflow declared in the project's `.github/workflows/ci.yml` -

@@ -15,6 +15,15 @@ ghcr:
   registry: ghcr.io
   org: hyperi-io
 
+# Docker Hub images copied to <ghcr.registry>/<ghcr.org>/<path>/<Docker Hub
+# name>, so CI never pulls from Docker Hub. `workflow` in `repo` does the copy,
+# and `renovate_config` holds the shared regex that finds annotated pins.
+mirror:
+  path: mirror
+  repo: hyperi-ci
+  workflow: mirror-images.yml
+  renovate_config: https://raw.githubusercontent.com/hyperi-io/renovate-config/HEAD/default.json
+
 # Cloudflare R2 binary repository. Credentials stay in the environment
 # (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY).
 r2:

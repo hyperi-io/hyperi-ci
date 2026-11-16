@@ -1589,6 +1589,55 @@ def runner_report_cmd(
     raise typer.Exit(rc)
 
 
+mirror_app = typer.Typer(help="Docker Hub images served from the GHCR mirror")
+app.add_typer(mirror_app, name="mirror")
+
+_MirrorPath = Annotated[Path, typer.Option("--path", help="Repo checkout to scan")]
+
+
+@mirror_app.command(name="list")
+def mirror_list_cmd(path: _MirrorPath = Path()) -> None:
+    """Print the Docker Hub pins a checkout holds, and the mirror ref for each."""
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.mirror import load_patterns, scan_tree
+
+    org = load_org_config()
+    for pin in sorted(scan_tree(path, load_patterns(org))):
+        typer.echo(f"{pin.mirrored(org.mirror_prefix)} {pin.digest}".rstrip())
+
+
+@mirror_app.command(name="ensure")
+def mirror_ensure_cmd(
+    path: _MirrorPath = Path(),
+    timeout: Annotated[
+        int, typer.Option("--timeout", help="Seconds to wait for the mirror run")
+    ] = 1800,
+    strict: Annotated[
+        bool, typer.Option("--strict", help="Fail while any pin is still missing")
+    ] = False,
+) -> None:
+    """Dispatch the mirror for any pin it lacks, and wait for the copy."""
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.mirror import ensure
+
+    org = load_org_config()
+    raise typer.Exit(ensure(path, org, timeout=timeout, strict=strict))
+
+
+@mirror_app.command(name="copy")
+def mirror_copy_cmd() -> None:
+    """Copy the pins in MIRROR_PINS (a JSON list) to the mirror, by digest."""
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.mirror import copy, parse_pins
+
+    try:
+        pins = parse_pins(os.environ.get("MIRROR_PINS", "[]"))
+    except ValueError as exc:
+        typer.echo(f"MIRROR_PINS: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(copy(pins, load_org_config().mirror_prefix))
+
+
 static_libs_app = typer.Typer(help="Static librdkafka, OpenSSL, zstd and zlib")
 app.add_typer(static_libs_app, name="static-libs")
 

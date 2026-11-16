@@ -1,0 +1,52 @@
+# Project:   HyperI CI
+# File:      .github/workflows/mirror-images.yml
+# Purpose:   Copy Docker Hub images to the GHCR mirror, digests unchanged
+#
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Dispatched by `hyperi-ci mirror ensure` with the pins the mirror lacks. GHCR
+# rejects App tokens, so the copy runs on this repo's job token.
+
+name: Mirror images
+run-name: "Mirror images ${{ inputs.request }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pins:
+        type: string
+        required: true
+        description: "JSON list of Docker Hub pins: [{name, tag, digest}]"
+      request:
+        type: string
+        default: ""
+        description: "Id the dispatcher finds this run by"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  copy:
+    name: Copy to GHCR
+    # skopeo ships on this image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Copy the pins
+        # The pins reach the CLI through env, never `${{ }}` in the body, so a
+        # crafted input cannot run as shell beside the package token.
+        env:
+          MIRROR_PINS: ${{ inputs.pins }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DOCKERHUB_READ_USERNAME: ${{ vars.DOCKERHUB_READ_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+        run: uv run --no-sources hyperi-ci mirror copy
