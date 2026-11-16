@@ -69,6 +69,7 @@ _NOT_SECURITY = frozenset(
         "doc_paths",
         "doc_links",
         "mermaid_parse",
+        "diagram_check",
         "markdownlint",
         "docs_touched",
         "ruff",

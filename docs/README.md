@@ -111,7 +111,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [quality-gate.md](quality-gate.md) - mode resolution (blocking/warn/disabled), relaxing a security gate, missing/mispinned tools locally vs CI
 - [quality-gate-tools.md](quality-gate-tools.md) - the per-tool reference: what each tool scans, its config knobs, Container + k8s + IaC linting, the advisory checks
 - [dependency-licences.md](dependency-licences.md) - the dependency-licence gate: policy table, modes, answering an ask, the citable output
-- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) - the five `lint-docs` checks, gate semantics, adoption impact
+- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) - the six `lint-docs` checks, gate semantics, adoption impact
 - [quality-gate-overrides.md](quality-gate-overrides.md) - `--strict`, `HYPERCI_QUALITY_SKIP`, and `quality.ignore`
 
 ### Dependencies & supply chain
