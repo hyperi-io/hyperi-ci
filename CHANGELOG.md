@@ -3,6 +3,21 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.70](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.69...v2.14.70) (2026-11-16)
+
+### Bug Fixes
+
+* **ci:** copy the fleet's Docker Hub images to a GHCR mirror ([e5f0649](https://github.com/hyperi-io/hyperi-ci/commit/e5f06494d63e029fe07946adef621dd278f13e0d)), closes [#523](https://github.com/hyperi-io/hyperi-ci/issues/523)
+* **ci:** cut release-flow comments to their constraints ([ce07daa](https://github.com/hyperi-io/hyperi-ci/commit/ce07daa47bc054a3df969ece6ac8dd53392ee9b7))
+* **ci:** drop the dead dispatch trigger from the language workflows ([4796d72](https://github.com/hyperi-io/hyperi-ci/commit/4796d72d9d32afebb407960bf1219ee0fbc06501))
+* **ci:** hold the CLI's third-party deps to the 7-day cooldown ([42d07fa](https://github.com/hyperi-io/hyperi-ci/commit/42d07faa1e76230cf2a1065424fb5962b4795193))
+* **ci:** install predict-version's uv through the setup-uv composite ([aefefb8](https://github.com/hyperi-io/hyperi-ci/commit/aefefb80da7ef2932422b51b52f1cb7059acab86))
+* **ci:** install semantic-release from a committed lock ([92288de](https://github.com/hyperi-io/hyperi-ci/commit/92288de783ae090fd00411f73a05bf60c1916c40))
+* **ci:** install uv through one retrying composite ([a3e72b5](https://github.com/hyperi-io/hyperi-ci/commit/a3e72b546dfb5e8417c66d39549b5fc53c862c84))
+* **ci:** read the public fixtures with the job token ([ceaa773](https://github.com/hyperi-io/hyperi-ci/commit/ceaa77303dfdd131ea2abb792793e6c237ec9b37))
+* **ci:** resolve the locked semantic-release plugins under npx ([f208cc7](https://github.com/hyperi-io/hyperi-ci/commit/f208cc70e06205f9df6c265a0313d8ef0bed1656))
+* **tests:** share git helpers and fold repeated tests ([83eb1ff](https://github.com/hyperi-io/hyperi-ci/commit/83eb1ff328c19bbe8ff6ad6bb47a8e7d621bb12e))
+
 ## [2.14.69](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.68...v2.14.69) (2026-11-15)
 
 ### Bug Fixes
