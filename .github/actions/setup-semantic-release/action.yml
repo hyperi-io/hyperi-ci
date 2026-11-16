@@ -21,8 +21,9 @@
 # installed. @semantic-release/github is, because core depends on it, but the
 # central config does not load it.
 #
-# Callers run the `semantic-release` this puts on PATH, never `npx`: npx prefers a
-# checkout's node_modules/.bin and applies its .npmrc.
+# Callers run the `semantic-release` this puts on PATH, never `npx`: npx ignores
+# PATH, fetches its own copy and applies a checkout's .npmrc. NODE_PATH still
+# resolves the locked plugins for a caller that uses npx.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)
@@ -54,6 +55,7 @@ runs:
         cd semantic-release
         npm ci --ignore-scripts --no-audit --no-fund
         echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+        echo "NODE_PATH=$PWD/node_modules" >> "$GITHUB_ENV"
 
     - name: Provide the release config (central only, never the repo's)
       shell: bash
