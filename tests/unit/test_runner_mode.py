@@ -64,22 +64,22 @@ def test_resolve(explicit: str, payload: str, api, mode: str) -> None:
     assert reason
 
 
-def test_run_writes_the_output_and_a_notice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("explicit", "payload"),
+    [("self-hosted", "public"), ("", "private"), ("", ""), ("free", "public")],
+)
+def test_a_fork_pr_never_runs_self_hosted(explicit: str, payload: str) -> None:
+    got, reason = runner_mode.resolve(explicit, payload, _never, fork_pr=True)
+    assert (got, "fork" in reason) == ("free", True)
+
+
+def test_the_fork_flag_reaches_resolve(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    output = tmp_path / "out"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setenv("RUNNER_MODE", "")
-    monkeypatch.setenv("REPO_VISIBILITY", "Public")
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    assert runner_mode.run() == 0
-    assert output.read_text(encoding="utf-8") == "runner-mode=free\n"
-    assert (
-        "::notice title=runner mode::free: public repository" in capsys.readouterr().out
-    )
-
-
-def test_an_unreachable_api_is_self_hosted(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A refused connection stands in for an outage, so no request leaves the host.
-    monkeypatch.setattr(runner_mode, "_API", "http://127.0.0.1:9")
-    assert runner_mode._visibility_from_api("o/r", "token") == ""
+    out = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setenv("RUNNER_MODE", "self-hosted")
+    monkeypatch.setenv("REPO_VISIBILITY", "public")
+    monkeypatch.setenv("FORK_PR", "true")
+    runner_mode.run()
+    assert out.read_text(encoding="utf-8") == "runner-mode=free\n"

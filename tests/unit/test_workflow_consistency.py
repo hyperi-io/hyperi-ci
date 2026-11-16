@@ -2097,13 +2097,14 @@ class TestRunnerSelection:
     Plan resolves the mode once (predict-version's runner_mode.py): the caller's
     input, then GH_RUNNER_MODE, then the repo's visibility. Every later job reads
     Plan's output. Plan and Commit messages run before that, so they read the
-    payload's visibility themselves.
+    payload's visibility themselves. A fork PR runs free, whatever the mode.
     """
 
     TAIL = "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     EXPLICIT = "(inputs.runner-mode || vars.GH_RUNNER_MODE)"
     PRE_PLAN_CHAIN = (
-        "${{ ((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || "
+        "${{ (github.event.pull_request.head.repo.fork || "
+        "(inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || "
         "!(inputs.runner-mode || vars.GH_RUNNER_MODE) && "
         "github.event.repository.visibility == 'public') && 'ubuntu-latest' || "
         "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"

@@ -593,5 +593,6 @@ runs:
       env:
         RUNNER_MODE: ${{ inputs.runner-mode }}
         REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+        FORK_PR: ${{ github.event.pull_request.head.repo.fork }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: python3 "$GITHUB_ACTION_PATH/runner_mode.py"
