@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from scalo.logger import logger
 
-from hyperi_ci import deps, pin_marker
+from hyperi_ci import deps, jsonc, pin_marker
 from hyperi_ci.deps import ecosystems, render, renovate, surfaces, versions
 
 
@@ -887,7 +887,7 @@ class TestRenovateGaps:
 
 
 class TestStripJson5:
-    strip = staticmethod(renovate._strip_comments_and_trailing_commas)
+    strip = staticmethod(jsonc.strip_comments_and_trailing_commas)
 
     def test_slashes_inside_strings_survive(self) -> None:
         text = '{"extends": ["github>org/repo//preset"], "u": "a /* b */ c"}'
