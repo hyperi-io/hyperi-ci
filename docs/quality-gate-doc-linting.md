@@ -1,7 +1,7 @@
 <!--
 Project:   HyperI CI
 File:      docs/quality-gate-doc-linting.md
-Purpose:   The five markdown checks in lint-docs, gate semantics, and adoption impact
+Purpose:   The six markdown checks in lint-docs, gate semantics, and adoption impact
 
 License:   BUSL-1.1 -- HYPERI PTY LIMITED
 Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -10,7 +10,7 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 # Quality gate: documentation linting
 
 `hyperi-ci lint-docs <dir>`
-runs the same five checks as inside the quality stage. All five default to
+runs the same six checks as inside the quality stage. All six default to
 `warn` and gate only where a repo has promoted one: a new lint introduced as
 blocking on an existing tree fails every PR until the backlog clears, so it
 lands at warn and is promoted per repo at zero violations. doc-paths, lychee

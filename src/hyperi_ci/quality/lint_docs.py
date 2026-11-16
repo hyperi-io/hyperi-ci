@@ -12,8 +12,9 @@ docs-only repo. The checks, in cost order:
 1. doc-paths - path-existence drift, pure Python.
 2. doc-links - lychee over internal links and anchors, offline.
 3. mermaid-parse - mermaid's own grammar over every fenced block.
-4. markdownlint - markdown syntax.
-5. docs-touched - the source-changed, docs-did-not nudge, which never gates.
+4. diagram-check - hyperi-ai's checker for the diagram standard, when fetched.
+5. markdownlint - markdown syntax.
+6. docs-touched - the source-changed, docs-did-not nudge, which never gates.
 
 Every check defaults to ``warn``, and a repo promotes one once it reads zero.
 doc-paths leaves link destinations to lychee unless doc-paths is stricter.
@@ -24,6 +25,7 @@ from pathlib import Path
 from hyperi_ci.common import get_exclude_dirs, group, info
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import (
+    diagram_check,
     doc_links,
     doc_paths,
     docs_touched,
@@ -62,10 +64,13 @@ def run(
     with group("mermaid diagram parsing"):
         mermaid_rc = mermaid_parse.run(files, config, root=root, sarif_path=sarif_path)
 
+    with group("mermaid house style (diagram-check)"):
+        diagram_rc = diagram_check.run(files, config, root=root, sarif_path=sarif_path)
+
     with group("markdown syntax (markdownlint)"):
         lint_rc = markdownlint.run(files, config, root=root, sarif_path=sarif_path)
 
     with group("docs-untouched nudge"):
         docs_touched.run(config, root=root, sarif_path=sarif_path)
 
-    return paths_rc or links_rc or mermaid_rc or lint_rc
+    return paths_rc or links_rc or mermaid_rc or diagram_rc or lint_rc

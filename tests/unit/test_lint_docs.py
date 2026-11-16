@@ -24,6 +24,7 @@ import yaml
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import (
+    diagram_check,
     doc_links,
     doc_paths,
     docs_touched,
@@ -580,3 +581,72 @@ class TestAFindingsExitWithNothingParsedIsNotAPass:
         assert markdownlint.run([doc], _config(markdownlint=mode), root=tmp_path) == rc
         assert any("exited 1 with no parseable output" in line for line in lines)
         assert not any("file(s) clean" in line for line in lines)
+
+
+class TestDiagramCheck:
+    """hyperi-ai's checker, fetched at run time and never copied here."""
+
+    # Captured from tools/diagram_check.py at 4292a6c4, `--no-render --json`.
+    REAL_OUTPUT = json.dumps(
+        {
+            "how": "source only, not rendered",
+            "page": [
+                "docs/page.md R7 figures are numbered [2]: number a page's figures from 1"
+            ],
+            "diagrams": [
+                {
+                    "name": "docs/page.md:3",
+                    "problems": [
+                        "R2 `graph`: write `flowchart`",
+                        "R7 no `accTitle`",
+                        "a problem with no rule",
+                    ],
+                    "measured": None,
+                },
+                {"name": "docs/ok.md:9", "problems": [], "measured": None},
+            ],
+        }
+    )
+
+    def test_the_report_becomes_findings(self, tmp_path: Path) -> None:
+        found = diagram_check.parse(self.REAL_OUTPUT, tmp_path)
+        assert [(f.path, f.line, f.rule, f.message) for f in found] == [
+            (
+                "docs/page.md",
+                None,
+                "R7",
+                "figures are numbered [2]: number a page's figures from 1",
+            ),
+            ("docs/page.md", 3, "R2", "`graph`: write `flowchart`"),
+            ("docs/page.md", 3, "R7", "no `accTitle`"),
+            ("docs/page.md", 3, "diagram", "a problem with no rule"),
+        ]
+
+    def test_an_empty_report_has_no_findings(self, tmp_path: Path) -> None:
+        assert diagram_check.parse('{"page": [], "diagrams": []}', tmp_path) == []
+
+    @pytest.mark.parametrize("script", [None, "missing.py"])
+    def test_it_skips_without_a_fetched_checker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str | None
+    ) -> None:
+        page = tmp_path / "page.md"
+        page.write_text("```mermaid\nflowchart LR\n```\n", encoding="utf-8")
+        if script is None:
+            monkeypatch.delenv(diagram_check.SCRIPT_ENV, raising=False)
+        else:
+            monkeypatch.setenv(diagram_check.SCRIPT_ENV, str(tmp_path / script))
+        assert diagram_check.run([page], CIConfig(), root=tmp_path) == 0
+
+    def test_it_skips_pages_without_mermaid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        page = tmp_path / "page.md"
+        page.write_text("# No diagrams\n", encoding="utf-8")
+        monkeypatch.setenv(diagram_check.SCRIPT_ENV, "/no/such/script.py")
+        assert diagram_check.run([page], CIConfig(), root=tmp_path) == 0
+
+    def test_the_pin_is_a_full_commit(self) -> None:
+        from hyperi_ci.config import load_org_config
+
+        ref = load_org_config().diagram_check_ref
+        assert len(ref) == 40 and int(ref, 16) >= 0

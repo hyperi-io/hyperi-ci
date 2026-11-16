@@ -148,6 +148,7 @@ quality:
   doc_paths: warn            # Docs naming a file the repo no longer has
   doc_links: warn            # lychee over internal links + anchors, offline only
   mermaid_parse: warn        # Every fenced mermaid block, against mermaid's own grammar
+  diagram_check: warn        # Every mermaid block, against the HyperI diagram standard
   markdownlint: warn         # Mechanical markdown syntax (markdownlint-cli2)
   docs_touched: warn         # Source changed and no doc did. NEVER gates, in any mode
 
