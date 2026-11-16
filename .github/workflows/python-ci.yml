@@ -367,6 +367,15 @@ jobs:
           export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
           git submodule update --init --depth 1 $SUBMODULES
 
+      - name: Docker Hub login (read-only pulls)
+        # A hosted runner pulls anonymously otherwise, and Docker Hub rate-limits
+        # anonymous pulls per IP. Fork PRs get no secrets, so they stay anonymous.
+        if: runner.environment != 'self-hosted' && vars.DOCKERHUB_READ_USERNAME != '' && github.event.pull_request.head.repo.fork != true
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ vars.DOCKERHUB_READ_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
       - name: Use the Docker Hub mirror where it is reachable
         # Harbor is reachable from ARC only, so a cloud runner keeps pulling from Docker Hub.
         if: vars.HYPERCI_DOCKERHUB_MIRROR != '' && runner.environment == 'self-hosted'

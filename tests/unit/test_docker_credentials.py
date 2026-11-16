@@ -9,11 +9,10 @@
 docker/login-action writes the credential to `~/.docker/config.json`, where it
 stays for the rest of the job, so any code a later step runs can read it
 (issue #406). The language workflows run the repo's own code in every job that
-checks it out -- build scripts under clippy, dependency installs, the tests --
-so they log in to no registry at all. A step-scoped login cannot cover the Test
-job either: testcontainers resolves its credential from `DOCKER_AUTH_CONFIG`,
-`DOCKER_CONFIG` or `~/.docker/config.json` at the moment it pulls, inside the
-test process. Test pulls from Docker Hub are anonymous.
+checks it out, so the only login they hold is the Test job's Docker Hub one,
+with an organisation token that can only pull: anonymous pulls from hosted
+runners hit Docker Hub's rate limit, and the worst a reader can do with a
+pull-only token is pull.
 """
 
 from pathlib import Path
@@ -28,13 +27,20 @@ LANGUAGE_WORKFLOWS = ("rust-ci.yml", "python-ci.yml", "ts-ci.yml", "go-ci.yml")
 SCANNED = (*LANGUAGE_WORKFLOWS, "_release-tail.yml")
 DOCKER_HUB = {"docker.io", "index.docker.io", "registry-1.docker.io"}
 
-# Jobs allowed a Docker Hub login, and why no repo code can read it there.
+# Jobs allowed a Docker Hub login, and why the credential is safe there.
 DOCKER_HUB_LOGINS: dict[tuple[str, str], str] = {
     ("_release-tail.yml", "container-build"): (
         "authenticates the Dockerfile's base-image pulls; the only repo code "
         "after it is the Dockerfile, whose RUN steps execute inside BuildKit "
         "and never see the client's config.json"
     ),
+    **{
+        (name, "test"): (
+            "the organisation token can only pull, and testcontainers reads it "
+            "from ~/.docker/config.json to lift the anonymous rate limit"
+        )
+        for name in LANGUAGE_WORKFLOWS
+    },
 }
 
 
@@ -67,8 +73,12 @@ def _logins(name: str) -> list[tuple[str, dict]]:
 
 
 @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-def test_language_workflows_log_in_to_no_registry(workflow_name: str) -> None:
-    found = [f"{job_id}: {step.get('name')}" for job_id, step in _logins(workflow_name)]
+def test_language_workflows_log_in_to_no_other_registry(workflow_name: str) -> None:
+    found = [
+        f"{job_id}: {step.get('name')}"
+        for job_id, step in _logins(workflow_name)
+        if (workflow_name, job_id) not in DOCKER_HUB_LOGINS or not _is_docker_hub(step)
+    ]
     assert not found, (
         f"{workflow_name}: {found} leave a registry credential in "
         "~/.docker/config.json for the repo code later steps run (issue #406)"

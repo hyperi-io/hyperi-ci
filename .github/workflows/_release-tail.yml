@@ -322,14 +322,14 @@ jobs:
           HYPERCI_STAMP_SKIP_CMD: "1"
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
 
-      - name: Docker Hub login (authenticated pulls only)
+      - name: Docker Hub login (read-only pulls)
         # Docker Hub is not a publish target. The login only avoids anonymous rate
-        # limits when the Dockerfile pulls a Hub base image, and needs the org var.
-        if: vars.DOCKERHUB_USERNAME != ''
+        # limits when the Dockerfile pulls a Hub base image.
+        if: vars.DOCKERHUB_READ_USERNAME != ''
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ vars.DOCKERHUB_READ_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
 
       - name: GHCR login
         # GITHUB_TOKEN with job-level packages:write can create repo-owned packages
