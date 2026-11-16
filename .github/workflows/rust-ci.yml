@@ -251,6 +251,28 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} preflight
 
+      - name: Mint a token to dispatch the image mirror
+        # actions:write on hyperi-ci alone, to run mirror-images.yml. A fork PR
+        # has no secrets, so it skips this and `mirror ensure` only warns.
+        id: mirror-token
+        if: steps.predict.outputs.run-checks == 'true' && github.event.pull_request.head.repo.fork != true
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: hyperi-ci
+          permission-actions: write
+
+      - name: Serve the Docker Hub pins from the GHCR mirror
+        # Copies any pin the mirror lacks before Test pulls it. Warns, never
+        # fails: a test that pulls a missing image fails on its own.
+        if: steps.predict.outputs.run-checks == 'true'
+        env:
+          GH_TOKEN: ${{ steps.mirror-token.outputs.token }}
+        run: ${{ env.HYPERCI_INSTALL }} mirror ensure
+
       - name: Generate build matrix
         # Arch breadth keys off run-build: every run that builds at all builds both
         # arches, including a validate-only dispatch and a branch-mode PR. Keying it
