@@ -124,6 +124,10 @@ What it hands over: a token that is read-only on this repo's contents and can re
 
 Quality and the release tail carry fixed limits. Test does not, because one repo's Test run reaches 250 minutes and no shared limit under 360 leaves it room (issue #262). Build defaults to 135 and a caller raises it with `build-timeout-minutes`: [`rust.md`](languages/rust.md) -> *The Build job's time limit*.
 
+## The Docker Hub mirror
+
+Every Docker Hub image a repo pins is served from `ghcr.io/hyperi-io/mirror/<Docker Hub name>`, same tag and digest, with no pull limit. `hyperi-ci mirror list` prints a checkout's pins: Renovate-annotated, written out as `name:tag@sha256:...`, or on a `FROM` or `image:` line. `hyperi-ci mirror ensure` dispatches `mirror-images.yml` for any the mirror lacks and waits for the copy. Without a `GH_TOKEN` that can dispatch it, as on a fork PR, it names them and fails.
+
 ## Native tools the tests need
 
 Some tests shell out to a binary the runner does not carry. The ARC native runner has no helm, for one, so a test that renders charts with it skips in CI and never runs. List the binary in `.hyperi-ci.yaml` and the test stage installs it first:

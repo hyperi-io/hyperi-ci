@@ -64,11 +64,22 @@ class OrgConfig:
     r2_bucket: str = "bin-repo"
     r2_account_id: str = "98d20454e2af7a9397ad9366a1641659"
     r2_public_url: str = "https://downloads.hyperi.io"
+    mirror_path: str = "mirror"
+    mirror_repo: str = "hyperi-ci"
+    mirror_workflow: str = "mirror-images.yml"
+    mirror_renovate_config: str = (
+        "https://raw.githubusercontent.com/hyperi-io/renovate-config/HEAD/default.json"
+    )
 
     @property
     def r2_endpoint(self) -> str:
         """S3 API endpoint of the R2 account."""
         return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
+
+    @property
+    def mirror_prefix(self) -> str:
+        """Registry path the Docker Hub mirror publishes under."""
+        return f"{self.ghcr_registry}/{self.ghcr_org}/{self.mirror_path}"
 
 
 @dataclass
@@ -270,6 +281,7 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     github = raw.get("github", {})
     ghcr = raw.get("ghcr", {})
     r2 = raw.get("r2", {})
+    mirror = raw.get("mirror", {})
     fallback = OrgConfig()
 
     _org_cache = OrgConfig(
@@ -279,6 +291,12 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
         r2_bucket=r2.get("bucket", fallback.r2_bucket),
         r2_account_id=r2.get("account_id", fallback.r2_account_id),
         r2_public_url=r2.get("public_url", fallback.r2_public_url),
+        mirror_path=mirror.get("path", fallback.mirror_path),
+        mirror_repo=mirror.get("repo", fallback.mirror_repo),
+        mirror_workflow=mirror.get("workflow", fallback.mirror_workflow),
+        mirror_renovate_config=mirror.get(
+            "renovate_config", fallback.mirror_renovate_config
+        ),
     )
     return _org_cache
 
