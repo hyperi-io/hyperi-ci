@@ -167,26 +167,37 @@ class TestGrammarLayer:
         if not _parser_available(Path.cwd()):
             pytest.skip("node cannot resolve mermaid + linkedom")
 
-    def test_a_valid_flowchart_passes(self, tmp_path: Path) -> None:
-        # The case that fails without the DOM shim: DOMPurify.addHook throws on
-        # a flowchart, so a green here proves the shim is doing its job.
-        doc = _doc(tmp_path, f"```mermaid\n{GOOD}\n```\n")
-        assert (
-            mermaid_parse.run([doc], _config(mermaid_parse="blocking"), root=Path.cwd())
-            == 0
-        )
-
-    def test_a_broken_flowchart_fails(self, tmp_path: Path) -> None:
-        doc = _doc(tmp_path, f"```mermaid\n{BROKEN}\n```\n")
-        assert (
-            mermaid_parse.run([doc], _config(mermaid_parse="blocking"), root=Path.cwd())
-            == 1
-        )
-
-    def test_a_sequence_diagram_passes(self, tmp_path: Path) -> None:
-        body = "sequenceDiagram\n  Alice->>Bob: hi\n  Bob-->>Alice: yo"
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [
+            # Without the DOM shim DOMPurify.addHook throws on a valid flowchart.
+            (GOOD, 0),
+            (BROKEN, 1),
+            ("sequenceDiagram\n  Alice->>Bob: hi\n  Bob-->>Alice: yo", 0),
+            # A `box` line tests its colour with `new Option()`, absent in Node.
+            (
+                "sequenceDiagram\n  box Transport\n    participant R\n  end\n"
+                "  box Storage\n    participant C\n  end\n  R->>C: insert",
+                0,
+            ),
+            ("sequenceDiagram\n  box rgb(1,2,3) Tinted\n    participant A\n  end", 0),
+            ("sequenceDiagram\n  box Open\n    participant A\n  A->>A: x", 1),
+        ],
+        ids=[
+            "flowchart",
+            "broken-flowchart",
+            "sequence",
+            "box",
+            "box-rgb",
+            "box-unclosed",
+        ],
+    )
+    def test_the_grammar_decides(
+        self, tmp_path: Path, body: str, expected: int
+    ) -> None:
         doc = _doc(tmp_path, f"```mermaid\n{body}\n```\n")
-        assert mermaid_parse.run([doc], _config(), root=Path.cwd()) == 0
+        config = _config(mermaid_parse="blocking")
+        assert mermaid_parse.run([doc], config, root=Path.cwd()) == expected
 
 
 class TestRunnerIsShipped:

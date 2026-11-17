@@ -74,6 +74,11 @@ try {
   globalThis.Element = dom.Element;
   globalThis.HTMLElement = dom.HTMLElement;
   globalThis.SVGElement = dom.SVGElement ?? dom.Element;
+  // A sequenceDiagram `box` line tests its colour with `new Option().style`
+  // when there is no `window.CSS`, and linkedom has neither.
+  globalThis.Option = function Option() {
+    return dom.document.createElement("option");
+  };
   mermaid = (await load("mermaid")).default;
 } catch (err) {
   fail("missing-dependency", String(err && err.message ? err.message : err));
