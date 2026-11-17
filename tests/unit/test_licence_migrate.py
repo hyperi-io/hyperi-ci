@@ -119,6 +119,8 @@ _BUNDLE = {
     "COMMERCIAL.md": b"commercial terms\n",
 }
 
+_APACHE = {"LICENSE": b"Apache License\nVersion 2.0, January 2004\n"}
+
 
 def _repo(tmp_path, files):
     for name, text in files.items():
@@ -179,6 +181,35 @@ def test_a_missing_bundle_file_gets_this_year(tmp_path):
 def test_a_fork_has_nothing_to_migrate(tmp_path):
     with pytest.raises(MigrateError, match="upstream"):
         plan(tmp_path, [], licenses.outbound("fork"), OWN)
+
+
+def test_general_oss_writes_the_apache_licence_and_manifest(tmp_path):
+    files = _repo(
+        tmp_path,
+        {
+            "Cargo.toml": '[package]\nname = "x"\nlicense-file = "LICENSE"\n',
+            "pyproject.toml": '[project]\nname = "x"\nlicense = "BUSL-1.1"\n',
+            "src/lib.rs": "// SPDX-License-Identifier: BUSL-1.1\n" + OURS,
+        },
+    )
+    entry = licenses.outbound("general-oss")
+    assert entry["bundle"].startswith("hyperi-io/hyperi-licensing/")
+    migration = plan(tmp_path, files, entry, OWN, fetch=lambda source: _APACHE)
+    assert migration.licence == "Apache-2.0"
+    assert migration.writes["LICENSE"] == _APACHE["LICENSE"]
+    apply(tmp_path, migration)
+    cargo = (tmp_path / "Cargo.toml").read_text()
+    assert 'license = "Apache-2.0"' in cargo and "license-file" not in cargo
+    pyproject = (tmp_path / "pyproject.toml").read_text()
+    assert 'license = "Apache-2.0"' in pyproject
+    assert 'license-files = ["LICENSE"]' in pyproject
+    assert (
+        (tmp_path / "src/lib.rs")
+        .read_text()
+        .startswith("// SPDX-License-Identifier: Apache-2.0\n")
+    )
+    again = plan(tmp_path, files, entry, OWN, fetch=lambda source: _APACHE)
+    assert again.changes == []
 
 
 def test_migrate_command_is_a_dry_run_without_apply(tmp_path):

@@ -82,7 +82,7 @@ aliases:
 outbound:
   internal:
     licences: [LicenseRef-HyperI-Proprietary]
-    bundle: hyperi-io/hyperi-licensing/internal-template
+    bundle: hyperi-io/hyperi-licensing/private/internal-template
     manifest:
       project.license: LicenseRef-HyperI-Proprietary
       package.license-file: LICENSE
@@ -99,6 +99,13 @@ outbound:
       .license: SEE LICENSE IN LICENSE
   general-oss:
     licences: [Apache-2.0, MIT]
+    bundle: hyperi-io/hyperi-licensing/private/general-oss-template
+    manifest:
+      project.license: Apache-2.0
+      project.license-files: '["LICENSE"]'
+      package.license: Apache-2.0
+      workspace.package.license: Apache-2.0
+      .license: Apache-2.0
   fork:
     licences: [inherit]
 
