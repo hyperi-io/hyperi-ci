@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.76](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.75...v2.14.76) (2026-11-17)
+
+### Bug Fixes
+
+* **init:** resolve repo licences from classification ([02fc592](https://github.com/hyperi-io/hyperi-ci/commit/02fc592a61facbe5f962edf3dfd320fc485da67e))
+
 ## [2.14.75](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.74...v2.14.75) (2026-11-17)
 
 ### Bug Fixes
