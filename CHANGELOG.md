@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.73](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.72...v2.14.73) (2026-11-17)
+
+### Bug Fixes
+
+* **quality:** make lint-docs on a subdirectory read the repo ([04d2d71](https://github.com/hyperi-io/hyperi-ci/commit/04d2d71ee61d4e4623f1234c54e00927b56144ff))
+* **upgrade:** log the version actually installed ([3221dc9](https://github.com/hyperi-io/hyperi-ci/commit/3221dc97abc4c21b8f7f4ed102629351e95ac4cc))
+
 ## [2.14.72](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.71...v2.14.72) (2026-11-17)
 
 ### Bug Fixes
