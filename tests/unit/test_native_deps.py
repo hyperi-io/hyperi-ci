@@ -796,6 +796,30 @@ class TestDepGroupLoading:
         group = "headless Chrome (puppeteer)"
         assert native_deps.group_matches(language, group, tmp_path) is expected
 
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            ({"pyproject.toml": 'dependencies = ["playwright>=1.64.1"]'}, True),
+            ({"uv.lock": '[[package]]\nname = "playwright"\n'}, True),
+            ({"pyproject.toml": 'dependencies = ["pytest-playwright>=0.7"]'}, False),
+            ({"docs/playwright.md": '"playwright"'}, False),
+            ({}, False),
+        ],
+    )
+    def test_headless_chrome_follows_a_python_playwright_dependency(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        files: dict[str, str],
+        expected: bool,
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        for name, text in files.items():
+            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        group = "headless Chrome (playwright)"
+        assert native_deps.group_matches("python", group, tmp_path) is expected
+
     def test_group_matches_refuses_an_unknown_group(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
