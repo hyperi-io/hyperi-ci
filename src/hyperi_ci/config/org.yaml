@@ -29,7 +29,7 @@ mirror:
 diagram_check:
   repo: hyperi-ai
   path: tools/diagram_check.py
-  ref: 4292a6c4c02c3cca2b930be29f619bcf2a3af61f
+  ref: 90a77b6589e1af06a9d81466231353732e894166
 
 # Cloudflare R2 binary repository. Credentials stay in the environment
 # (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY).
