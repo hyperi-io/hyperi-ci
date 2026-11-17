@@ -638,7 +638,9 @@ def run_upgrade(
             f"hyperi-ci autoupdate freeze"
         )
 
-    logger.info(f"{PACKAGE} upgraded: {current} -> {target}")
+    # `@latest` can install past a target read from a lagging PyPI release list.
+    installed = _installed_version(uv_path) or target
+    logger.info(f"{PACKAGE} upgraded: {current} -> {installed}")
     # No re-exec: `update` has no command to carry on with, and a binary from
     # before #82 re-execs on every "Nothing to upgrade" without end.
     return 0
@@ -688,7 +690,8 @@ def maybe_auto_update() -> None:
             return
 
         _write_timestamp()
-        logger.info(f"{PACKAGE} upgraded: {current} -> {resolved.version}")
+        installed = _installed_version(uv_path) or resolved.version
+        logger.info(f"{PACKAGE} upgraded: {current} -> {installed}")
         _re_exec()
 
     except Exception as exc:
