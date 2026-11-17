@@ -858,6 +858,29 @@ class TestRunUpgradeChannel:
                         assert run_upgrade() == 0
         mock_exec.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("on_disk", "logged"),
+        [("2.9.7", "2.0.0 -> 2.9.7"), (None, "2.0.0 -> 2.9.6")],
+    )
+    def test_logs_the_version_installed_not_the_target(
+        self, monkeypatch: pytest.MonkeyPatch, on_disk: str | None, logged: str
+    ) -> None:
+        """`@latest` can land past a target read from a lagging release list."""
+        channel.write_channel("live")
+        infos: list[str] = []
+        monkeypatch.setattr(upgrade.logger, "info", infos.append)
+        # Before the install the disk holds the running version, after it on_disk.
+        reads = iter([None, on_disk])
+        monkeypatch.setattr(upgrade, "_installed_version", lambda _uv: next(reads))
+        with patch("hyperi_ci.upgrade.__version__", "2.0.0"):
+            with patch("hyperi_ci.upgrade._fetch_releases", return_value=SOAK_SAMPLE):
+                with patch("hyperi_ci.upgrade._run_upgrade_cmd", return_value=0):
+                    with patch(
+                        "hyperi_ci.upgrade._confirm_upgraded", return_value=True
+                    ):
+                        assert run_upgrade() == 0
+        assert any(logged in line for line in infos)
+
     def test_live_installs_at_latest(self) -> None:
         channel.write_channel("live")
         assert "hyperi-ci@latest" in self._upgrade_cmd()
