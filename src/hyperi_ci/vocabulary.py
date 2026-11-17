@@ -225,6 +225,9 @@ REMOVED_KEYS: tuple[str, ...] = (
     "container",
     "deployment",
     "golang",
+    # The classification sets the licence (licensing.yaml `outbound`).
+    "license",
+    "license_allow",
     "quality.python.bandit",
     "quality.python.bandit_exclude_tests",
     "quality.python.pyright",
