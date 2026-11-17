@@ -766,8 +766,16 @@ class TestDiagramCheck:
         }
     )
 
-    def test_the_report_becomes_findings(self, tmp_path: Path) -> None:
-        found = diagram_check.parse(self.REAL_OUTPUT, tmp_path)
+    @pytest.mark.parametrize("subdir", ["", "docs"])
+    def test_the_report_becomes_findings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subdir: str
+    ) -> None:
+        # `lint-docs docs` runs the checker in docs/, so it names page.md.
+        output = self.REAL_OUTPUT
+        if subdir:
+            output = output.replace(f"{subdir}/", "")
+        monkeypatch.chdir(tmp_path)
+        found = diagram_check.parse(output, tmp_path / subdir)
         assert [(f.path, f.line, f.rule, f.message) for f in found] == [
             (
                 "docs/page.md",
@@ -808,6 +816,12 @@ class TestDiagramCheck:
 
         ref = load_org_config().diagram_check_ref
         assert len(ref) == 40 and int(ref, 16) >= 0
+
+    def test_no_pin_fetches_nothing(self, tmp_path: Path) -> None:
+        from hyperi_ci.config import OrgConfig
+
+        assert diagram_check.fetch(OrgConfig(), tmp_path) is None
+        assert not any(tmp_path.iterdir())
 
 
 @pytest.mark.parametrize(

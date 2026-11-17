@@ -42,6 +42,9 @@ def fetch(org: OrgConfig, dest: Path) -> Path | None:
     Returns:
         The script's path, or None when it could not be fetched.
     """
+    if not org.diagram_check_ref:
+        error("diagram-check: org config pins no diagram_check.ref - not fetched")
+        return None
     endpoint = (
         f"repos/{org.github_org}/{org.diagram_check_repo}/contents/"
         f"{org.diagram_check_path}?ref={org.diagram_check_ref}"
@@ -77,7 +80,8 @@ def parse(output: str, root: Path) -> list[fdg.Finding]:
         rule = "diagram"
         if _RULE.match(message):
             rule, _, message = message.partition(" ")
-        where = fdg.relpath(Path(path), root)
+        # The checker runs in root, so `lint-docs docs` reports docs/ pages as root-relative.
+        where = fdg.relpath(root / path)
         found.append(fdg.Finding("diagram-check", where, line, "error", rule, message))
     return found
 
