@@ -6,6 +6,7 @@ CI runs on GitHub-hosted runners or self-hosted ARC runners (Actions Runner Cont
 
 - A public repo runs every job on GitHub's free runners: `ubuntu-latest` and `ubuntu-26.04-arm`, 4 CPUs and 15.6 GiB each.
 - A private repo runs x64 on ARC, which is never billed. Setting `GH_RUNNER_MODE=free` on the repo moves it to GitHub-hosted runners, billed at 2 vCPU and 8 GB.
+- A pull request from a fork always runs free, whatever `runner-mode` says, so outside code never reaches ARC.
 - arm64 always runs on `ubuntu-26.04-arm`. ARC has no arm64 nodes, and an arm64 build never runs under emulation on an x64 runner. The container stage refuses one in CI.
 - Every build ships x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Single-arch is a project exception.
 - A public repo whose build outgrows a free runner, or the 6-hour job limit, moves to ARC with `runner-mode: self-hosted`. Every ARC set but the two 4-CPU ones scales to zero, so the big runners hold no RAM until a job asks for one.

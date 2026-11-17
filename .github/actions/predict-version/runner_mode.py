@@ -46,7 +46,9 @@ def _visibility_from_api(repo: str, token: str) -> str:
     return visibility if isinstance(visibility, str) else ""
 
 
-def resolve(explicit: str, payload_visibility: str, lookup) -> tuple[str, str]:
+def resolve(
+    explicit: str, payload_visibility: str, lookup, fork_pr: bool = False
+) -> tuple[str, str]:
     """Return the mode and the reason, for the log.
 
     Args:
@@ -55,11 +57,15 @@ def resolve(explicit: str, payload_visibility: str, lookup) -> tuple[str, str]:
             the payload has no repository.
         lookup: Called with no arguments for the API's visibility when the
             payload is silent. Returns it, or empty when it cannot be read.
+        fork_pr: The run is a pull request from a fork. Its code never runs
+            on self-hosted runners, whatever ``explicit`` says.
 
     Returns:
         ``(mode, reason)``.
 
     """
+    if fork_pr:
+        return FREE, "pull request from a fork, never self-hosted"
     if explicit:
         mode = FREE if explicit == FREE else SELF_HOSTED
         return mode, f"runner-mode or GH_RUNNER_MODE is {explicit!r}"
@@ -81,6 +87,7 @@ def run() -> int:
         os.environ.get("RUNNER_MODE", "").strip(),
         os.environ.get("REPO_VISIBILITY", "").strip().lower(),
         lambda: _visibility_from_api(repo, token) if repo and token else "",
+        fork_pr=os.environ.get("FORK_PR", "").strip().lower() == "true",
     )
     line = f"runner-mode={mode}\n"
     target = os.environ.get("GITHUB_OUTPUT")
