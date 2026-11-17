@@ -124,8 +124,9 @@ def rewrite_manifest(
 ) -> tuple[str, list[tuple[str, str]]]:
     """Return a root manifest with ``fields`` set, comments and layout kept.
 
-    Only tables the manifest already has are touched. Setting ``license-file``
-    drops a ``license`` beside it, which cargo would otherwise read first.
+    Only tables the manifest already has are touched. Setting one of cargo's
+    ``license`` and ``license-file`` drops the other beside it, so only the
+    licence just set is left.
 
     Returns:
         The new text, and each ``(before, after)`` value changed.
@@ -148,13 +149,10 @@ def rewrite_manifest(
             table = table.get(part) if table is not None else None
         if table is None:
             continue
-        if (
-            key == "license-file"
-            and "license" in table
-            and (path, "license") not in keys
-        ):
-            changed.append((str(table["license"]), "(removed)"))
-            del table["license"]
+        other = {"license-file": "license", "license": "license-file"}.get(key)
+        if other and other in table and (path, other) not in keys:
+            changed.append((str(table[other]), "(removed)"))
+            del table[other]
         current = table.get(key)
         if current is None or current.unwrap() != value:
             changed.append((str(current), str(value)))
