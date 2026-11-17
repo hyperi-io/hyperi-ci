@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.72](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.71...v2.14.72) (2026-11-17)
+
+### Bug Fixes
+
+* **ci:** fetch the diagram checker before quality runs ([d1f9f98](https://github.com/hyperi-io/hyperi-ci/commit/d1f9f98ecc963466902db38e5c420ed4880fe3e7))
+* **ci:** never run a fork pull request on self-hosted runners ([5be0d25](https://github.com/hyperi-io/hyperi-ci/commit/5be0d250d5d3efa53b6ada5258dd83d9d6cbdd98))
+* **quality:** let quality.ignore leave a page out of diagram-check ([3d8c69d](https://github.com/hyperi-io/hyperi-ci/commit/3d8c69de5ed9c143b4935af68ac2d853319e8057))
+
 ## [2.14.71](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.70...v2.14.71) (2026-11-16)
 
 ### Bug Fixes
