@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.80](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.79...v2.14.80) (2026-11-17)
+
+### Bug Fixes
+
+* **native-deps:** install headless Chrome's libraries for playwright ([87b3145](https://github.com/hyperi-io/hyperi-ci/commit/87b3145a5662bb6b6b651a657475b850057196d8))
+
 ## [2.14.79](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.78...v2.14.79) (2026-11-17)
 
 ### Bug Fixes
