@@ -7,8 +7,8 @@
 """Mermaid diagrams against the HyperI diagram standard, ``warn`` by default.
 
 The checker is hyperi-ai's ``tools/diagram_check.py``, in a private repo, so it
-is never copied here. ``hyperi-ci fetch-diagram-check`` downloads it at the
-commit the org config pins, with a token that can read hyperi-ai, and the
+is never copied here. ``hyperi-ci fetch-diagram-check`` downloads it from the
+branch the org config names, with a token that can read hyperi-ai, and the
 quality stage runs its source pass (``--no-render``) over every page with a
 mermaid fence. Without a fetched copy the check skips and says so. A
 ``quality.ignore`` entry with ``tool: diagram-check`` names a page to leave out.
@@ -35,20 +35,28 @@ _RULE = re.compile(r"R\d+\b")
 
 
 def fetch(org: OrgConfig, dest: Path) -> Path | None:
-    """Download the pinned checker into ``dest`` with ``gh`` and its ``GH_TOKEN``.
+    """Download the checker into ``dest`` with ``gh`` and its ``GH_TOKEN``.
 
+    The org config's ref is resolved to a commit first, and the log names it.
     Sets the step output ``path`` in GitHub Actions.
 
     Returns:
         The script's path, or None when it could not be fetched.
     """
-    if not org.diagram_check_ref:
-        error("diagram-check: org config pins no diagram_check.ref - not fetched")
-        return None
-    endpoint = (
-        f"repos/{org.github_org}/{org.diagram_check_repo}/contents/"
-        f"{org.diagram_check_path}?ref={org.diagram_check_ref}"
+    repo = f"repos/{org.github_org}/{org.diagram_check_repo}"
+    head = run_cmd(
+        ["gh", "api", f"{repo}/commits/{org.diagram_check_ref}", "--jq", ".sha"],
+        capture=True,
+        check=False,
     )
+    sha = head.stdout.strip()
+    if head.returncode != 0 or not sha:
+        error(
+            f"diagram-check: could not resolve {org.diagram_check_ref}: "
+            f"{head.stderr.strip()}"
+        )
+        return None
+    endpoint = f"{repo}/contents/{org.diagram_check_path}?ref={sha}"
     raw = "Accept: application/vnd.github.raw"
     result = run_cmd(["gh", "api", endpoint, "-H", raw], capture=True, check=False)
     if result.returncode != 0 or not result.stdout:
@@ -58,7 +66,7 @@ def fetch(org: OrgConfig, dest: Path) -> Path | None:
     script = dest / Path(org.diagram_check_path).name
     script.write_text(result.stdout, encoding="utf-8", newline="\n")
     set_github_output(path=str(script))
-    success(f"diagram-check: fetched {org.diagram_check_ref[:12]} to {script}")
+    success(f"diagram-check: fetched {org.diagram_check_ref} at {sha[:12]} to {script}")
     return script
 
 

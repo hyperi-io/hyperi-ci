@@ -404,7 +404,9 @@ def fetch_diagram_check_cmd(
         Path, typer.Option("--dest", help="Directory to write the checker into")
     ],
 ) -> None:
-    """Download hyperi-ai's diagram checker at the pinned commit, with GH_TOKEN.
+    """Download hyperi-ai's diagram checker from the org config's branch.
+
+    It needs a GH_TOKEN that can read hyperi-ai.
 
     lint-docs runs it when HYPERCI_DIAGRAM_CHECK names the downloaded file.
     """
