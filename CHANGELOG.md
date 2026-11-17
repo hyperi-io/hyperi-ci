@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.78](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.77...v2.14.78) (2026-11-17)
+
+### Bug Fixes
+
+* **quality:** update diagram checker pin ([7a92db8](https://github.com/hyperi-io/hyperi-ci/commit/7a92db885108fc9d4cceacfd9794ab3f4c69ae44))
+
 ## [2.14.77](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.76...v2.14.77) (2026-11-17)
 
 ### Bug Fixes
