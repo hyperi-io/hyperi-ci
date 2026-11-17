@@ -1,20 +1,17 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/licenses.py
-# Purpose:   Canonical licence registry and project-licence allow policy
+# Purpose:   The licence each classification ships under, and fork licence sniffing
 #
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Canonical licence registry and project-licence allow policy.
+"""The licence each classification ships under, read from ``config/licensing.yaml``.
 
-hyperi-ci recognises the common SPDX licences (for detection and OCI image
-labels) but allows only the outbound licences ``config/licensing.yaml`` names
-by default. Another recognised licence gets a non-blocking warning to opt in
-via ``license_allow`` in ``.hyperi-ci.yaml``, and an unrecognised id is flagged
-as a likely typo.
+A repo's licence comes from its classification's outbound entry. A fork keeps
+its upstream licence, sniffed from its LICENSE file or source headers.
 """
 
 import functools
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -44,20 +41,12 @@ def outbound(classification: str) -> Mapping[str, Any]:
     return outbound_table().get(classification, {})
 
 
-# Declarable as ``license:`` without further config: every outbound licence.
-DEFAULT_ALLOWED: tuple[str, ...] = tuple(
-    licence
-    for entry in outbound_table().values()
-    for licence in entry.get("licences", ())
-    if licence != INHERIT
-)
-
-# Used when a project's licence cannot be resolved any other way.
+# The template renderers' default licence, product's.
 DEFAULT_LICENSE: str = outbound("product")["licences"][0]
 
-# Substrings identifying a licence from LICENSE-file text or a source header when
-# ``license:`` is undeclared. Limited to distinctive wording, as the GPL/LGPL/BSD
-# families share too much boilerplate to sniff and must be declared.
+# Substrings identifying a fork's upstream licence from LICENSE-file text or a
+# source header. Limited to distinctive wording, as the GPL/LGPL/BSD families
+# share too much boilerplate to sniff.
 LICENSE_MARKERS: dict[str, tuple[str, ...]] = {
     "BUSL-1.1": ("BUSL-1.1", "Business Source License"),
     "Apache-2.0": ("Apache License", "Licensed under the Apache"),
@@ -70,63 +59,3 @@ LICENSE_MARKERS: dict[str, tuple[str, ...]] = {
     "Zlib": ("zlib License",),
     "AGPL-3.0": ("GNU AFFERO GENERAL PUBLIC LICENSE",),
 }
-
-# A superset of LICENSE_MARKERS, including ids that must be declared.
-RECOGNISED: frozenset[str] = frozenset(
-    {
-        *LICENSE_MARKERS,
-        "BSD-2-Clause",
-        "BSD-3-Clause",
-        "GPL-2.0",
-        "GPL-3.0",
-        "LGPL-2.1",
-        "LGPL-3.0",
-        "EPL-2.0",
-        "Artistic-2.0",
-        "Unicode-3.0",
-    }
-)
-
-
-def allowed_licenses(extra: Iterable[str] | None = None) -> set[str]:
-    """Return the set of allowed project licences.
-
-    Args:
-        extra: Additional SPDX ids to allow beyond the default set,
-            typically from ``license_allow`` in ``.hyperi-ci.yaml``.
-
-    Returns:
-        The union of the default-allowed ids and any extras.
-
-    """
-    allowed = set(DEFAULT_ALLOWED)
-    if extra:
-        allowed.update(e.strip() for e in extra if isinstance(e, str) and e.strip())
-    return allowed
-
-
-def is_recognised(license_id: str) -> bool:
-    """Return whether ``license_id`` is a known SPDX id.
-
-    Args:
-        license_id: The SPDX identifier to check.
-
-    Returns:
-        True if the id is recognised by hyperi-ci.
-
-    """
-    return license_id in RECOGNISED
-
-
-def is_allowed(license_id: str, extra: Iterable[str] | None = None) -> bool:
-    """Return whether ``license_id`` is permitted as a project licence.
-
-    Args:
-        license_id: The SPDX identifier to check.
-        extra: Additional allowed ids (e.g. from ``license_allow``).
-
-    Returns:
-        True if the licence is in the allowed set.
-
-    """
-    return license_id in allowed_licenses(extra)
