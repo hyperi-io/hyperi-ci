@@ -15,6 +15,7 @@ from :mod:`hyperi_ci.quality.node_tools`.
 
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -57,6 +58,22 @@ def repo_config(root: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def config_dir(root: Path) -> Path:
+    """Return the nearest directory from ``root`` up to the cwd with a repo config.
+
+    cli2 reads its config from the directory it runs in, so `lint-docs docs`
+    from a repo root has to run from the root to see the root config.
+    """
+    top = Path.cwd().resolve()
+    here = root.resolve()
+    for candidate in (here, *here.parents):
+        if repo_config(candidate) is not None:
+            return candidate
+        if candidate == top or top not in candidate.parents:
+            break
+    return root
 
 
 def root_ignores(root: Path) -> list[str]:
@@ -131,7 +148,7 @@ def run(
     if mode == "disabled":
         info("  markdownlint: disabled")
         return 0
-    root = Path(root or Path.cwd())
+    root = config_dir(Path(root or Path.cwd()))
     ignores = root_ignores(root)
     files = [f for f in files if not _ignored(fdg.relpath(f, root), ignores)]
     if not files:
@@ -162,6 +179,7 @@ def run(
     )
     if isinstance(found, int):
         return found
+    found = [replace(f, path=fdg.relpath(root / f.path)) for f in found]
 
     fdg.report("markdownlint", found, mode, sarif_path=sarif_path)
 

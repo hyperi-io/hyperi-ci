@@ -288,6 +288,50 @@ class TestMarkdownlintParsing:
             ":docs/CHANGELOG.md",
         ]
 
+    @pytest.mark.parametrize(
+        ("root_config", "target", "cwd", "paths", "default_config"),
+        [
+            # `lint-docs docs` from the root runs cli2 at the root, so it reads
+            # the root config and its ignores.
+            (True, "docs", "", [":docs/a.md"], False),
+            (True, "", "", [":docs/a.md"], False),
+            (False, "docs", "docs", [":a.md", ":ref/b.md"], True),
+        ],
+    )
+    def test_a_subdir_run_uses_the_root_config(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        root_config: bool,
+        target: str,
+        cwd: str,
+        paths: list[str],
+        default_config: bool,
+    ) -> None:
+        if root_config:
+            (tmp_path / ".markdownlint-cli2.jsonc").write_text(
+                '{"ignores": ["docs/ref/**"]}', encoding="utf-8"
+            )
+        for rel in ("docs/a.md", "docs/ref/b.md"):
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text("# T\n", encoding="utf-8")
+        seen: list[tuple[list[str], Path]] = []
+
+        def capture(_tool, args, _mode, _parse, **kw):  # noqa: ANN001, ANN202
+            seen.append((args, kw["cwd"]))
+            return []
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(markdownlint.shutil, "which", lambda _exe: "cli2")
+        monkeypatch.setattr(markdownlint.fdg, "run_check", capture)
+        root = Path(target) if target else Path()
+        files = sorted(root.rglob("*.md"))
+        markdownlint.run(files, CIConfig(), root=root)
+        args, ran_in = seen[0]
+        assert Path(ran_in).resolve() == (tmp_path / cwd).resolve()
+        assert [a for a in args if a.startswith(":")] == paths
+        assert ("--config" in args) is default_config
+
     def test_the_shipped_default_exists_and_disables_the_width_rule(self) -> None:
         # The house style has no markdown width limit, so a line-length rule
         # would report every correctly written paragraph.
