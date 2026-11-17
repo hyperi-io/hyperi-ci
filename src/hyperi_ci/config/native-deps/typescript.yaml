@@ -5,7 +5,7 @@
 # Schema per entry:
 #   name:           Human-readable label shown in CI output
 #   patterns:       Strings to search for in manifest_files (plain substring match)
-#   manifest_files: Files to search relative to project root
+#   manifest_files: Paths from the project root, or a glob (**/package.json)
 #   dpkg_check:     dpkg package name -- skips apt install if already present
 #   apt_packages:   Packages to install on Linux (apt-get)
 
@@ -24,3 +24,27 @@
     - libjpeg-dev
     - libgif-dev
     - librsvg2-dev
+
+- name: headless Chrome (puppeteer)
+  patterns:
+    - '"puppeteer"'
+    - '"@mermaid-js/mermaid-cli"'
+  manifest_files:
+    - '**/package.json'
+  dpkg_check: libnss3
+  apt_packages:
+    - libnspr4
+    - libnss3
+    - libatk1.0-0t64
+    - libatk-bridge2.0-0t64
+    - libcups2t64
+    - libdrm2
+    - libxkbcommon0
+    - libxcomposite1
+    - libxdamage1
+    - libxfixes3
+    - libxrandr2
+    - libgbm1
+    - libpango-1.0-0
+    - libcairo2
+    - libasound2t64

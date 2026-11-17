@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 from scalo import logger
@@ -60,6 +60,11 @@ _FALLBACK_CODENAMES = ["resolute", "noble", "jammy", "focal", "trixie"]
 _CONFIG_ROOT = Path(__file__).resolve().parent / "config"
 _NATIVE_DEPS_DIR = _CONFIG_ROOT / "native-deps"
 _TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
+
+# Directories a `manifest_files` glob never enters.
+_SKIP_DIRS = frozenset(
+    {"node_modules", ".venv", "venv", ".git", ".worktrees", "target"}
+)
 
 
 # Categories map to config subdirectories sharing one YAML schema (patterns,
@@ -200,13 +205,35 @@ def _load_dep_groups(
     return [_dep_group_from_entry(entry) for entry in raw]
 
 
+def _manifest_paths(project_dir: Path, filename: str) -> list[Path]:
+    """Return the files ``filename`` names: a path, or a glob such as ``**/package.json``.
+
+    A glob never descends into installed dependencies, a virtualenv or git
+    metadata, so a lockfile's transitive packages do not count as declared.
+    """
+    if "*" not in filename:
+        return [project_dir / filename]
+    found: list[Path] = []
+    for here, dirs, files in os.walk(project_dir):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS)
+        for name in sorted(files):
+            path = Path(here) / name
+            if PurePosixPath(path.relative_to(project_dir).as_posix()).full_match(
+                filename
+            ):
+                found.append(path)
+    return found
+
+
 def _read_manifests(project_dir: Path, manifest_files: list[str]) -> str:
     """Read all manifest files, concatenating their content for pattern matching."""
     content_parts: list[str] = []
     for filename in manifest_files:
-        manifest_path = project_dir / filename
-        if manifest_path.exists():
-            content_parts.append(manifest_path.read_text(encoding="utf-8"))
+        for manifest_path in _manifest_paths(project_dir, filename):
+            if manifest_path.is_file():
+                content_parts.append(
+                    manifest_path.read_text(encoding="utf-8", errors="replace")
+                )
     return "\n".join(content_parts)
 
 
