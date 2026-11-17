@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -394,6 +395,67 @@ class TestOrchestrator:
         config = _config(doc_paths="blocking", doc_links="blocking")
         assert lint_docs.run(tmp_path, config) == 1
 
+    @pytest.mark.parametrize(
+        ("config_at", "exit_code"), [("", 1), ("docs", 1), (None, 0)]
+    )
+    def test_lint_docs_on_a_subdir_reads_the_repo_config(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        config_at: str | None,
+        exit_code: int,
+    ) -> None:
+        """`hyperi-ci lint-docs docs` from the root takes the root's promoted gates."""
+        from typer.testing import CliRunner
+
+        from hyperi_ci.cli import app
+
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "README.md").write_text("[gone](nope.md)\n", encoding="utf-8")
+        if config_at is not None:
+            (tmp_path / config_at / ".hyperi-ci.yaml").write_text(
+                "quality:\n  doc_paths: blocking\n  doc_links: blocking\n",
+                encoding="utf-8",
+            )
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["lint-docs", "docs"])
+        assert result.exit_code == exit_code, result.output
+
+    def test_lychee_reads_a_relative_subdir_from_its_own_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`lint-docs docs` hands lychee paths it can open from inside docs/."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        lychee = bin_dir / "lychee"
+        lychee.write_text(
+            f"#!{sys.executable}\n"
+            "import json, pathlib, sys\n"
+            "pages = [a for a in sys.argv[1:] if a.endswith('.md')]\n"
+            "if not all(pathlib.Path(p).is_file() for p in pages):\n"
+            "    sys.exit(1)\n"
+            "errors = {p: [{'url': 'nope.md', 'span': {'line': 1}}] for p in pages}\n"
+            "print(json.dumps({'error_map': errors}))\n"
+            "sys.exit(2)\n",
+            encoding="utf-8",
+        )
+        lychee.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text("[x](nope.md)\n", "utf-8")
+        monkeypatch.chdir(tmp_path)
+        reported: list[str] = []
+        monkeypatch.setattr(
+            fdg,
+            "report",
+            lambda _t, found, *_a, **_k: reported.extend(f.path for f in found),
+        )
+        files = [Path("docs") / "README.md"]
+        config = _config(doc_links="blocking")
+        assert doc_links.run(files, config, root=Path("docs")) == 1
+        assert reported == ["docs/README.md"]
+
     def test_promoting_doc_paths_alone_still_gates_with_lychee_installed(
         self, tmp_path: Path, monkeypatch
     ) -> None:
@@ -704,13 +766,23 @@ class TestDiagramCheck:
         assert len(ref) == 40 and int(ref, 16) >= 0
 
 
+@pytest.mark.parametrize(
+    ("subdir", "ignore_id"),
+    [
+        ("", "b.md"),
+        # `lint-docs sub` from the repo root: the id stays repo-relative.
+        ("sub", "sub/b.md"),
+        ("sub", "b.md"),
+    ],
+)
 def test_a_page_in_quality_ignore_is_not_checked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subdir: str, ignore_id: str
 ) -> None:
+    monkeypatch.chdir(tmp_path)
+    docs = tmp_path / subdir
+    docs.mkdir(exist_ok=True)
     for name in ("a.md", "b.md"):
-        (tmp_path / name).write_text(
-            "```mermaid\nflowchart LR\n```\n", encoding="utf-8"
-        )
+        (docs / name).write_text("```mermaid\nflowchart LR\n```\n", encoding="utf-8")
     seen = tmp_path / "seen.txt"
     script = tmp_path / "checker.py"
     script.write_text(
@@ -723,12 +795,10 @@ def test_a_page_in_quality_ignore_is_not_checked(
     config = CIConfig(
         _raw={
             "quality": {
-                "ignore": [
-                    {"tool": "diagram-check", "id": "b.md", "reason": "verbatim copy"}
-                ]
+                "ignore": [{"tool": "diagram-check", "id": ignore_id, "reason": "copy"}]
             }
         }
     )
-    files = [tmp_path / "a.md", tmp_path / "b.md"]
-    assert diagram_check.run(files, config, root=tmp_path) == 0
+    files = [docs / "a.md", docs / "b.md"]
+    assert diagram_check.run(files, config, root=docs) == 0
     assert seen.read_text(encoding="utf-8") == "a.md"

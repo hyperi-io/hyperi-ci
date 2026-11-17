@@ -13,6 +13,7 @@ headings. A repo silences a known-bad link with a committed ``.lycheeignore``.
 """
 
 import functools
+from dataclasses import replace
 from pathlib import Path
 
 from hyperi_ci.common import info
@@ -114,7 +115,8 @@ def run(
         str(root.resolve()),
         "--format",
         "json",
-        *[str(f) for f in files],
+        # lychee runs in root, so `docs/README.md` from `lint-docs docs` is README.md.
+        *[fdg.relpath(f, root) for f in files],
     ]
     # lychee exits 2 for broken links and for a rejected argument, so an exit 2
     # with no parsed link is the second.
@@ -123,6 +125,7 @@ def run(
     )
     if isinstance(found, int):
         return found
+    found = [replace(f, path=fdg.relpath(root / f.path)) for f in found]
 
     fdg.report("doc-links", found, mode, sarif_path=sarif_path)
 
