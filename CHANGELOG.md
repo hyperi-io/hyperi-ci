@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.79](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.78...v2.14.79) (2026-11-17)
+
+### Bug Fixes
+
+* **licenses:** complete general-oss migration ([dedc2ad](https://github.com/hyperi-io/hyperi-ci/commit/dedc2ad6e816f13d120b2e9fcfade7fc697f7983))
+* **quality:** fetch the diagram checker from hyperi-ai main ([d5de0bc](https://github.com/hyperi-io/hyperi-ci/commit/d5de0bc4f66c8cbcc91977549a4c1839b45f4cae))
+
 ## [2.14.78](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.77...v2.14.78) (2026-11-17)
 
 ### Bug Fixes
