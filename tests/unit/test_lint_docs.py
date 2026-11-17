@@ -702,3 +702,33 @@ class TestDiagramCheck:
 
         ref = load_org_config().diagram_check_ref
         assert len(ref) == 40 and int(ref, 16) >= 0
+
+
+def test_a_page_in_quality_ignore_is_not_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text(
+            "```mermaid\nflowchart LR\n```\n", encoding="utf-8"
+        )
+    seen = tmp_path / "seen.txt"
+    script = tmp_path / "checker.py"
+    script.write_text(
+        "import json, sys, pathlib\n"
+        f"pathlib.Path({str(seen)!r}).write_text(' '.join(a for a in sys.argv[1:] if a.endswith('.md')))\n"
+        "print(json.dumps({'page': [], 'diagrams': []}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(diagram_check.SCRIPT_ENV, str(script))
+    config = CIConfig(
+        _raw={
+            "quality": {
+                "ignore": [
+                    {"tool": "diagram-check", "id": "b.md", "reason": "verbatim copy"}
+                ]
+            }
+        }
+    )
+    files = [tmp_path / "a.md", tmp_path / "b.md"]
+    assert diagram_check.run(files, config, root=tmp_path) == 0
+    assert seen.read_text(encoding="utf-8") == "a.md"

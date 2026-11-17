@@ -10,7 +10,8 @@ The checker is hyperi-ai's ``tools/diagram_check.py``, in a private repo, so it
 is never copied here. ``hyperi-ci fetch-diagram-check`` downloads it at the
 commit the org config pins, with a token that can read hyperi-ai, and the
 quality stage runs its source pass (``--no-render``) over every page with a
-mermaid fence. Without a fetched copy the check skips and says so.
+mermaid fence. Without a fetched copy the check skips and says so. A
+``quality.ignore`` entry with ``tool: diagram-check`` names a page to leave out.
 """
 
 import json
@@ -24,6 +25,7 @@ from hyperi_ci.common import error, info, run_cmd, set_github_output, success
 from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
+from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.versions import runtime_version
 
 SCRIPT_ENV = "HYPERCI_DIAGRAM_CHECK"
@@ -93,10 +95,12 @@ def run(
         info("  diagram-check: disabled")
         return 0
     root = Path(root or Path.cwd())
+    skipped = {e.id for e in for_tool(load_ignores(config._raw), "diagram-check")}
     pages = [
         f
         for f in files
-        if _FENCE.search(f.read_text(encoding="utf-8", errors="replace"))
+        if fdg.relpath(f, root) not in skipped
+        and _FENCE.search(f.read_text(encoding="utf-8", errors="replace"))
     ]
     if not pages:
         info("  diagram-check: no mermaid diagrams - skipping")
