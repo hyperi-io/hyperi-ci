@@ -55,7 +55,7 @@
   manifest_files:
     - '**/package.json'
   dpkg_check: libnss3
-  apt_packages:
+  apt_packages: &headless_chrome_libs
     - libnspr4
     - libnss3
     - libatk1.0-0t64
@@ -71,3 +71,13 @@
     - libpango-1.0-0
     - libcairo2
     - libasound2t64
+
+# Playwright's pinned chromium-headless-shell links the same libraries.
+- name: headless Chrome (playwright)
+  patterns:
+    - '"playwright'
+  manifest_files:
+    - pyproject.toml
+    - uv.lock
+  dpkg_check: libnss3
+  apt_packages: *headless_chrome_libs
