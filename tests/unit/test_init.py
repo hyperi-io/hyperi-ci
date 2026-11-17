@@ -25,43 +25,52 @@ from hyperi_ci.versions import runtime_version
 
 
 class TestLicenseConfig:
-    """`.hyperi-ci.yaml` can declare the licence; declaration wins over scan."""
+    """The classification is the only source of a repo's licence."""
 
-    def test_yaml_declaration_overrides_detection(self, tmp_path: Path) -> None:
-        # A LICENSE file says Apache, but .hyperi-ci.yaml declares BUSL-1.1.
-        (tmp_path / "LICENSE").write_text("Apache License\nLicensed under the Apache")
-        (tmp_path / ".hyperi-ci.yaml").write_text(
-            "language: python\nlicense: BUSL-1.1\n"
-        )
-        assert detect_license(tmp_path) == "BUSL-1.1"
+    @pytest.mark.parametrize(
+        ("config", "files", "expected"),
+        [
+            # Undeclared is internal, whatever a LICENSE file or a stale key says.
+            ("language: python\n", {}, "LicenseRef-HyperI-Proprietary"),
+            (
+                "language: python\nlicense: BUSL-1.1\n",
+                {"LICENSE": "Apache License\nLicensed under the Apache"},
+                "LicenseRef-HyperI-Proprietary",
+            ),
+            ("classification: product\n", {}, "BUSL-1.1"),
+            ("classification: oss\nlicense: MIT\n", {}, "Apache-2.0"),
+            # A fork keeps its upstream licence, read from LICENSE or headers.
+            (
+                "classification: fork\n",
+                {"LICENSE": "MIT License\nPermission is hereby granted"},
+                "MIT",
+            ),
+            (
+                "classification: fork\n",
+                {"LICENSE": "Business Source License 1.1\n\nParameters\n"},
+                "BUSL-1.1",
+            ),
+            ("classification: fork\n", {"tool.py": "# License: MIT License\n"}, "MIT"),
+            (
+                "classification: fork\n",
+                {"src/pkg/mod.py": "# License: MIT License\n"},
+                "MIT",
+            ),
+            ("classification: fork\n", {}, "NOASSERTION"),
+        ],
+    )
+    def test_detect_license(
+        self, tmp_path: Path, config: str, files: dict[str, str], expected: str
+    ) -> None:
+        (tmp_path / ".hyperi-ci.yaml").write_text(config, encoding="utf-8")
+        for name, text in files.items():
+            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        assert detect_license(tmp_path) == expected
 
-    def test_yaml_declaration_used_for_any_id(self, tmp_path: Path) -> None:
-        (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\nlicense: MIT\n")
-        assert detect_license(tmp_path) == "MIT"
-
-    def test_falls_back_to_scan_without_declaration(self, tmp_path: Path) -> None:
-        (tmp_path / ".hyperi-ci.yaml").write_text("language: python\n")
-        (tmp_path / "LICENSE").write_text("MIT License\nPermission is hereby granted")
-        assert detect_license(tmp_path) == "MIT"
-
-    def test_busl_marker_matches_full_name(self, tmp_path: Path) -> None:
-        # The canonical LICENSE text reads "Business Source License 1.1".
-        (tmp_path / "LICENSE").write_text("Business Source License 1.1\n\nParameters\n")
-        assert detect_license(tmp_path) == "BUSL-1.1"
-
-    def test_default_is_busl(self, tmp_path: Path) -> None:
-        assert detect_license(tmp_path) == "BUSL-1.1"
-
-    @pytest.mark.parametrize("where", ["tool.py", "src/pkg/mod.py"])
-    def test_source_header_scan(self, tmp_path: Path, where: str) -> None:
-        header = tmp_path / where
-        header.parent.mkdir(parents=True, exist_ok=True)
-        header.write_text("# License: MIT License\n", encoding="utf-8")
-        assert detect_license(tmp_path) == "MIT"
-
-    def test_scaffold_includes_license_key(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("python", "p")
-        assert "license: BUSL-1.1" in content
+    def test_scaffold_writes_no_license_key(self, tmp_path: Path) -> None:
+        content = yaml.safe_load(_render_hyperi_ci_yaml("python", "p"))
+        assert "license" not in content
 
     def test_scaffold_uses_the_release_namespace(self, tmp_path: Path) -> None:
         content = _render_hyperi_ci_yaml("python", "p")

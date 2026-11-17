@@ -101,27 +101,28 @@ def _licence_in(text: str) -> str | None:
 
 
 def detect_license(project_dir: Path) -> str:
-    """Resolve the project licence: explicit declaration, else scan, else default.
+    """Return the licence the project's classification ships under.
 
-    Order: an explicit ``license:`` in ``.hyperi-ci.yaml``, then the LICENSE
-    file, then source-file headers, then the default (BUSL-1.1).
+    The classification is the only source: an undeclared repo is internal. A
+    fork keeps its upstream licence, read from its LICENSE file or source
+    headers, and ``NOASSERTION`` when neither names one.
 
     Args:
         project_dir: Project root directory.
 
     Returns:
-        License identifier string (e.g. "BUSL-1.1").
+        SPDX licence id (e.g. "LicenseRef-HyperI-Proprietary").
+
+    Raises:
+        ValueError: A classification marker holds an unknown value.
 
     """
-    ci_config = project_dir / ".hyperi-ci.yaml"
-    if ci_config.exists():
-        try:
-            data = yaml.safe_load(ci_config.read_text(encoding="utf-8")) or {}
-            declared = data.get("license") if isinstance(data, dict) else None
-            if isinstance(declared, str) and declared.strip():
-                return declared.strip()
-        except (OSError, UnicodeDecodeError, yaml.YAMLError):
-            pass
+    from hyperi_ci.classification import resolve_checkout
+
+    resolution, _ = resolve_checkout(project_dir)
+    outbound = licenses.outbound(resolution.effective).get("licences") or []
+    if outbound and outbound[0] != licenses.INHERIT:
+        return str(outbound[0])
 
     found = _licence_in(_read_head(project_dir / "LICENSE", 2000))
     if found:
@@ -133,7 +134,7 @@ def detect_license(project_dir: Path) -> str:
         if found:
             return found
 
-    return licenses.DEFAULT_LICENSE
+    return "NOASSERTION"
 
 
 def _detect_submodules(project_dir: Path) -> str:
@@ -177,8 +178,6 @@ def _render_hyperi_ci_yaml(
     """
     config: dict[str, Any] = {
         "language": language,
-        # Drives generated file headers and is the source `detect_license` trusts.
-        "license": license_id,
         # Information-only lifecycle stage: experimental | alpha | beta | ga |
         # legacy | deprecated.
         "project": {"status": "experimental"},
