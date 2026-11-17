@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.74](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.73...v2.14.74) (2026-11-17)
+
+### Bug Fixes
+
+* **quality:** parse sequence diagrams that use box groups ([0d957d0](https://github.com/hyperi-io/hyperi-ci/commit/0d957d04f175b5d46a173bede7f5a4a63899cc79))
+
 ## [2.14.73](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.72...v2.14.73) (2026-11-17)
 
 ### Bug Fixes
