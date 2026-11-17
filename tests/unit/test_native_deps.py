@@ -765,6 +765,37 @@ class TestDepGroupLoading:
             (tmp_path / "Cargo.lock").write_text(lock)
         assert native_deps.group_matches("rust", "unixodbc", tmp_path) is expected
 
+    @pytest.mark.parametrize("language", ["python", "typescript"])
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            ({"package.json": '{"devDependencies": {"puppeteer": "24"}}'}, True),
+            (
+                {"src/app/node/package.json": '{"@mermaid-js/mermaid-cli": "12"}'},
+                True,
+            ),
+            # Only a dependency of a dependency: not declared, so no install.
+            ({"node_modules/x/package.json": '{"puppeteer": "24"}'}, False),
+            ({".venv/lib/package.json": '{"puppeteer": "24"}'}, False),
+            ({"package.json": '{"dependencies": {"puppeteer-core": "24"}}'}, False),
+            ({}, False),
+        ],
+    )
+    def test_headless_chrome_follows_a_declared_package_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        language: str,
+        files: dict[str, str],
+        expected: bool,
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        for name, text in files.items():
+            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        group = "headless Chrome (puppeteer)"
+        assert native_deps.group_matches(language, group, tmp_path) is expected
+
     def test_group_matches_refuses_an_unknown_group(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
