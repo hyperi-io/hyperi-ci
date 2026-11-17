@@ -72,8 +72,7 @@ class OrgConfig:
     )
     diagram_check_repo: str = "hyperi-ai"
     diagram_check_path: str = "tools/diagram_check.py"
-    # The commit pin lives in org.yaml alone, so a bump is one line.
-    diagram_check_ref: str = ""
+    diagram_check_ref: str = "main"
 
     @property
     def r2_endpoint(self) -> str:

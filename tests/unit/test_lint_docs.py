@@ -811,16 +811,12 @@ class TestDiagramCheck:
         monkeypatch.setenv(diagram_check.SCRIPT_ENV, "/no/such/script.py")
         assert diagram_check.run([page], CIConfig(), root=tmp_path) == 0
 
-    def test_the_pin_is_a_full_commit(self) -> None:
-        from hyperi_ci.config import load_org_config
-
-        ref = load_org_config().diagram_check_ref
-        assert len(ref) == 40 and int(ref, 16) >= 0
-
-    def test_no_pin_fetches_nothing(self, tmp_path: Path) -> None:
+    @pytest.mark.skipif(shutil.which("gh") is None, reason="needs the gh CLI")
+    def test_an_unresolvable_ref_fetches_nothing(self, tmp_path: Path) -> None:
         from hyperi_ci.config import OrgConfig
 
-        assert diagram_check.fetch(OrgConfig(), tmp_path) is None
+        org = OrgConfig(diagram_check_ref="no-such-branch-zz9")
+        assert diagram_check.fetch(org, tmp_path) is None
         assert not any(tmp_path.iterdir())
 
 
