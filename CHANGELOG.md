@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.75](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.74...v2.14.75) (2026-11-17)
+
+### Bug Fixes
+
+* **quality:** run markdownlint from the directory holding its config ([d81f16b](https://github.com/hyperi-io/hyperi-ci/commit/d81f16ba07986c6f6cb490fc897427e13b1c5001))
+
 ## [2.14.74](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.73...v2.14.74) (2026-11-17)
 
 ### Bug Fixes
