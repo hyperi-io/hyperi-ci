@@ -435,10 +435,12 @@ def lint_docs_cmd(
     inside ``hyperi-ci run quality``. This verb is for a docs repo that has no
     language pipeline to hang them off.
     """
+    from hyperi_ci.project_config import find_config
     from hyperi_ci.quality import lint_docs
 
     root = Path(directory)
-    config = load_config(project_dir=root)
+    # `lint-docs docs` from a repo root takes the root's config, not none.
+    config = load_config(project_dir=root if find_config(root) else Path.cwd())
     rc = lint_docs.run(root, config, sarif_path=sarif)
     raise typer.Exit(rc)
 

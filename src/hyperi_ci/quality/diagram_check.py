@@ -96,10 +96,11 @@ def run(
         return 0
     root = Path(root or Path.cwd())
     skipped = {e.id for e in for_tool(load_ignores(config._raw), "diagram-check")}
+    # An id is repo-relative, so `lint-docs <subdir>` from the root matches it too.
     pages = [
         f
         for f in files
-        if fdg.relpath(f, root) not in skipped
+        if not {fdg.relpath(f, root), fdg.relpath(f)} & skipped
         and _FENCE.search(f.read_text(encoding="utf-8", errors="replace"))
     ]
     if not pages:
