@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.77](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.76...v2.14.77) (2026-11-17)
+
+### Bug Fixes
+
+* **native-deps:** install headless Chrome's libraries for puppeteer ([75a4f24](https://github.com/hyperi-io/hyperi-ci/commit/75a4f2496019861eca10aa06635cedcacebc123e))
+
 ## [2.14.76](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.75...v2.14.76) (2026-11-17)
 
 ### Bug Fixes
