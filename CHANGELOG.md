@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.81](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.80...v2.14.81) (2026-11-18)
+
+### Bug Fixes
+
+* **native-deps:** add missing Ubuntu APT sources ([4f8822e](https://github.com/hyperi-io/hyperi-ci/commit/4f8822e2eb686a8250ef7f86a88c9f07b000e466))
+* **push:** resolve a relative -C path before the gates run ([d123f75](https://github.com/hyperi-io/hyperi-ci/commit/d123f75a5731b2a7cf8e75c8956fdd96ced052c1))
+
 ## [2.14.80](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.79...v2.14.80) (2026-11-17)
 
 ### Bug Fixes
