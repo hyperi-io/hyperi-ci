@@ -120,7 +120,8 @@ def push(
             error("--hotfix and --no-ci are mutually exclusive")
             return 1
 
-    cwd = str(project_dir) if project_dir else None
+    # Absolute, because the quality stage chdirs into it before the test stage.
+    cwd = str(Path(project_dir).resolve()) if project_dir else None
 
     if no_ci:
         return _skip_ci_push(dry_run=dry_run, cwd=cwd)

@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -139,6 +140,25 @@ class TestPushFlagValidation:
             rc = push()
             assert rc == 0
             mock.assert_called_once()
+
+    def test_a_relative_project_dir_survives_the_quality_chdir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "proj").mkdir()
+        monkeypatch.chdir(tmp_path)
+        stages: list[Path] = []
+
+        def chdir_like_run_stage(stage: str, *, project_dir: Path, local: bool) -> int:
+            os.chdir(project_dir.resolve())
+            stages.append(project_dir)
+            return 0
+
+        monkeypatch.setattr("hyperi_ci.dispatch.run_stage", chdir_like_run_stage)
+        for name in ("_check_dirty_tree", "_check_push_target", "_rebase_and_push"):
+            monkeypatch.setattr(f"hyperi_ci.push.{name}", lambda *, cwd: 0)
+
+        assert push(project_dir=Path("proj")) == 0
+        assert stages == [tmp_path / "proj", tmp_path / "proj"]
 
     def test_publish_flag_routes_to_publish_push(self) -> None:
         with patch("hyperi_ci.push._publish_push", return_value=0) as mock:
