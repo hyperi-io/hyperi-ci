@@ -188,6 +188,107 @@ class TestRepoAlreadyConfigured:
         assert result is None
 
 
+_UBUNTU_INRELEASE = (
+    "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n"
+    "Origin: Ubuntu\nLabel: Ubuntu\nSuite: resolute\n"
+)
+_CONFLUENT_INRELEASE = "Origin: Confluent\nSuite: resolute\n"
+
+
+class TestUbuntuArchive:
+    """A runner image whose APT sources lack the Ubuntu archive."""
+
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            pytest.param(
+                {
+                    "azure.archive.ubuntu.com_ubuntu_dists_resolute_InRelease": (
+                        _UBUNTU_INRELEASE
+                    )
+                },
+                True,
+                id="mirror-inrelease",
+            ),
+            pytest.param(
+                {"ports.ubuntu.com_dists_resolute_Release": "Origin: Ubuntu\n"},
+                True,
+                id="plain-release",
+            ),
+            pytest.param(
+                {
+                    "packages.confluent.io_dists_resolute_InRelease": (
+                        _CONFLUENT_INRELEASE
+                    ),
+                    "apt.llvm.org_dists_InRelease": "Origin: apt.llvm.org\n",
+                },
+                False,
+                id="third-party-only",
+            ),
+            pytest.param(
+                {"ppa_dists_resolute_InRelease": "Origin: Ubuntu-PPA\n"},
+                False,
+                id="origin-prefix-only",
+            ),
+            pytest.param(
+                {
+                    "archive.ubuntu.com_ubuntu_dists_resolute_main_Packages": (
+                        "Origin: Ubuntu\n"
+                    )
+                },
+                False,
+                id="not-a-release-file",
+            ),
+            pytest.param({}, False, id="empty-lists"),
+        ],
+    )
+    def test_indexed_reads_the_release_origin(
+        self, tmp_path: Path, files: dict[str, str], expected: bool
+    ) -> None:
+        for name, text in files.items():
+            (tmp_path / name).write_text(text, encoding="utf-8")
+        assert native_deps._ubuntu_archive_indexed(tmp_path) is expected
+
+    def test_indexed_is_false_for_a_missing_lists_dir(self, tmp_path: Path) -> None:
+        assert native_deps._ubuntu_archive_indexed(tmp_path / "absent") is False
+
+    @pytest.mark.parametrize(
+        ("arch", "main_uri", "security_uri"),
+        [
+            (
+                "amd64",
+                "http://archive.ubuntu.com/ubuntu/",
+                "http://security.ubuntu.com/ubuntu/",
+            ),
+            (
+                "arm64",
+                "http://ports.ubuntu.com/ubuntu-ports/",
+                "http://ports.ubuntu.com/ubuntu-ports/",
+            ),
+        ],
+    )
+    def test_sources_match_the_stock_layout(
+        self, arch: str, main_uri: str, security_uri: str
+    ) -> None:
+        text = native_deps._ubuntu_archive_sources("resolute", arch)
+        main, security = (block.splitlines() for block in text.split("\n\n"))
+        shared = [
+            "Types: deb",
+            "Components: main universe restricted multiverse",
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg",
+        ]
+        assert set(main) == {
+            *shared,
+            f"URIs: {main_uri}",
+            "Suites: resolute resolute-updates resolute-backports",
+        }
+        assert set(security) == {
+            *shared,
+            f"URIs: {security_uri}",
+            "Suites: resolute-security",
+        }
+
+
 class TestAddAptRepoIdempotency:
     """_add_apt_repo must not rewrite when the repo is already configured."""
 

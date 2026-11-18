@@ -554,20 +554,109 @@ def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
     return False
 
 
-def _apt_install(packages: list[str]) -> int:
-    """Run apt-get update then install packages. Returns exit code.
+_APT_LISTS_DIR = Path("/var/lib/apt/lists")
+_UBUNTU_KEYRING = Path("/usr/share/keyrings/ubuntu-archive-keyring.gpg")
+_UBUNTU_SOURCES = Path("/etc/apt/sources.list.d/hyperi-ci-ubuntu.sources")
 
-    The update is re-run on the ``apt_retry`` schedule because a mirror
-    mid-sync fails the fetch outright (see that module).
+
+def _apt_update(apt_get: list[str]) -> None:
+    """Run apt-get update on the ``apt_retry`` schedule.
+
+    A mirror mid-sync fails the fetch outright (see that module).
     """
-    apt_get = [*sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
     for attempt in range(1, APT_UPDATE_ATTEMPTS + 1):
         if run_cmd([*apt_get, "update"], check=False).returncode == 0:
-            break
+            return
         if attempt == APT_UPDATE_ATTEMPTS:
             logger.warning("apt-get update failed -- continuing anyway")
-            break
+            return
         time.sleep(attempt * APT_UPDATE_BACKOFF_SECONDS)
+
+
+def _ubuntu_archive_indexed(lists_dir: Path = _APT_LISTS_DIR) -> bool:
+    """Return True when apt holds a Release file from the Ubuntu archive.
+
+    Matches ``Origin: Ubuntu``, which a mirror copies verbatim, so any mirror
+    host counts.
+    """
+    for path in lists_dir.glob("*Release"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if any(line.strip() == "Origin: Ubuntu" for line in text.splitlines()):
+            return True
+    return False
+
+
+def _ubuntu_archive_sources(codename: str, arch: str) -> str:
+    """Return the deb822 sources a stock Ubuntu ``ubuntu.sources`` holds."""
+    if arch in ("amd64", "i386"):
+        main_uri = "http://archive.ubuntu.com/ubuntu/"
+        security_uri = "http://security.ubuntu.com/ubuntu/"
+    else:
+        main_uri = security_uri = "http://ports.ubuntu.com/ubuntu-ports/"
+    stanza = (
+        "Types: deb\nURIs: {uri}\nSuites: {suites}\n"
+        "Components: main universe restricted multiverse\n"
+        f"Signed-By: {_UBUNTU_KEYRING}\n"
+    )
+    main = stanza.format(
+        uri=main_uri, suites=f"{codename} {codename}-updates {codename}-backports"
+    )
+    security = stanza.format(uri=security_uri, suites=f"{codename}-security")
+    return f"{main}\n{security}"
+
+
+def _ensure_ubuntu_archive(apt_get: list[str]) -> None:
+    """Add the Ubuntu archive when an Ubuntu runner's APT sources lack it.
+
+    Some GitHub-hosted image builds configure only third-party repos, so every
+    distro package reads as missing. A failure here is logged and left for
+    apt-get install to report.
+    """
+    try:
+        os_release = platform.freedesktop_os_release()
+    except OSError:
+        return
+    if os_release.get("ID") != "ubuntu" or _ubuntu_archive_indexed():
+        return
+
+    codename = os_release.get("VERSION_CODENAME", "")
+    if not codename or not _UBUNTU_KEYRING.exists():
+        logger.error(
+            "This runner has no Ubuntu archive in its APT sources, and hyperi-ci "
+            f"cannot add one (codename {codename!r}, {_UBUNTU_KEYRING} "
+            f"{'present' if _UBUNTU_KEYRING.exists() else 'missing'}). Distro "
+            "packages will not install."
+        )
+        return
+
+    warn(
+        "This runner image has no Ubuntu archive in its APT sources. Adding "
+        f"{_UBUNTU_SOURCES} for {codename}."
+    )
+    write = subprocess.run(
+        [*sudo_prefix(), "tee", str(_UBUNTU_SOURCES)],
+        input=_ubuntu_archive_sources(codename, _get_dpkg_arch()).encode(),
+        capture_output=True,
+    )
+    if write.returncode != 0:
+        logger.error(f"Failed to write {_UBUNTU_SOURCES}")
+        return
+    _apt_update(apt_get)
+    if not _ubuntu_archive_indexed():
+        logger.error(
+            "apt-get update fetched nothing from the Ubuntu archive after adding "
+            f"{_UBUNTU_SOURCES}. Distro packages will not install."
+        )
+
+
+def _apt_install(packages: list[str]) -> int:
+    """Run apt-get update then install packages. Returns exit code."""
+    apt_get = [*sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
+    _apt_update(apt_get)
+    _ensure_ubuntu_archive(apt_get)
 
     install = run_cmd(
         [*apt_get, "install", "-y", "--no-install-recommends", *packages],
