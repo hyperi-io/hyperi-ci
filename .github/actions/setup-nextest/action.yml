@@ -20,6 +20,7 @@
 #   asset   `cargo-nextest-X.Y.Z-<target>.tar.gz`  - version MIDDLE
 #   layout  the binary sits at the tarball ROOT, no --strip-components
 #   macOS   one `universal-apple-darwin` build covers both arches
+#   Windows `x86_64-pc-windows-msvc`, unpacked by Git Bash's tar, binary `cargo-nextest.exe`
 #
 # Version AND per-platform sha256 digests are pinned in
 # src/hyperi_ci/config/versions.yaml (`tools.cargo-nextest`) and mirrored here
@@ -34,7 +35,7 @@
 #   hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
 
 name: Setup cargo-nextest
-description: Install the pinned cargo-nextest (Linux and macOS runners)
+description: Install the pinned cargo-nextest (Linux, macOS and Windows x64 runners)
 
 inputs:
   version:
@@ -72,6 +73,11 @@ inputs:
     required: false
     # hyperi-ci:pin tools.cargo-nextest.sha256.macos
     default: 82a759b4d218d38359424196ab244c470e8f7c7d149c814fbbeef4d67c3c301a
+  sha256-windows:
+    description: sha256 of the x86_64-pc-windows-msvc tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-nextest.sha256.windows
+    default: b7a8bf567140b8b366716f2dea27b32e088dc12f53597315f976d0dbf7c6ade8
 
 runs:
   using: composite
@@ -86,8 +92,10 @@ runs:
         SHA_AMD64: ${{ inputs.sha256-amd64 }}
         SHA_ARM64: ${{ inputs.sha256-arm64 }}
         SHA_MACOS: ${{ inputs.sha256-macos }}
+        SHA_WINDOWS: ${{ inputs.sha256-windows }}
       run: |
         set -euo pipefail
+        BIN=cargo-nextest
         case "$(uname -s)/$(uname -m)" in
           Linux/x86_64)
             TARGET=x86_64-unknown-linux-musl
@@ -101,6 +109,11 @@ runs:
             TARGET=universal-apple-darwin
             WANT_SHA="$SHA_MACOS"
             ;;
+          MINGW*/x86_64 | MSYS*/x86_64)
+            TARGET=x86_64-pc-windows-msvc
+            WANT_SHA="$SHA_WINDOWS"
+            BIN=cargo-nextest.exe
+            ;;
           *)
             echo "::error::unsupported platform $(uname -s)/$(uname -m) for cargo-nextest"
             exit 1
@@ -108,7 +121,13 @@ runs:
         esac
 
         mkdir -p "$HOME/.local/bin"
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        # Windows reads GITHUB_PATH as Windows paths, so a pwsh step or Python's
+        # shutil.which would not resolve Git Bash's /c/... form.
+        if command -v cygpath >/dev/null 2>&1; then
+          cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
+        else
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        fi
 
         # macOS ships `shasum` rather than `sha256sum`; both take the same
         # `-c` form over a "<digest>  <file>" line.
@@ -144,7 +163,7 @@ runs:
         }
 
         # Flat tarball: the binary is at the root.
-        tar xz -C "$HOME/.local/bin" -f "$TMP/nextest.tar.gz" cargo-nextest
+        tar xz -C "$HOME/.local/bin" -f "$TMP/nextest.tar.gz" "$BIN"
 
     - name: Install cargo-llvm-cov
       # Coverage belongs in THIS job, not the quality job: `test.coverage` is
