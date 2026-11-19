@@ -103,6 +103,15 @@ outputs:
   rust-targets:
     description: "build.rust.targets from the project config, space-separated. Empty means every target, and is what a project without Cargo.toml gets"
     value: ${{ steps.targets.outputs.rust-targets }}
+  os-build-matrix:
+    description: "JSON matrix of the Windows and macOS build legs build.rust.targets lists, each on its GitHub-hosted runner. {\"include\": []} when it lists none"
+    value: ${{ steps.targets.outputs.os-build-matrix }}
+  os-test-include:
+    description: "JSON matrix include entries adding one Test leg per Windows or macOS runner the build legs use. [] when there are none"
+    value: ${{ steps.targets.outputs.os-test-include }}
+  has-os-legs:
+    description: "'true' iff build.rust.targets lists a Windows or macOS target"
+    value: ${{ steps.targets.outputs.has-os-legs }}
   runner-mode:
     description: "free or self-hosted -- the mode every later job of the run routes by"
     value: ${{ steps.mode.outputs.runner-mode }}

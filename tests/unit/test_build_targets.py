@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.build_targets import ci_targets, declared_targets, read_rust_targets
+from hyperi_ci.build_targets import (
+    ci_targets,
+    declared_targets,
+    os_legs,
+    read_rust_targets,
+    unbuilt_targets,
+)
 
 _AMD64 = "x86_64-unknown-linux-gnu"
 _ARM64 = "aarch64-unknown-linux-gnu"
@@ -57,6 +63,44 @@ def test_ci_targets_are_the_list_else_the_linux_pair(
     targets: object, expected: tuple[str, ...]
 ) -> None:
     assert ci_targets({"build": {"rust": {"targets": targets}}}) == expected
+
+
+_WINDOWS = "x86_64-pc-windows-msvc"
+_MAC_ARM = "aarch64-apple-darwin"
+_MAC_INTEL = "x86_64-apple-darwin"
+
+
+@pytest.mark.parametrize(
+    ("targets", "legs", "unbuilt"),
+    [
+        ([], [], []),
+        ([_AMD64, _ARM64], [], []),
+        (
+            [_WINDOWS, _AMD64, _WINDOWS],
+            [(_WINDOWS, "windows-2025", "windows-amd64")],
+            [],
+        ),
+        (
+            [_MAC_ARM, _MAC_INTEL],
+            [
+                (_MAC_ARM, "macos-26", "darwin-arm64"),
+                (_MAC_INTEL, "macos-26-intel", "darwin-amd64"),
+            ],
+            [],
+        ),
+        (
+            ["aarch64-pc-windows-msvc", "x86_64-unknown-linux-musl"],
+            [],
+            ["aarch64-pc-windows-msvc", "x86_64-unknown-linux-musl"],
+        ),
+    ],
+)
+def test_os_legs_cover_windows_and_macos_only(
+    targets: list[str], legs: list[tuple[str, str, str]], unbuilt: list[str]
+) -> None:
+    expected = [{"target": t, "runner": r, "os_arch": o} for t, r, o in legs]
+    assert os_legs(targets) == expected
+    assert unbuilt_targets(targets) == unbuilt
 
 
 class TestReadRustTargets:
