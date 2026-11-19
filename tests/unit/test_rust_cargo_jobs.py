@@ -347,7 +347,8 @@ class TestLogPeakMemory:
         )
         memory = [line for line in lines if line.startswith("memory")]
         assert memory == [
-            f"memory peak after pgo-optimize: 13.4 GiB{shown} (cgroup v2 {peak})"
+            "memory peak after pgo-optimize: 13.4 GiB with page cache"
+            f"{shown} (cgroup v2 {peak})"
         ]
         assert any(line.startswith("disk after pgo-optimize: ") for line in lines)
 

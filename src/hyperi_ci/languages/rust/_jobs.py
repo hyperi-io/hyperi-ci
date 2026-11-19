@@ -268,6 +268,7 @@ def log_peak_memory(
         else ""
     )
     info(
-        f"memory peak after {phase}: {peak / GIB:.1f} GiB{swap_text}{stall_text}"
+        f"memory peak after {phase}: {peak / GIB:.1f} GiB with page cache"
+        f"{swap_text}{stall_text}"
         f" (cgroup v2 {source})"
     )
