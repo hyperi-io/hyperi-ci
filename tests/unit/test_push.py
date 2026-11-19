@@ -16,6 +16,7 @@ from hyperi_ci.push import (
     _check_dirty_tree,
     _check_not_ci_commit,
     _check_push_target,
+    _run_check,
     push,
 )
 from hyperi_ci.vocabulary import has_release_trailer
@@ -159,6 +160,60 @@ class TestPushFlagValidation:
 
         assert push(project_dir=Path("proj")) == 0
         assert stages == [tmp_path / "proj", tmp_path / "proj"]
+
+    @pytest.mark.parametrize(
+        ("rust", "on_path", "host", "remote_rc", "expected", "where"),
+        [
+            pytest.param(
+                True, True, "dev.example", 0, 0, "remote", id="rust-offloaded"
+            ),
+            pytest.param(True, True, "dev.example", 1, 1, "remote", id="remote-fails"),
+            pytest.param(True, True, "dev.example", 255, 0, "skipped", id="never-ran"),
+            pytest.param(True, True, "", 0, 0, "local", id="no-host"),
+            pytest.param(True, True, "self", 0, 0, "local", id="host-self"),
+            pytest.param(True, False, "dev.example", 0, 0, "local", id="no-hyperi-ai"),
+            pytest.param(False, True, "dev.example", 0, 0, "local", id="python-repo"),
+        ],
+    )
+    def test_rust_checks_run_on_the_offload_host(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        rust: bool,
+        on_path: bool,
+        host: str,
+        remote_rc: int,
+        expected: int,
+        where: str,
+    ) -> None:
+        if rust:
+            (tmp_path / "Cargo.toml").write_text("[package]\nname = 'x'\n")
+        else:
+            (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        ran: list[str] = []
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            if cmd[1:3] == ["config", "get"]:
+                return subprocess.CompletedProcess(cmd, 0, f"{host}\n", "")
+            ran.append("remote")
+            return subprocess.CompletedProcess(cmd, remote_rc, "", "")
+
+        def fake_stage(stage: str, *, project_dir: Path, local: bool) -> int:
+            ran.append("local")
+            return 0
+
+        monkeypatch.setattr(
+            "hyperi_ci.push.shutil.which",
+            lambda name: "/usr/bin/hyperi-ai" if on_path else None,
+        )
+        monkeypatch.setattr("hyperi_ci.push.run_cmd", fake_run_cmd)
+        monkeypatch.setattr("hyperi_ci.dispatch.run_stage", fake_stage)
+
+        assert _run_check(cwd=str(tmp_path)) == expected
+        if where == "local":
+            assert ran == ["local", "local"]
+        else:
+            assert ran == ["remote"]
 
     def test_publish_flag_routes_to_publish_push(self) -> None:
         with patch("hyperi_ci.push._publish_push", return_value=0) as mock:

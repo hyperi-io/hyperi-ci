@@ -19,6 +19,7 @@ All flows set ``HYPERCI_PUSH=1`` so the pre-push hook allows the push.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -642,11 +643,51 @@ def _get_last_commit_message(*, cwd: str | None) -> str | None:
     return result.stdout.strip()
 
 
+#: ``hyperi-ai remote run``'s exit code when the command never started.
+_REMOTE_NOT_STARTED = 255
+
+
+def _offload_command() -> list[str] | None:
+    """Return the hyperi-ai command that runs the checks on the offload host.
+
+    None when hyperi-ai is not installed or names no remote host, so the
+    checks run here.
+    """
+    hyperi_ai = shutil.which("hyperi-ai")
+    if hyperi_ai is None:
+        return None
+    result = run_cmd(
+        [hyperi_ai, "config", "get", "remote.host"], capture=True, check=False
+    )
+    host = result.stdout.strip() if result.returncode == 0 else ""
+    if not host or host == "self":
+        return None
+    return [hyperi_ai, "remote", "run", "--", "hyperi-ci", "check"]
+
+
 def _run_check(*, cwd: str | None) -> int:
-    """Run hyperi-ci check. Returns exit code."""
+    """Run hyperi-ci check. Returns exit code.
+
+    A Rust repo runs them on hyperi-ai's ``remote.host`` when one is set,
+    so cargo does not build on the developer's workstation (issue #913).
+    """
+    from hyperi_ci.detect import detect_language
     from hyperi_ci.dispatch import run_stage
 
     dir_path = Path(cwd) if cwd else None
+    rust = detect_language((dir_path or Path.cwd()).resolve()) == "rust"
+    offload = _offload_command() if rust else None
+    if offload:
+        info(f"Running the checks on the offload host: {' '.join(offload[1:])}")
+        rc = run_cmd(offload, check=False, cwd=cwd).returncode
+        if rc != _REMOTE_NOT_STARTED:
+            return rc
+        warn(
+            "The offload host did not start the checks (hyperi-ai remote run "
+            "exited 255), so they are skipped here rather than run on this "
+            "machine. CI runs them on the pushed branch."
+        )
+        return 0
     for stage in ("quality", "test"):
         rc = run_stage(stage, project_dir=dir_path, local=True)
         if rc != 0:
