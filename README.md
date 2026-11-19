@@ -94,6 +94,8 @@ hyperi-ci push
 # Nothing compiles, no image is built, no tag, no registry is touched.
 ```
 
+In a Rust repo, the checks `hyperi-ci push` runs first go to the offload host when `hyperi-ai` is installed and its `remote.host` is set (`hyperi-ai remote run -- hyperi-ci check`). If that host never starts them, the push skips them with a warning and CI runs them.
+
 ## Releasing
 
 You opt in to a release explicitly. Two ways:
