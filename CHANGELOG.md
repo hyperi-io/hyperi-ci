@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.14.82](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.81...v2.14.82) (2026-11-19)
+
+### Bug Fixes
+
+* **rust:** show that the memory peak counts page cache ([ad5a5ee](https://github.com/hyperi-io/hyperi-ci/commit/ad5a5ee07963d115391adbd5e437fb8c20d2372e))
+
 ## [2.14.81](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.80...v2.14.81) (2026-11-18)
 
 ### Bug Fixes
