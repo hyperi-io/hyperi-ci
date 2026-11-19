@@ -81,7 +81,7 @@ Code: `languages/golang/`.
 **Build.**
 
 - Each target sets `GOOS` / `GOARCH` and `CGO_ENABLED` in that one call's environment, never the process's, so nothing leaks into later commands. CGO is off unless `build.golang.cgo` is true.
-- Target shortcuts `all`, `linux` and `darwin` expand to common matrices. Windows targets are refused.
+- Target shortcuts `all`, `linux` and `darwin` expand to common matrices. Windows targets are refused (Rust builds them, see [runtime/runners.md](runtime/runners.md#windows-and-macos)).
 - `-ldflags` defaults to `-s -w` (strip symbols and DWARF), overridable with `GO_LDFLAGS`. With `GO_VERSION_PKG` set, `-X` injects `<pkg>.Version`, `<pkg>.Commit` and `<pkg>.BuildTime`.
 - Main package: `GO_MAIN_PKG` env, else `cmd/{binary}/`, else a single `cmd/` subdirectory, else `.`.
 - Output is `dist/{binary}-{os}-{arch}`, published like every other binary ([flow.md](flow.md) section 7).

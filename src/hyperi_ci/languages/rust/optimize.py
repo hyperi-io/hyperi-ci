@@ -345,8 +345,8 @@ def validate_profile(
     """Validate a profile against the project's Cargo.toml + build target.
 
     Each fallback warns: an undeclared allocator feature drops to system, PGO
-    with no workload_cmd is disabled along with BOLT, and BOLT is disabled on
-    a non-Linux target. Never raises.
+    with no workload_cmd is disabled along with BOLT, and PGO and BOLT are
+    disabled on a non-Linux target. Never raises.
 
     Args:
         profile: The profile to validate.
@@ -373,9 +373,15 @@ def validate_profile(
         pgo_enabled = False
         bolt_enabled = False  # BOLT needs PGO
 
-    # BOLT is Linux-only (ELF + llvm-bolt)
-    if bolt_enabled and target and not _is_linux_target(target):
-        warn(f"BOLT requested but target '{target}' is not Linux -- skipping BOLT")
+    # BOLT needs ELF and llvm-bolt. The PGO workload and its tooling are set
+    # up on Linux runners only, so a Windows or macOS leg builds Tier 1.
+    if target and not _is_linux_target(target):
+        for name, on in (("PGO", pgo_enabled), ("BOLT", bolt_enabled)):
+            if on:
+                warn(
+                    f"{name} requested but target '{target}' is not Linux -- skipping {name}"
+                )
+        pgo_enabled = False
         bolt_enabled = False
 
     return replace(

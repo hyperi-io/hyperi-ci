@@ -150,6 +150,23 @@ The arm64-only row is the parity check (`run-arm64-check`). A merge that WILL sh
 
 `build.rust.targets` in `.hyperi-ci.yaml` narrows the matrix to the listed targets. A project whose release build fits no arm64 runner lists `x86_64-unknown-linux-gnu` alone and ships amd64. The legs do not fail fast, so one dying leaves the other's artefact in place.
 
+### Windows and macOS
+
+A Rust project ships Windows or macOS binaries by listing the target in `build.rust.targets`. Nothing builds them otherwise, and a Linux leg still builds beside them. Each runs on a GitHub-hosted runner whatever the runner mode, because no self-hosted runner serves them. The table lives in `src/hyperi_ci/build_targets.py`.
+
+| Target | Runner | Shipped as |
+|---|---|---|
+| `x86_64-pc-windows-msvc` | `windows-2025` | `<bin>-windows-amd64.exe` |
+| `aarch64-apple-darwin` | `macos-26` | `<bin>-darwin-arm64` |
+| `x86_64-apple-darwin` | `macos-26-intel` | `<bin>-darwin-amd64` |
+
+- The `build-os` job builds them plain on every run, GA releases included. PGO and BOLT run on Linux only.
+- The Test job adds one leg per runner. That leg runs clippy before the tests, because the Linux Quality job never compiles `cfg(windows)` or `cfg(target_os = "macos")` code.
+- The binaries reach the GitHub Release and R2 beside the Linux ones, never a container image.
+- Signing and installers (Authenticode, MSI, notarisation) stay in the consumer repo, through `release.assets` or its own step.
+- GitHub bills a private repo's Windows and macOS minutes at a higher rate than Linux.
+- Any other non-Linux triple (Windows arm64, musl) gets a Plan warning and no leg.
+
 Go builds native per arch too. Python wheels and TypeScript are arch-independent and use one runner.
 
 ## Build cache (Rust, C/C++)

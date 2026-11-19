@@ -24,6 +24,8 @@ from hyperi_ci.common import (
     echo_chunk,
     error,
     info,
+    is_ci,
+    is_linux,
     normalise_tristate,
     run_cmd,
     stream_cmd,
@@ -38,6 +40,7 @@ from hyperi_ci.languages.rust._manifest import (
     split_feature_sets,
 )
 from hyperi_ci.languages.rust._threads import capped_nextest_threads
+from hyperi_ci.languages.rust.quality import run_clippy
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
     KeptLines,
@@ -526,6 +529,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
+    if is_ci() and not is_linux():
+        # Quality runs on Linux, where cfg(windows) and cfg(target_os = "macos")
+        # code never compiles, so this OS's own code is linted here.
+        info("Linting this OS's code before the tests (Quality runs on Linux)...")
+        if not run_clippy(config, extra_env):
+            return 1
+
     info("Running Rust tests...")
     runner = _resolve_runner(config)
     if runner is None:
