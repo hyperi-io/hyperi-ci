@@ -19,6 +19,7 @@ first on the PATH to prove the answer no longer depends on the runner's own,
 and :class:`TestUvCannotSupplyPyYAML` breaks uv to prove Plan still completes.
 """
 
+import json
 import os
 import re
 import shutil
@@ -950,8 +951,44 @@ class TestAPython3WithoutPyYAML:
             f"build:\n  rust:\n    targets:\n      - {_AMD64}\n",
         )
         outputs, stdout = self._step("targets", {}, released_head, bare_python3)
-        assert outputs == {"rust-targets": _AMD64}
+        assert outputs == {
+            "rust-targets": _AMD64,
+            "os-build-matrix": '{"include": []}',
+            "os-test-include": "[]",
+            "has-os-legs": "false",
+        }
         assert f"::notice title=rust targets::{_AMD64}" in stdout
+
+    def test_windows_and_macos_targets_get_hosted_legs(
+        self, released_head: Path, bare_python3: Path
+    ) -> None:
+        listed = [_AMD64, "x86_64-pc-windows-msvc", "aarch64-apple-darwin", "riscv"]
+        _rust_repo(
+            released_head,
+            "build:\n  rust:\n    targets:\n"
+            + "".join(f"      - {t}\n" for t in listed),
+        )
+        outputs, stdout = self._step("targets", {}, released_head, bare_python3)
+        assert json.loads(outputs["os-build-matrix"]) == {
+            "include": [
+                {
+                    "target": "x86_64-pc-windows-msvc",
+                    "runner": "windows-2025",
+                    "os_arch": "windows-amd64",
+                },
+                {
+                    "target": "aarch64-apple-darwin",
+                    "runner": "macos-26",
+                    "os_arch": "darwin-arm64",
+                },
+            ]
+        }
+        assert json.loads(outputs["os-test-include"]) == [
+            {"os": "windows-2025"},
+            {"os": "macos-26"},
+        ]
+        assert outputs["has-os-legs"] == "true"
+        assert "::warning title=rust targets::no CI leg builds riscv" in stdout
 
     @pytest.mark.parametrize(
         ("targets", "expected"),
@@ -1079,7 +1116,12 @@ class TestUvCannotSupplyPyYAML:
         outputs, stdout = _run_step(
             "targets", {}, released_head, env=broken_uv, path_first=bare_python3
         )
-        assert outputs == {"rust-targets": ""}
+        assert outputs == {
+            "rust-targets": "",
+            "os-build-matrix": '{"include": []}',
+            "os-test-include": "[]",
+            "has-os-legs": "false",
+        }
         assert "::warning title=rust targets::.hyperi-ci.yaml could not be read" in (
             stdout
         )

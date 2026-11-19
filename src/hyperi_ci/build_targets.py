@@ -21,6 +21,7 @@ installed.
 # predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,49 @@ TARGETS_KEY = "build.rust.targets"
 
 #: What an empty list builds in CI.
 DEFAULT_CI_TRIPLES = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
+
+#: Every target CI builds, as (os, arch). The pair names the shipped binary.
+TARGET_OS_ARCH = {
+    "x86_64-unknown-linux-gnu": ("linux", "amd64"),
+    "aarch64-unknown-linux-gnu": ("linux", "arm64"),
+    "x86_64-pc-windows-msvc": ("windows", "amd64"),
+    "x86_64-apple-darwin": ("darwin", "amd64"),
+    "aarch64-apple-darwin": ("darwin", "arm64"),
+}
+
+#: The GitHub-hosted runner for each target outside Linux. No self-hosted
+#: runner serves them, so the runner mode does not choose these.
+HOSTED_RUNNERS = {
+    "x86_64-pc-windows-msvc": "windows-2025",
+    "x86_64-apple-darwin": "macos-26-intel",
+    "aarch64-apple-darwin": "macos-26",
+}
+
+
+def os_legs(targets: Sequence[str]) -> list[dict[str, str]]:
+    """Return one build leg per listed target outside Linux, in listed order.
+
+    Args:
+        targets: The declared ``build.rust.targets``.
+
+    Returns:
+        Matrix entries carrying ``target``, ``runner`` and ``os_arch``.
+
+    """
+    legs: list[dict[str, str]] = []
+    for target in dict.fromkeys(targets):
+        runner = HOSTED_RUNNERS.get(target)
+        if runner:
+            os_name, arch = TARGET_OS_ARCH[target]
+            legs.append(
+                {"target": target, "runner": runner, "os_arch": f"{os_name}-{arch}"}
+            )
+    return legs
+
+
+def unbuilt_targets(targets: Sequence[str]) -> list[str]:
+    """Return the listed targets CI has no leg for."""
+    return [target for target in targets if target not in TARGET_OS_ARCH]
 
 
 def declared_targets(config: dict[str, Any]) -> list[str]:
