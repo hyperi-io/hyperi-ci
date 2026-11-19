@@ -2595,7 +2595,7 @@ def gate_check_cmd() -> None:
         run_build=os.environ.get("HYPERCI_GATE_RUN_BUILD", "") == "true",
         plan=os.environ.get("HYPERCI_GATE_PLAN", ""),
         checks=_results("quality", "test"),
-        build=_results("build"),
+        build=_results("build", "build_os"),
     )
     if verdict.ok:
         success(verdict.reason)

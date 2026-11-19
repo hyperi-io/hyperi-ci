@@ -552,6 +552,8 @@ class TestNativeTargetFollowsTheMachine:
             ("linux", "arm64", "aarch64-unknown-linux-gnu"),
             ("darwin", "arm64", "aarch64-apple-darwin"),
             ("darwin", "x86_64", "x86_64-apple-darwin"),
+            ("win32", "AMD64", "x86_64-pc-windows-msvc"),
+            ("win32", "ARM64", "aarch64-pc-windows-msvc"),
         ],
     )
     def test_the_triple_matches_the_host(
@@ -578,29 +580,66 @@ class TestNativeTargetFollowsTheMachine:
         assert build._get_native_target() == "aarch64-unknown-linux-gnu"
 
 
-class TestWindowsIsRefused:
-    """A Windows triple fails at target resolution, not at 'Binary not found'."""
+class TestPackagingPerOs:
+    """Each OS's binary is packaged under its os-arch name and checked by format."""
 
-    def test_windows_triples_are_found(self) -> None:
-        assert build.windows_targets(
-            ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-        ) == ["x86_64-pc-windows-msvc"]
-
-    def test_build_fails_early_on_a_windows_triple(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("target", "built", "shipped", "head", "passes"),
+        [
+            (
+                "x86_64-pc-windows-msvc",
+                "app.exe",
+                "app-windows-amd64.exe",
+                b"MZ\x90\x00",
+                True,
+            ),
+            (
+                "aarch64-apple-darwin",
+                "app",
+                "app-darwin-arm64",
+                b"\xcf\xfa\xed\xfe",
+                True,
+            ),
+            (
+                "x86_64-apple-darwin",
+                "app",
+                "app-darwin-amd64",
+                b"\xca\xfe\xba\xbe",
+                True,
+            ),
+            ("x86_64-unknown-linux-gnu", "app", "app-linux-amd64", b"\x7fELF", True),
+            (
+                "x86_64-pc-windows-msvc",
+                "app.exe",
+                "app-windows-amd64.exe",
+                b"\x7fELF",
+                False,
+            ),
+            ("aarch64-apple-darwin", "app", "app-darwin-arm64", b"MZ\x90\x00", False),
+        ],
+    )
+    def test_the_binary_is_named_and_checked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        target: str,
+        built: str,
+        shipped: str,
+        head: bytes,
+        passes: bool,
     ) -> None:
-        monkeypatch.setattr(build.shutil, "which", lambda _name: "/usr/bin/cargo")
-        monkeypatch.setattr(build, "_bolt_override_refusal", lambda: None)
-        monkeypatch.setattr(build, "bolt_optimize_args_override", lambda: [])
-        errors: list[str] = []
-        monkeypatch.setattr(build, "error", errors.append)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        monkeypatch.setattr(build, "is_ci", lambda: False)
+        monkeypatch.setattr(build.shutil, "which", lambda _name: None)
+        release = tmp_path / "target" / target / "release"
+        release.mkdir(parents=True)
+        (release / built).write_bytes(head + b"\0" * 200_000)
 
-        rc = build.run(
-            CIConfig(_raw={}),
-            extra_env={"RUST_BUILD_TARGETS": "x86_64-pc-windows-gnu"},
-        )
-        assert rc == 1
-        assert "Windows targets are not supported" in errors[0]
+        rc = build._package_binaries([target], ["app"])
+
+        assert rc == (0 if passes else 1)
+        assert (tmp_path / "dist" / shipped).is_file()
 
 
 class TestForeignTargetsAreNotCrossCompiled:
@@ -798,7 +837,7 @@ class TestStaticLibsLeakGate:
         passes: bool,
     ) -> None:
         binary = tmp_path / "app"
-        binary.write_bytes(b"\0" * 200_000)
+        binary.write_bytes(b"\x7fELF" + b"\0" * 200_000)
         monkeypatch.setattr(build, "run_cmd", self._fake(needed))
         monkeypatch.setattr(
             build.shutil,

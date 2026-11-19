@@ -344,9 +344,10 @@ def validate_profile(
 ) -> OptimizationProfile:
     """Validate a profile against the project's Cargo.toml + build target.
 
-    Each fallback warns: an undeclared allocator feature drops to system, PGO
-    with no workload_cmd is disabled along with BOLT, and BOLT is disabled on
-    a non-Linux target. Never raises.
+    Each fallback warns. jemalloc on an msvc target becomes mimalloc when the
+    repo declares that feature, else system. An undeclared allocator feature
+    drops to system. PGO with no workload_cmd is disabled along with BOLT. PGO
+    and BOLT are disabled on a non-Linux target. Never raises.
 
     Args:
         profile: The profile to validate.
@@ -361,6 +362,11 @@ def validate_profile(
     pgo_enabled = profile.pgo_enabled
     bolt_enabled = profile.bolt_enabled
 
+    # tikv-jemallocator does not build for msvc.
+    if allocator == "jemalloc" and target and "-windows-msvc" in target:
+        allocator = "mimalloc" if "mimalloc" in cargo_features else "system"
+        warn(f"jemalloc does not build for {target} -- using the {allocator} allocator")
+
     if allocator in ("jemalloc", "mimalloc") and allocator not in cargo_features:
         warn(
             f"allocator '{allocator}' requested but feature not declared in "
@@ -373,9 +379,15 @@ def validate_profile(
         pgo_enabled = False
         bolt_enabled = False  # BOLT needs PGO
 
-    # BOLT is Linux-only (ELF + llvm-bolt)
-    if bolt_enabled and target and not _is_linux_target(target):
-        warn(f"BOLT requested but target '{target}' is not Linux -- skipping BOLT")
+    # BOLT needs ELF and llvm-bolt. The PGO workload and its tooling are set
+    # up on Linux runners only, so a Windows or macOS leg builds Tier 1.
+    if target and not _is_linux_target(target):
+        for name, on in (("PGO", pgo_enabled), ("BOLT", bolt_enabled)):
+            if on:
+                warn(
+                    f"{name} requested but target '{target}' is not Linux -- skipping {name}"
+                )
+        pgo_enabled = False
         bolt_enabled = False
 
     return replace(

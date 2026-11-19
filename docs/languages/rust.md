@@ -46,7 +46,9 @@ that releases builds at `release`, every other run builds at `alpha`.
 | `beta` | `HYPERCI_CHANNEL=beta` only | jemalloc | fat | - | - |
 | `release` | a release run | jemalloc | fat | opt-in | opt-in (Linux only) |
 
-**Allocator is jemalloc at every channel, no exceptions.** Rationale:
+**Allocator is jemalloc at every channel.** The one exception is a Windows (`x86_64-pc-windows-msvc`) leg, where tikv-jemallocator does not build: it takes `mimalloc` when the repo declares that feature, else the system allocator, and says so in a warning. Gate the jemalloc dependency to `cfg(not(target_env = "msvc"))`.
+
+Rationale:
 consistent allocator across alpha/beta/release means fragmentation
 patterns, `jeprof` profiles, and crash dumps all look the same regardless
 of where a binary came from. ~10s extra compile per build, cached after

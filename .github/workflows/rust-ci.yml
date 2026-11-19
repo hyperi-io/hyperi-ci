@@ -209,6 +209,11 @@ jobs:
       # a release push, which already builds both arches.
       run-arm64-parity: ${{ steps.predict.outputs.run-arm64-check == 'true' && steps.predict.outputs.run-build != 'true' }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
+      # Windows and macOS legs, opt-in through build.rust.targets, each on its
+      # GitHub-hosted runner whatever the runner mode.
+      os-build-matrix: ${{ steps.predict.outputs.os-build-matrix }}
+      os-test-include: ${{ steps.predict.outputs.os-test-include }}
+      has-os-legs: ${{ steps.predict.outputs.has-os-legs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -482,6 +487,13 @@ jobs:
     strategy:
       matrix:
         os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        # One leg per Windows or macOS runner the build legs use. An entry
+        # naming an os already listed adds no leg.
+        include: ${{ fromJson(needs.plan.outputs.os-test-include || '[]') }}
+    # Windows runs pwsh by default, which reads "$VAR" as its own variable.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -501,6 +513,8 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
+          # A Windows or macOS leg lints its own OS's code before the tests.
+          components: ${{ runner.os != 'Linux' && 'clippy' || '' }}
 
       - name: Show Rust toolchain
         run: rustc --version
@@ -583,6 +597,9 @@ jobs:
         # than running core under a full name. A core run passes nothing, so the
         # project's own test.tier applies.
         if: inputs.test-github-token != 'true'
+        env:
+          # A Windows or macOS leg lints its own OS's code first.
+          HYPERCI_CLIPPY_IN_TEST: ${{ runner.os != 'Linux' && 'true' || '' }}
         run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
 
       - name: Run tests with a GitHub token
@@ -594,6 +611,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          HYPERCI_CLIPPY_IN_TEST: ${{ runner.os != 'Linux' && 'true' || '' }}
         run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
 
       - name: Upload test results
@@ -710,6 +728,78 @@ jobs:
           path: runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
+
+  # Windows and macOS legs from build.rust.targets. They build plain on every
+  # run, GA included, because PGO and BOLT run on Linux only.
+  build-os:
+    name: Release build (${{ matrix.os_arch }})
+    timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
+    needs: [plan, quality, test]
+    if: needs.plan.outputs.run-build == 'true' && needs.plan.outputs.has-os-legs == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.os-build-matrix) }}
+    # Windows runs pwsh by default, which reads "$VAR" as its own variable.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
+
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        with:
+          language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
+
+      - name: Stamp predicted version
+        # The same stamp the Linux legs take, so CARGO_PKG_VERSION matches the tag.
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
+        env:
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Show Rust toolchain
+        run: rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # No target/: a binary that ships compiles from source, never from build-script output a cache restored.
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run build
+        env:
+          RUST_BUILD_TARGETS: ${{ matrix.target }}
+          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
+          HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: ${{ env.HYPERCI_INSTALL }} run build
+
+      - name: Upload build artifacts
+        # VERSION keeps the artifact root at the workspace; a lone `dist/` strips the dist/ prefix the release tail looks for.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-dist-${{ matrix.os_arch }}
+          path: |
+            dist/
+            VERSION
+          if-no-files-found: ignore
+          retention-days: 1
 
   # A release-tier build as three jobs, so no one job holds the instrumented
   # build, both workloads and the profile-use compile (docs/runtime/pgo-bolt.md).
@@ -984,7 +1074,7 @@ jobs:
 
   release-tail:
     name: Release tail
-    needs: [plan, build, build-pgo-profile, build-pgo-optimize, build-bolt]
+    needs: [plan, build, build-os, build-pgo-profile, build-pgo-optimize, build-bolt]
     # The arm64-parity build (issue #249) compiles one leg and ships nothing, so
     # the tail's container build would be cost with no deliverable. That build
     # has run-build false, so the tail skips it. One of the two build paths is
@@ -1033,7 +1123,7 @@ jobs:
     if: always()
     # commit-check is absent: it is not run-checks-gated, so it fires on every
     # push and works as a required context by itself.
-    needs: [plan, quality, test, build, build-pgo-profile, build-pgo-optimize, build-bolt]
+    needs: [plan, quality, test, build, build-os, build-pgo-profile, build-pgo-optimize, build-bolt]
     # Needs only uv; same chain as commit-check (issue #291).
     runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
@@ -1054,6 +1144,8 @@ jobs:
           HYPERCI_GATE_TEST: ${{ needs.test.result }}
           # A release-tier build's result is the first phase that did not succeed.
           HYPERCI_GATE_BUILD: ${{ needs.plan.outputs.run-phased-build != 'true' && needs.build.result || needs.build-pgo-profile.result != 'success' && needs.build-pgo-profile.result || needs.build-pgo-optimize.result != 'success' && needs.build-pgo-optimize.result || needs.build-bolt.result }}
+          # Empty without Windows or macOS legs, so the gate does not require them.
+          HYPERCI_GATE_BUILD_OS: ${{ needs.plan.outputs.has-os-legs == 'true' && needs.build-os.result || '' }}
           HYPERCI_GATE_TEST_TIER: ${{ needs.plan.outputs.test-tier }}
           HYPERCI_GATE_WILL_RELEASE: ${{ needs.plan.outputs.will-release }}
           HYPERCI_GATE_FULL_REQUIRED: ${{ needs.plan.outputs.full-required-for-release }}

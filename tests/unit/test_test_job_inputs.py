@@ -91,8 +91,12 @@ class TestGitHubTokenInput:
         assert _step_runs(plain["if"], "") and not _step_runs(plain["if"], "true")
         assert _step_runs(with_token["if"], "true")
         assert not _step_runs(with_token["if"], "")
-        assert "env" not in plain
-        assert with_token["env"] == dict.fromkeys(TOKEN_VARIABLES, JOB_TOKEN)
+        # rust-ci.yml adds HYPERCI_CLIPPY_IN_TEST to both, which is no credential.
+        extra = {"HYPERCI_CLIPPY_IN_TEST"}
+        plain_env = plain.get("env") or {}
+        assert set(plain_env) <= extra
+        token_env = {k: v for k, v in with_token["env"].items() if k not in extra}
+        assert token_env == dict.fromkeys(TOKEN_VARIABLES, JOB_TOKEN)
 
     def test_no_other_part_of_the_test_job_sees_a_credential(
         self, workflow_name: str
