@@ -18,6 +18,7 @@ from hyperi_ci.languages.rust.optimize import (
     log_outcome,
     parse_cargo_features,
     resolve_optimization_profile,
+    tier2_shortfall,
     unoptimized_release_refusal,
     validate_profile,
 )
@@ -689,7 +690,13 @@ class TestValidateProfile:
         assert validated.pgo_enabled is False
         assert any("workload_cmd" in w for w in warned)
 
-    def test_bolt_on_non_linux_target_disabled(self, warned: list[str]) -> None:
+    @pytest.mark.parametrize(
+        "target",
+        ["x86_64-apple-darwin", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"],
+    )
+    def test_pgo_and_bolt_on_non_linux_target_disabled(
+        self, warned: list[str], target: str
+    ) -> None:
         p = OptimizationProfile(
             channel="release",
             allocator="jemalloc",
@@ -697,13 +704,14 @@ class TestValidateProfile:
             pgo_workload_cmd="bash x.sh",
             bolt_enabled=True,
         )
-        validated = validate_profile(
-            p,
-            cargo_features={"jemalloc"},
-            target="x86_64-apple-darwin",
+        validated = validate_profile(p, cargo_features={"jemalloc"}, target=target)
+        assert (validated.pgo_enabled, validated.bolt_enabled) == (False, False)
+        assert validated.allocator == "jemalloc"
+        assert any("skipping PGO" in w for w in warned)
+        assert any("skipping BOLT" in w for w in warned)
+        assert (
+            tier2_shortfall(validated, OptimizationOutcome(allocator="jemalloc")) == []
         )
-        assert validated.bolt_enabled is False
-        assert any("BOLT" in w or "bolt" in w for w in warned)
 
     def test_bolt_on_linux_target_kept(self) -> None:
         p = OptimizationProfile(

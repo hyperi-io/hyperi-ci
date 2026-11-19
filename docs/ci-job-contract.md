@@ -55,6 +55,7 @@ On a `pull_request` the line a squash merge would land is validated too, and a b
 | `next-version` | `will-release` | The version this run releases: the semantic-release dry-run, the forced version on a forced dispatch, or the tag's own version on a `tag` dispatch |
 | `python-version` | always | A pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default ([languages/python.md](languages/python.md)) |
 | `build-matrix` | always | Both arches whenever `run-build` is true. `run-arm64-check` alone yields only the arm64 leg. `build.rust.targets` limits the legs to the listed targets |
+| `os-build-matrix`, `os-test-include`, `has-os-legs` | always | The Windows and macOS legs `build.rust.targets` lists, each on its GitHub-hosted runner. `build-os` builds them when `run-build` is true, and the Test job adds one leg per runner. Empty when none is listed |
 
 There are two run gates because a PR needs quality + test but no build, and a push to main that changed only docs needs neither.
 

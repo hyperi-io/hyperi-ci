@@ -205,14 +205,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     mode = resolve_tool_mode("fmt", config, language="rust")
     had_failure |= not run_gate_tool("cargo fmt", ["cargo", "fmt", "--check"], mode)
 
-    # Two clippy passes: production code strict, tests and benches relaxed.
-    mode = resolve_tool_mode("clippy", config, language="rust")
-    features = (extra_env or {}).get("RUST_FEATURES", "all")
-    feature_sets = split_feature_sets(features)
-    test_ignore = get_test_ignore("rust", config)
     clippy_user_allows = [f"-A{e.id}" for e in for_tool(ignores, "clippy")]
-
-    has_lib = _has_lib_target()
     workspace = is_root_package_workspace()
     workspace_args = ["--workspace"] if workspace else []
     if workspace:
@@ -221,26 +214,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "matrix and rustdoc take --workspace, so every member is checked"
         )
 
-    deny = ["-D", "warnings", "-D", "clippy::dbg_macro"]
-    for feature_set in feature_sets:
-        feature_args = []
-        if feature_set == "all":
-            feature_args.append("--all-features")
-        elif feature_set != "default":
-            feature_args.extend(["--features", feature_set])
-
-        target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
-        prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
-        prod_cmd.extend(["--", *deny, *clippy_user_allows])
-        had_failure |= not run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode)
-
-        test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
-        test_cmd.extend(feature_args)
-        allow_flags = [f"-A{rule}" for rule in test_ignore]
-        test_cmd.extend(["--", *deny, *allow_flags, *clippy_user_allows])
-        had_failure |= not run_gate_tool(
-            f"clippy tests ({feature_set})", test_cmd, mode
-        )
+    had_failure |= not run_clippy(config, extra_env)
 
     deny_advisory_ids = _deny_toml_advisory_ignores()
     if deny_advisory_ids:
@@ -304,6 +278,45 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     return 1 if had_failure else 0
+
+
+def run_clippy(config: CIConfig, extra_env: dict[str, str] | None = None) -> bool:
+    """Run clippy once per feature set: production code strict, tests and benches relaxed.
+
+    Args:
+        config: Merged CI configuration.
+        extra_env: ``RUST_FEATURES`` from the stage.
+
+    Returns:
+        False when a blocking pass failed.
+
+    """
+    mode = resolve_tool_mode("clippy", config, language="rust")
+    features = (extra_env or {}).get("RUST_FEATURES", "all")
+    test_ignore = get_test_ignore("rust", config)
+    user_allows = [f"-A{e.id}" for e in for_tool(load_ignores(config._raw), "clippy")]
+    workspace_args = ["--workspace"] if is_root_package_workspace() else []
+    target_args = ["--lib", "--bins"] if _has_lib_target() else ["--bins"]
+    deny = ["-D", "warnings", "-D", "clippy::dbg_macro"]
+
+    passed = True
+    for feature_set in split_feature_sets(features):
+        feature_args = []
+        if feature_set == "all":
+            feature_args.append("--all-features")
+        elif feature_set != "default":
+            feature_args.extend(["--features", feature_set])
+
+        prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
+        prod_cmd.extend(["--", *deny, *user_allows])
+        passed &= run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode)
+
+        test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
+        test_cmd.extend(feature_args)
+        allow_flags = [f"-A{rule}" for rule in test_ignore]
+        test_cmd.extend(["--", *deny, *allow_flags, *user_allows])
+        passed &= run_gate_tool(f"clippy tests ({feature_set})", test_cmd, mode)
+    return passed
 
 
 def _names_a_package_scope(args: list[str]) -> bool:

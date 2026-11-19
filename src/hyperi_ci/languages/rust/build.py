@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from hyperi_ci import static_libs
+from hyperi_ci.build_targets import TARGET_OS_ARCH
 from hyperi_ci.common import (
     announce,
     error,
@@ -60,13 +61,6 @@ from hyperi_ci.languages.rust.pgo import (
 )
 from hyperi_ci.languages.rust.targets import cargo_metadata
 
-_TARGET_MAP = {
-    "x86_64-unknown-linux-gnu": ("linux", "amd64"),
-    "aarch64-unknown-linux-gnu": ("linux", "arm64"),
-    "x86_64-apple-darwin": ("darwin", "amd64"),
-    "aarch64-apple-darwin": ("darwin", "arm64"),
-}
-
 
 def _get_native_target() -> str:
     """Return the native Rust target triple, from the machine arch on Linux too.
@@ -79,6 +73,10 @@ def _get_native_target() -> str:
     arch = platform.machine()
     if sys.platform == "darwin":
         return "aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin"
+    if sys.platform == "win32":
+        return (
+            "aarch64-pc-windows-msvc" if arch == "ARM64" else "x86_64-pc-windows-msvc"
+        )
     return (
         "aarch64-unknown-linux-gnu"
         if arch in ("aarch64", "arm64")
@@ -99,6 +97,14 @@ def _target_to_elf_machine(target: str) -> str | None:
             return machine
     return None
 
+
+#: Each OS's executable format and the bytes it opens with. Mach-O also
+#: takes the universal (fat) header.
+_EXECUTABLE_MAGIC = {
+    "linux": ("ELF", (b"\x7fELF",)),
+    "windows": ("PE", (b"MZ",)),
+    "darwin": ("Mach-O", (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")),
+}
 
 _GLIBC_SYMBOL_RE = re.compile(r"\bGLIBC_(\d+)\.(\d+)(?:\.\d+)?\b")
 
@@ -159,10 +165,11 @@ def _verify_binary(
     glibc_max: tuple[int, int] | None = None,
     static_only: tuple[str, ...] = (),
 ) -> bool:
-    """Check a binary's size, ELF machine type and glibc needs, then smoke-test it.
+    """Check a binary's size and format, then smoke-test it.
 
-    A dynamic dependency named by a ``static_only`` prefix fails the check, as
-    that library was meant to be linked in.
+    A Linux binary also has its ELF machine type, dynamic deps and glibc
+    needs checked. A dynamic dependency named by a ``static_only`` prefix
+    fails the check, as that library was meant to be linked in.
     """
     errors = 0
     info("    --- Post-build verification ---")
@@ -178,15 +185,19 @@ def _verify_binary(
     else:
         info(f"    OK: Size {human_size(size)}")
 
-    if shutil.which("file"):
-        result = run_cmd(["file", str(binary)], check=False, capture=True)
-        if "ELF" not in result.stdout:
-            error(f"    Not an ELF binary: {result.stdout.strip()}")
-            errors += 1
+    os_name = TARGET_OS_ARCH.get(target, ("", ""))[0]
+    if os_name in _EXECUTABLE_MAGIC:
+        kind, magic = _EXECUTABLE_MAGIC[os_name]
+        with binary.open("rb") as fh:
+            head = fh.read(4)
+        if head.startswith(magic):
+            info(f"    OK: {kind} binary confirmed")
         else:
-            info("    OK: ELF binary confirmed")
+            error(f"    Not a {kind} binary: it starts {head!r}")
+            errors += 1
 
-    if shutil.which("readelf"):
+    linux = "-linux-" in target
+    if linux and shutil.which("readelf"):
         expected = _target_to_elf_machine(target)
         if expected:
             result = run_cmd(["readelf", "-h", str(binary)], check=False, capture=True)
@@ -221,7 +232,7 @@ def _verify_binary(
             errors += 1
         if not _check_glibc(binary, glibc_max):
             errors += 1
-    elif glibc_max is not None or static_only:
+    elif linux and (glibc_max is not None or static_only):
         error(
             "    readelf is not on PATH, so the binary's dynamic deps cannot be checked"
         )
@@ -236,6 +247,10 @@ def _verify_binary(
                 break
         except subprocess.TimeoutExpired:
             continue
+        except OSError as exc:
+            # The format check above already failed a binary this host cannot run.
+            info(f"    SKIP: Smoke test (cannot run here: {exc.strerror})")
+            break
     else:
         info("    SKIP: Smoke test (binary needs runtime config)")
 
@@ -432,17 +447,17 @@ def stamp_manifest(version: str, root: Path) -> None:
     info(f"Stamped Cargo.toml: {version}")
 
 
-def windows_targets(targets: list[str]) -> list[str]:
-    """Return the Windows triples in ``targets``, which the build does not support."""
-    return [t for t in targets if "-windows" in t]
-
-
 def _target_to_os_arch(target: str) -> str:
     """Map Rust target triple to os-arch naming (matches Go convention)."""
-    pair = _TARGET_MAP.get(target)
+    pair = TARGET_OS_ARCH.get(target)
     if pair:
         return f"{pair[0]}-{pair[1]}"
     return target
+
+
+def _exe_suffix(target: str) -> str:
+    """Return the executable suffix cargo gives a ``target`` binary."""
+    return ".exe" if "-windows" in target else ""
 
 
 def _package_binaries(
@@ -466,9 +481,10 @@ def _package_binaries(
         os_arch = _target_to_os_arch(target)
         profile_dir = Path(target_dir) / target / "release"
 
+        suffix = _exe_suffix(target)
         for bin_name in binary_names:
-            src_bin = profile_dir / bin_name
-            output_name = f"{bin_name}-{os_arch}"
+            src_bin = profile_dir / f"{bin_name}{suffix}"
+            output_name = f"{bin_name}-{os_arch}{suffix}"
 
             if not src_bin.exists():
                 error(f"Binary not found: {src_bin}")
@@ -684,12 +700,6 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         targets = [t.strip() for t in targets_str.split(",") if t.strip()]
     else:
         targets = [_get_native_target()]
-    if unsupported := windows_targets(targets):
-        error(
-            f"Windows targets are not supported: {', '.join(unsupported)}. "
-            "Remove them from build.rust.targets."
-        )
-        return 1
 
     host_targets = _host_targets(targets, _get_native_target())
     if host_targets is None:

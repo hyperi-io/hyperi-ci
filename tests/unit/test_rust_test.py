@@ -151,6 +151,42 @@ class TestStageFailsClosed:
         assert run(_make_config(nextest=True)) == 1
 
 
+class TestNonLinuxLegLintsFirst:
+    """Quality lints on Linux, so a Windows or macOS Test leg runs clippy itself."""
+
+    @pytest.mark.parametrize(
+        ("ci", "linux", "clippy_passes", "linted", "rc"),
+        [
+            pytest.param(True, False, False, True, 1, id="windows-ci-clippy-fails"),
+            pytest.param(True, False, True, True, 1, id="windows-ci-clippy-passes"),
+            pytest.param(True, True, False, False, 1, id="linux-ci-no-lint"),
+            pytest.param(False, False, False, False, 1, id="local-mac-no-lint"),
+        ],
+    )
+    @pytest.mark.usefixtures("_no_nextest")
+    def test_clippy_runs_only_on_a_non_linux_ci_leg(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        ci: bool,
+        linux: bool,
+        clippy_passes: bool,
+        linted: bool,
+        rc: int,
+    ) -> None:
+        calls: list[str] = []
+
+        def _clippy(*_args: object) -> bool:
+            calls.append("clippy")
+            return clippy_passes
+
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: ci)
+        monkeypatch.setattr(f"{MODULE}.is_linux", lambda: linux)
+        monkeypatch.setattr(f"{MODULE}.run_clippy", _clippy)
+        # nextest: true with no nextest fails right after the lint, so no test runs.
+        assert run(_make_config(nextest=True)) == rc
+        assert calls == (["clippy"] if linted else [])
+
+
 class TestCoverageOverridesTheRunner:
     """Coverage tools drive cargo's harness, so they undo a nextest resolution."""
 
