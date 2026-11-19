@@ -230,11 +230,12 @@ tools:
     tag_prefix: cargo-nextest-
     pin: .github/actions/setup-nextest/action.yml
     sha256:
-      # Linux is musl (static) on both arches; macOS ships one universal build,
-      # so `macos` is a platform key here rather than an arch.
+      # Linux is musl (static) on both arches. `macos` (one universal build) and
+      # `windows` (x86_64-pc-windows-msvc) are platform keys, not arches.
       amd64: 84f0f9ba75d0b6fa117bc418d49747ba78e20e4583057f6fa628f1b17c17234d
       arm64: 5a7fe62b64a9006e1e47422021df7b1d308cc76c528c9eaf4649a488615ed6fb
       macos: 82a759b4d218d38359424196ab244c470e8f7c7d149c814fbbeef4d67c3c301a
+      windows: b7a8bf567140b8b366716f2dea27b32e088dc12f53597315f976d0dbf7c6ade8
   # Coverage for the TEST job, not quality -- `test.coverage` was honoured up
   # to the point a tool would run and then found none, so coverage had never
   # run on any repo (issue #140). Chosen over cargo-tarpaulin because
