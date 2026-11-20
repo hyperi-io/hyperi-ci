@@ -66,7 +66,7 @@ class TestTheCheckHasThreeOutcomes:
 
     def test_a_deleted_repo_is_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            cff, "actual", lambda: cff.declared() - {"ci-test-rust-lib"}
+            cff, "actual", lambda: cff.declared() - {"ci-test-rust-app"}
         )
         assert cff.main() == 1
 

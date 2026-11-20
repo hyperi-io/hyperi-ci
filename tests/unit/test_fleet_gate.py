@@ -1072,13 +1072,17 @@ class TestTheTokenScope:
 
     def test_the_sweep_reaches_the_whole_fleet(self) -> None:
         fleet = fixture_fleet.load_fleet()
-        assert fixture_fleet.token_scope(fleet) == [e["name"] for e in fleet]
+        scope = fixture_fleet.token_scope(fleet)
+        assert set(scope) == {fixture_fleet.repo_name(e) for e in fleet}
+        assert len(scope) == len(set(scope))
 
     def test_negative_cases_reach_only_their_fixtures(self) -> None:
         fleet = fixture_fleet.load_fleet()
         scope = fixture_fleet.token_scope(fleet, negative_cases_only=True)
         assert scope
-        assert set(scope) == {e["name"] for e in fleet if e.get("negative_cases")}
+        assert set(scope) == {
+            fixture_fleet.repo_name(e) for e in fleet if e.get("negative_cases")
+        }
 
     def test_an_empty_scope_is_refused_not_passed_on(self, monkeypatch, capsys) -> None:
         monkeypatch.setattr(fixture_fleet, "load_fleet", lambda: [])
