@@ -78,17 +78,34 @@ fleet:
     rehearsal: default
 
   - name: ci-test-rust-lib
+    repo: hyperi-ci-test
+    caller: ci-test-rust-lib.yml
+    dir: scenarios/ci-test-rust-lib
     language: rust
     workflow: rust-ci.yml
     covers: library, container auto-skip
 
+  - name: ci-test-rust-os
+    repo: hyperi-ci-test
+    caller: ci-test-rust-os.yml
+    dir: scenarios/ci-test-rust-os
+    language: rust
+    workflow: rust-ci.yml
+    covers: Windows (msvc) and both macOS legs, cfg-gated OS crates, two binaries
+
   - name: ci-test-rust-simple
+    repo: hyperi-ci-test
+    caller: ci-test-rust-simple.yml
+    dir: scenarios/ci-test-rust-simple
     language: rust
     workflow: rust-ci.yml
     covers: minimal Rust CLI, the baseline pipeline
     negative_cases: true
 
   - name: ci-test-rust-workspace
+    repo: hyperi-ci-test
+    caller: ci-test-rust-workspace.yml
+    dir: scenarios/ci-test-rust-workspace
     language: rust
     workflow: rust-ci.yml
     covers: two-crate workspace, version inheritance
