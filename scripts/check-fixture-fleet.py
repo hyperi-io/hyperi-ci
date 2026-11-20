@@ -39,12 +39,12 @@ _PREFIX = "ci-test-"
 
 
 def declared() -> set[str]:
-    """Fixture names this repo claims exist."""
+    """Fixture repo names this repo claims exist."""
     return fixture_fleet.declared_names(fixture_fleet.load_fleet())
 
 
 def actual() -> set[str] | None:
-    """Fixture names the org has, or None when it cannot be reached.
+    """Every repo name the org has, or None when it cannot be reached.
 
     None is its own outcome, not an empty set. An unreachable org and an org
     with no fixtures are the same value otherwise, and reporting "every
@@ -64,7 +64,7 @@ def actual() -> set[str] | None:
         repos = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
-    return {r["name"] for r in repos if r["name"].startswith(_PREFIX)}
+    return {r["name"] for r in repos}
 
 
 def main() -> int:
@@ -76,8 +76,10 @@ def main() -> int:
         print(f"Could not reach {_ORG} - fleet NOT checked.")
         return 2
 
+    # A scenario's shared repo (hyperi-ci-test) has no ci-test- prefix, so
+    # only the existence side reads it.
     missing = sorted(want - have)
-    unlisted = sorted(have - want)
+    unlisted = sorted({name for name in have if name.startswith(_PREFIX)} - want)
 
     if not missing and not unlisted:
         print(f"Fixture fleet matches the org ({len(want)} repos).")

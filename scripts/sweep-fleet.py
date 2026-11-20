@@ -48,6 +48,7 @@ the `--collect` run decides.
 """
 
 import argparse
+import functools
 import importlib.util
 import json
 import os
@@ -140,7 +141,25 @@ def select_targets(
     return sorted(chosen, key=lambda entry: entry["name"])
 
 
-def _run_ids(repo: str) -> set[int] | None:
+@functools.cache
+def _fleet_by_name() -> dict[str, fixture_fleet.Entry]:
+    """Fleet entries keyed by fixture name."""
+    return {entry["name"]: entry for entry in fixture_fleet.load_fleet()}
+
+
+def _repo(name: str) -> str:
+    """The fixture's repo as ``owner/name``."""
+    entry = _fleet_by_name().get(name)
+    return fixture_fleet.repo_of(entry) if entry else f"{fixture_fleet.ORG}/{name}"
+
+
+def _caller(name: str) -> str:
+    """The fixture's workflow file that calls hyperi-ci."""
+    entry = _fleet_by_name().get(name)
+    return fixture_fleet.caller_of(entry) if entry else _WORKFLOW
+
+
+def _run_ids(repo: str, workflow: str) -> set[int] | None:
     """Recent run ids on the fixture's CI workflow, or None when unreadable."""
     listed = _run(
         [
@@ -150,7 +169,7 @@ def _run_ids(repo: str) -> set[int] | None:
             "-R",
             repo,
             "--workflow",
-            _WORKFLOW,
+            workflow,
             "--limit",
             "20",
             "--json",
@@ -165,19 +184,21 @@ def _run_ids(repo: str) -> set[int] | None:
         return None
 
 
-def _dispatch(repo: str) -> str:
+def _dispatch(repo: str, workflow: str) -> str:
     """Fire a validate-only run. Empty string on success, else the reason."""
-    result = _run(["gh", "workflow", "run", _WORKFLOW, "-R", repo, "--ref", "main"])
+    result = _run(["gh", "workflow", "run", workflow, "-R", repo, "--ref", "main"])
     if result.returncode != 0:
         stderr = result.stderr.strip().splitlines()
         return stderr[-1] if stderr else f"gh exited {result.returncode}"
     return ""
 
 
-def _await_new_run(repo: str, before: set[int], deadline: float) -> int | None:
+def _await_new_run(
+    repo: str, workflow: str, before: set[int], deadline: float
+) -> int | None:
     """The run id the dispatch created, or None if it never appeared."""
     while time.time() < deadline:
-        now = _run_ids(repo)
+        now = _run_ids(repo, workflow)
         if now is not None and (fresh := now - before):
             return max(fresh)
         time.sleep(_POLL_SECONDS)
@@ -278,13 +299,13 @@ def wait_for_image_canary(timeout_minutes: int, token: str | None) -> str:
 
 def _start(name: str, deadline: float) -> Result | int:
     """Dispatch one fixture: the run it started, or a Result saying why none did."""
-    repo = f"{fixture_fleet.ORG}/{name}"
-    before = _run_ids(repo)
+    repo, workflow = _repo(name), _caller(name)
+    before = _run_ids(repo, workflow)
     if before is None:
         return Result(name, UNREACHABLE, "cannot list its runs")
-    if reason := _dispatch(repo):
+    if reason := _dispatch(repo, workflow):
         return Result(name, UNREACHABLE, f"dispatch refused: {reason}")
-    run_id = _await_new_run(repo, before, min(deadline, time.time() + 180))
+    run_id = _await_new_run(repo, workflow, before, min(deadline, time.time() + 180))
     if run_id is None:
         return Result(name, UNREACHABLE, "dispatch produced no run")
     print(f"  dispatched {name} -> run {run_id}")
@@ -366,7 +387,7 @@ def _read_pending(pending: dict[str, int], misses: dict[str, int]) -> list[Resul
     """
     settled: list[Result] = []
     for name, run_id in list(pending.items()):
-        repo = f"{fixture_fleet.ORG}/{name}"
+        repo = _repo(name)
         state = _run_state(repo, run_id)
         if state is None:
             misses[name] = misses.get(name, 0) + 1
@@ -536,7 +557,7 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
     while True:
         for name, previous in list(waiting.items()):
             try:
-                branches = _rehearsal_branches(f"{fixture_fleet.ORG}/{name}")
+                branches = _rehearsal_branches(_repo(name))
             except HoldUnreadableError as exc:
                 del waiting[name]
                 results.append(Result(name, UNREACHABLE, str(exc)))
@@ -625,7 +646,7 @@ def main() -> int:
 
     only = [name.strip() for name in args.only.split(",") if name.strip()]
     targets = select_targets(fleet, only, args.language)
-    unknown = sorted(set(only) - fixture_fleet.declared_names(fleet))
+    unknown = sorted(set(only) - fixture_fleet.fixture_names(fleet))
     if unknown:
         print(f"ERROR: not in config/fixtures.yaml: {', '.join(unknown)}")
         return 2

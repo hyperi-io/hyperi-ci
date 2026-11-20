@@ -136,11 +136,25 @@ def _fixture_prs(repo: str) -> list[dict] | None:
         return None
 
 
-def find_record(prs: list[dict], head_sha: str) -> dict[str, str] | None:
-    """The rehearsal record for ``head_sha``, newest first."""
+def find_record(
+    prs: list[dict], head_sha: str, fixture: str | None = None
+) -> dict[str, str] | None:
+    """The rehearsal record for ``head_sha``, newest first.
+
+    Args:
+        prs: The fixture repo's pull requests.
+        head_sha: The hyperi-ci commit under review.
+        fixture: For a scenario in a shared repo, the scenario the record must
+            name. A record from a sibling scenario proves nothing about it.
+
+    Returns:
+        The record's fields, or None.
+    """
     for pull in prs:
         record = rehearse_branch.parse_record(pull.get("body"))
-        if record and record["hyperi-ci-sha"] == head_sha:
+        if not record or record["hyperi-ci-sha"] != head_sha:
+            continue
+        if fixture is None or record.get("fixture") == fixture:
             return record
     return None
 
@@ -152,19 +166,21 @@ def verify(fixture: str, head_sha: str) -> Outcome:
     the verdict comes from GitHub rather than from the body somebody wrote.
 
     Args:
-        fixture: Upstream fixture repo name.
+        fixture: Fixture name from config/fixtures.yaml.
         head_sha: The hyperi-ci commit under review.
 
     Returns:
         The outcome, which is UNREACHABLE whenever the answer is unknown rather
         than known-bad.
     """
-    repo = f"{fixture_fleet.ORG}/{fixture}"
+    entry = fixture_fleet.find(fixture_fleet.load_fleet(), fixture)
+    repo = fixture_fleet.repo_of(entry) if entry else f"{fixture_fleet.ORG}/{fixture}"
+    scenario = fixture if entry and fixture_fleet.is_scenario(entry) else None
     prs = _fixture_prs(repo)
     if prs is None:
         return Outcome(fixture, UNREACHABLE, "could not read its pull requests")
 
-    record = find_record(prs, head_sha)
+    record = find_record(prs, head_sha, scenario)
     if record is None:
         return Outcome(fixture, UNPROVEN, f"no rehearsal record for {head_sha[:12]}")
     if record["verdict"] != "pass":
@@ -312,8 +328,7 @@ def _advice(branch: str, unproven: list[str]) -> list[str]:
         "",
         "Rehearse the branch against each fixture, then push nothing else:",
         *[
-            f"  uv run scripts/rehearse-branch.py --branch {branch} "
-            f"--repo {fixture_fleet.ORG}/{name}"
+            f"  uv run scripts/rehearse-branch.py --branch {branch} --fixture {name}"
             for name in unproven
         ],
         "The record names the COMMIT, so a further push needs a further rehearsal.",

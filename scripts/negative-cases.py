@@ -61,7 +61,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
@@ -119,11 +119,25 @@ class Case:
     reason: str
     pending_release: bool = False
     advisory: str = ""
+    # A scenario's directory in a shared repo. Its patches are written
+    # relative to it, and git apply --directory puts them in place.
+    project_dir: str = ""
+    caller: str = "ci.yml"
 
     @property
     def case_id(self) -> str:
         """Fixture-qualified name, which is what the report rows key on."""
         return f"{self.fixture}/{self.name}"
+
+    @property
+    def patch_path(self) -> str:
+        """The patch's path from the repo root."""
+        return "/".join(filter(None, (self.project_dir, CASE_DIR, self.patch)))
+
+    def apply_args(self, *extra: str) -> list[str]:
+        """`git apply` arguments that plant this case from the repo root."""
+        directory = [f"--directory={self.project_dir}"] if self.project_dir else []
+        return ["apply", *extra, *directory, self.patch_path]
 
 
 @dataclass(slots=True)
@@ -222,15 +236,23 @@ def parse_case(fixture: str, name: str, text: str) -> Case | str:
     )
 
 
-def read_cases(fixture: str, clone: Path) -> tuple[list[Case], list[str]]:
+def read_cases(
+    fixture: str, clone: Path, project_dir: str = "", caller: str = "ci.yml"
+) -> tuple[list[Case], list[str]]:
     """Every contract in a cloned fixture's `.ci-negative/`, plus its problems.
+
+    Args:
+        fixture: Fixture name.
+        clone: The fixture repo, cloned.
+        project_dir: The fixture's directory in the repo, empty for the root.
+        caller: The workflow file whose run proves each case.
 
     Returns:
         (cases, problems). A fixture the fleet marks `negative_cases` that
         carries no contract is a problem, not an empty list -- the fleet would
         otherwise report a gate as proven by nothing.
     """
-    directory = clone / CASE_DIR
+    directory = clone / project_dir / CASE_DIR
     if not directory.is_dir():
         return [], [f"{fixture}: declares negative_cases but has no {CASE_DIR}/"]
 
@@ -244,7 +266,13 @@ def read_cases(fixture: str, clone: Path) -> tuple[list[Case], list[str]]:
         if not (directory / parsed.patch).is_file():
             problems.append(f"{parsed.case_id}: patch {parsed.patch} is missing")
             continue
-        cases.append(parsed)
+        branch = parsed.branch
+        if project_dir and branch == f"{_BRANCH_PREFIX}{path.stem}":
+            # Sibling scenarios in one repo can share a case name.
+            branch = f"{_BRANCH_PREFIX}{fixture}/{path.stem}"
+        cases.append(
+            replace(parsed, project_dir=project_dir, caller=caller, branch=branch)
+        )
     if not cases and not problems:
         problems.append(f"{fixture}: {CASE_DIR}/ carries no case contract")
     return cases, problems
@@ -266,7 +294,7 @@ def patch_applies(clone: Path, case: Case) -> str:
         The reason git refused it, or an empty string.
     """
     result = _run(
-        ["git", "-C", str(clone), "apply", "--check", f"{CASE_DIR}/{case.patch}"],
+        ["git", "-C", str(clone), *case.apply_args("--check")],
         timeout=60,
     )
     if result.returncode == 0:
@@ -461,7 +489,7 @@ def _push_case(fixture: Fixture, case: Case) -> tuple[str, str]:
     _run(["git", "-C", str(clone), "push", "origin", "--delete", case.branch])
     steps = [
         ["checkout", "-B", case.branch, "origin/HEAD"],
-        ["apply", f"{CASE_DIR}/{case.patch}"],
+        case.apply_args(),
         ["add", "-A"],
         # A non-bumping commit type skips the quality job, which would read as
         # a leak. `fix` is the cheapest release-worthy type.
@@ -507,7 +535,7 @@ def _open_pr(repo: str, case: Case) -> tuple[int, str]:
             "--body",
             (
                 f"Throwaway negative case opened by scripts/negative-cases.py. "
-                f"It plants {CASE_DIR}/{case.patch} so the run FAILS at the "
+                f"It plants {case.patch_path} so the run FAILS at the "
                 f"{case.stage} stage on {case.reason}. A green run here means "
                 "the gate is off. Never merged; cleaned up automatically."
             ),
@@ -533,8 +561,11 @@ def pick_run(runs: list[dict], head_sha: str) -> int | None:
     return None
 
 
-def _pr_run_id(repo: str, branch: str, head_sha: str) -> int | None:
-    """The pull_request run for ``head_sha``, or None until it appears."""
+def _pr_run_id(repo: str, branch: str, head_sha: str, workflow: str) -> int | None:
+    """The pull_request run of ``workflow`` for ``head_sha``, or None until it appears.
+
+    Filtered on the workflow because CodeQL also runs on the same pull request.
+    """
     listed = _run(
         [
             "gh",
@@ -542,6 +573,8 @@ def _pr_run_id(repo: str, branch: str, head_sha: str) -> int | None:
             "list",
             "-R",
             repo,
+            "--workflow",
+            workflow,
             "--branch",
             branch,
             "--event",
@@ -692,7 +725,9 @@ def _await_runs(
         for item in list(waiting):
             repo = fixtures[item.case.fixture].repo
             if not item.run_id:
-                found = _pr_run_id(repo, item.case.branch, item.head_sha)
+                found = _pr_run_id(
+                    repo, item.case.branch, item.head_sha, item.case.caller
+                )
                 if found is None:
                     continue
                 item.run_id = found
@@ -959,7 +994,7 @@ def main() -> int:
     only = [name.strip() for name in args.only.split(",") if name.strip()]
     wanted = [name.strip() for name in args.case.split(",") if name.strip()]
 
-    unknown = sorted(set(only) - fixture_fleet.declared_names(fleet))
+    unknown = sorted(set(only) - fixture_fleet.fixture_names(fleet))
     if unknown:
         print(f"ERROR: not in config/fixtures.yaml: {', '.join(unknown)}")
         return 2
@@ -977,13 +1012,18 @@ def main() -> int:
 
         for entry in entries:
             name = entry["name"]
-            repo = f"{fixture_fleet.ORG}/{name}"
+            repo = fixture_fleet.repo_of(entry)
             clone = Path(tmp) / name
             if reason := _clone(repo, clone, depth=1 if args.check_patches else 0):
                 problems.append(f"{name}: clone failed: {reason}")
                 continue
             fixtures[name] = Fixture(repo=repo, clone=clone)
-            found, trouble = read_cases(name, clone)
+            found, trouble = read_cases(
+                name,
+                clone,
+                fixture_fleet.project_dir(entry),
+                fixture_fleet.caller_of(entry),
+            )
             cases.extend(found)
             problems.extend(trouble)
 

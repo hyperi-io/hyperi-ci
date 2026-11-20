@@ -17,6 +17,7 @@ plants nothing, so its run proves nothing while the catalogue still lists it
 line -- it must never come out as PASS.
 """
 
+import dataclasses
 import importlib.util
 import json
 import subprocess
@@ -146,6 +147,28 @@ class TestTheContract:
         cases, problems = negative.read_cases("ci-test-manifests", tmp_path)
         assert [case.case_id for case in cases] == ["ci-test-manifests/hadolint-error"]
         assert problems == []
+
+    def test_a_scenario_case_reads_from_its_dir_on_its_own_branch(
+        self, tmp_path
+    ) -> None:
+        directory = tmp_path / "scenarios" / "ci-test-manifests" / negative.CASE_DIR
+        directory.mkdir(parents=True)
+        (directory / "hadolint-error.yaml").write_text(CONTRACT, encoding="utf-8")
+        (directory / "hadolint-error.patch").write_text("diff", encoding="utf-8")
+        cases, problems = negative.read_cases(
+            "ci-test-manifests",
+            tmp_path,
+            "scenarios/ci-test-manifests",
+            "ci-test-manifests.yml",
+        )
+        assert problems == []
+        (case,) = cases
+        # Sibling scenarios can share a case name, so the branch carries both.
+        assert case.branch == "expect-fail/ci-test-manifests/hadolint-error"
+        assert case.caller == "ci-test-manifests.yml"
+        assert case.patch_path == (
+            "scenarios/ci-test-manifests/.ci-negative/hadolint-error.patch"
+        )
 
     def test_a_case_is_not_waiting_on_a_release_unless_it_says_so(self) -> None:
         case = negative.parse_case("ci-test-manifests", "hadolint-error", CONTRACT)
@@ -427,11 +450,13 @@ class TestFindingThisCycleSRun:
         assert negative.pick_run([], "a" * 40) is None
 
 
-def _clone(tmp_path: Path, target: str) -> Path:
+def _clone(tmp_path: Path, target: str, project_dir: str = "") -> Path:
     """A clone-shaped tree holding one file and one case patch against it."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / "a.txt").write_text(target, encoding="utf-8")
-    directory = tmp_path / negative.CASE_DIR
+    project = tmp_path / project_dir
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "a.txt").write_text(target, encoding="utf-8")
+    directory = project / negative.CASE_DIR
     directory.mkdir()
     (directory / "x.patch").write_text(PATCH, encoding="utf-8")
     return tmp_path
@@ -464,6 +489,18 @@ class TestThePatchStillApplies:
         reason = negative.patch_applies(clone, PATCH_CASE)
         assert "a.txt" in reason
         assert "does not apply" in reason
+
+    @pytest.mark.parametrize(
+        ("target", "applies"),
+        [("one\ntwo\nthree\n", True), ("ONE\ntwo\nthree\n", False)],
+    )
+    def test_a_scenario_patch_applies_inside_its_directory(
+        self, tmp_path, target, applies
+    ) -> None:
+        # The patch is the one the old repo carried, written from its root.
+        clone = _clone(tmp_path, target, "scenarios/s")
+        case = dataclasses.replace(PATCH_CASE, project_dir="scenarios/s")
+        assert (negative.patch_applies(clone, case) == "") is applies
 
     def test_a_missing_patch_is_not_silently_clean(self, tmp_path) -> None:
         clone = _clone(tmp_path, "one\ntwo\nthree\n")
@@ -957,7 +994,7 @@ class TestAFixtureARehearsalHolds:
             prepared.extend(cases)
             return [], []
 
-        def read_cases(name, _clone):
+        def read_cases(name, _clone, *_where):
             return [c for c in (CASE, _GO_CASE) if c.fixture == name], []
 
         monkeypatch.setattr(
