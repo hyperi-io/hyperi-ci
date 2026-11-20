@@ -67,6 +67,9 @@ fleet:
     rehearsal: default
 
   - name: ci-test-python-lib
+    repo: hyperi-ci-test
+    caller: ci-test-python-lib.yml
+    dir: scenarios/ci-test-python-lib
     language: python
     workflow: python-ci.yml
     covers: library, container auto-skip
