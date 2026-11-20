@@ -3489,6 +3489,19 @@ class TestAReleaseRunIsNeverCancelled:
         main = _gh_render(concurrency["group"], self._others()["plain push"])
         assert main == "CI-refs/heads/main"
 
+    def test_each_monorepo_project_has_its_own_group(self) -> None:
+        # Two caller jobs on one ref would otherwise cancel each other.
+        group = _load_workflow("rust-ci.yml")["concurrency"]["group"]
+        rendered = {
+            _gh_render(group, {**self._event("push"), "inputs.project-dir": d})
+            for d in ("", "scenarios/a", "scenarios/b")
+        }
+        assert rendered == {
+            "CI-refs/heads/main",
+            "CI-scenarios/a-refs/heads/main",
+            "CI-scenarios/b-refs/heads/main",
+        }
+
     def test_the_model_reads_github_semantics(self) -> None:
         # Guards the evaluator, which the two tests above rest on.
         assert _gh_eval("null != ''", {}) is False
