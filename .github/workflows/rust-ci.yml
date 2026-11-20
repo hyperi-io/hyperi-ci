@@ -106,6 +106,10 @@ on:
         type: string
         default: ""
         description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
+      project-dir:
+        type: string
+        default: ""
+        description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
     secrets:
       ALERT_BRIDGE_TOKEN:
         required: false
@@ -183,6 +187,9 @@ jobs:
     # the default set is enough (issue #291). It runs before the mode is
     # resolved, so it reads the payload's visibility directly.
     runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     # semantic-release's git plugin verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
@@ -235,6 +242,7 @@ jobs:
           test-tier: ${{ inputs.test-tier }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
           runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Install uv (preflight)
         if: steps.predict.outputs.will-release == 'true'
@@ -373,6 +381,9 @@ jobs:
       HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -385,6 +396,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
@@ -412,7 +424,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
+            ${{ inputs.project-dir || '.' }}/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup Rust tools
@@ -494,6 +506,7 @@ jobs:
     defaults:
       run:
         shell: bash
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -506,6 +519,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
@@ -528,7 +542,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
+            ${{ inputs.project-dir || '.' }}/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup cargo-nextest
@@ -619,7 +633,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-rust-${{ matrix.os }}
-          path: test-results/
+          path: ${{ inputs.project-dir || '.' }}/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -639,6 +653,9 @@ jobs:
     # arm64-parity leg (issue #249) builds where run-build is false.
     if: needs.plan.outputs.run-plain-build == 'true' || needs.plan.outputs.run-arm64-parity == 'true'
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       # A leg that dies on its runner must not cancel one that finished, so the
       # amd64 binary survives an arm64 runner starving.
@@ -656,6 +673,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         # Stamps VERSION + Cargo.toml before `cargo build` so CARGO_PKG_VERSION matches the tag, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
@@ -714,8 +732,8 @@ jobs:
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -725,7 +743,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-${{ matrix.os_arch }}
-          path: runner-fit.json
+          path: ${{ inputs.project-dir || '.' }}/runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -744,6 +762,7 @@ jobs:
     defaults:
       run:
         shell: bash
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -756,6 +775,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         # The same stamp the Linux legs take, so CARGO_PKG_VERSION matches the tag.
@@ -796,8 +816,8 @@ jobs:
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -815,6 +835,9 @@ jobs:
       HYPERCI_BUILD_PHASE: pgo-profile
     if: needs.plan.outputs.run-phased-build == 'true'
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
@@ -829,6 +852,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
@@ -867,7 +891,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: phase-1-${{ matrix.os_arch }}
-          path: .hyperi-ci/phase/
+          path: ${{ inputs.project-dir || '.' }}/.hyperi-ci/phase/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -875,13 +899,13 @@ jobs:
       - name: Upload build artifacts
         # Only the job that finished the build has dist/, and VERSION is in every
         # checkout, so an unconditional upload would name the artifact twice.
-        if: hashFiles('dist/**') != ''
+        if: hashFiles(format('{0}/dist/**', inputs.project-dir || '.')) != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -890,7 +914,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-pgo-profile-${{ matrix.os_arch }}
-          path: runner-fit.json
+          path: ${{ inputs.project-dir || '.' }}/runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -903,6 +927,9 @@ jobs:
       HYPERCI_BUILD_PHASE: pgo-optimize
     if: needs.plan.outputs.run-phased-build == 'true'
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
@@ -917,6 +944,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
@@ -944,7 +972,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: phase-1-${{ matrix.os_arch }}
-          path: .hyperi-ci/phase/
+          path: ${{ inputs.project-dir || '.' }}/.hyperi-ci/phase/
 
       - name: Run build
         env:
@@ -961,7 +989,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: phase-2-${{ matrix.os_arch }}
-          path: .hyperi-ci/phase/
+          path: ${{ inputs.project-dir || '.' }}/.hyperi-ci/phase/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -969,13 +997,13 @@ jobs:
       - name: Upload build artifacts
         # Only the job that finished the build has dist/, and VERSION is in every
         # checkout, so an unconditional upload would name the artifact twice.
-        if: hashFiles('dist/**') != ''
+        if: hashFiles(format('{0}/dist/**', inputs.project-dir || '.')) != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -984,7 +1012,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-pgo-optimize-${{ matrix.os_arch }}
-          path: runner-fit.json
+          path: ${{ inputs.project-dir || '.' }}/runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -997,6 +1025,9 @@ jobs:
       HYPERCI_BUILD_PHASE: bolt
     if: needs.plan.outputs.run-phased-build == 'true'
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
@@ -1011,6 +1042,7 @@ jobs:
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
@@ -1039,7 +1071,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: phase-2-${{ matrix.os_arch }}
-          path: .hyperi-ci/phase/
+          path: ${{ inputs.project-dir || '.' }}/.hyperi-ci/phase/
 
       - name: Run build
         env:
@@ -1053,13 +1085,13 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Upload build artifacts
-        if: hashFiles('dist/**') != ''
+        if: hashFiles(format('{0}/dist/**', inputs.project-dir || '.')) != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-dist-${{ matrix.os_arch }}
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -1068,7 +1100,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-fit-bolt-${{ matrix.os_arch }}
-          path: runner-fit.json
+          path: ${{ inputs.project-dir || '.' }}/runner-fit.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -1105,6 +1137,7 @@ jobs:
       skip-optimize: ${{ inputs.skip-optimize }}
       release-unoptimized: ${{ inputs.release-unoptimized }}
       optimize-tier: ${{ inputs.optimize-tier }}
+      project-dir: ${{ inputs.project-dir }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------

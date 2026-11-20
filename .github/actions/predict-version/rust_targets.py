@@ -57,7 +57,9 @@ def _load_package() -> None:
 
 def run() -> int:
     """Read the targets and write the outputs. Never fails the step."""
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+        "PROJECT_SUBDIR", ""
+    )
     if not (workspace / "Cargo.toml").is_file():
         # Only rust-ci.yml reads this, so another language gets no warning.
         _write_outputs([], [])

@@ -847,6 +847,19 @@ def bare_python3(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return bin_dir
 
 
+@pytest.mark.parametrize(("subdir", "listed"), [("", False), ("scenarios/app", True)])
+def test_the_targets_step_reads_the_project_dir(
+    tmp_path: Path, subdir: str, listed: bool
+) -> None:
+    project = tmp_path / "scenarios" / "app"
+    project.mkdir(parents=True)
+    _rust_repo(
+        project, "build:\n  rust:\n    targets:\n      - x86_64-pc-windows-msvc\n"
+    )
+    outputs, _ = _run_step("targets", {}, tmp_path, env={"PROJECT_SUBDIR": subdir})
+    assert outputs["has-os-legs"] == ("true" if listed else "false")
+
+
 def _rust_repo(repo: Path, config: str) -> Path:
     (repo / "Cargo.toml").write_text(
         '[package]\nname = "thing"\nversion = "0.1.0"\n', encoding="utf-8"

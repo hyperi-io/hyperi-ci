@@ -703,7 +703,9 @@ class TestWorkflow:
         )
         assert step["if"] == "always()"
         assert step["with"]["name"] == "runner-fit-${{ matrix.os_arch }}"
-        assert step["with"]["path"] == "runner-fit.json"
+        assert (
+            step["with"]["path"] == "${{ inputs.project-dir || '.' }}/runner-fit.json"
+        )
         assert step["with"]["if-no-files-found"] == "ignore"
         assert step["with"]["retention-days"] == 30
         shipped = next(s for s in steps if s.get("name") == "Upload build artifacts")

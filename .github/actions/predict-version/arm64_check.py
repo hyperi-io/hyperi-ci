@@ -40,7 +40,9 @@ def main() -> int:
 
     from hyperi_ci.arm64_check import wants_arm64_check
 
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+        "PROJECT_SUBDIR", ""
+    )
     wanted, reason = wants_arm64_check(workspace)
     print(f"arm64 check: {reason}", file=sys.stderr)
     print("true" if wanted else "false")

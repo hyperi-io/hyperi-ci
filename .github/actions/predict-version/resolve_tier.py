@@ -59,7 +59,9 @@ def run() -> int:
         _load_package()
         from hyperi_ci.plan_tier import read_project_tier, resolve_tier
 
-        workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+        workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+            "PROJECT_SUBDIR", ""
+        )
         project = read_project_tier(workspace)
         required = project.full_required
         tier, why = resolve_tier(

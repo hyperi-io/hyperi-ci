@@ -56,7 +56,9 @@ def run(forced_bump: str | None = None) -> int:
     bump from its own last release, and the output flag is ``fork-forced``.
     """
     flag = "first-parent" if forced_bump is None else "fork-forced"
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+        "PROJECT_SUBDIR", ""
+    )
     try:
         _load_package()
         from hyperi_ci.fork_version import check_fork
