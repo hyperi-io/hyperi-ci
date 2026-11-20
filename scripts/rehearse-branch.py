@@ -48,8 +48,12 @@ unrehearsed rather than counting it proven (issues #366, #626).
 
 Usage:
     uv run scripts/rehearse-branch.py --branch fix/my-change \
-        --repo hyperi-io/ci-test-go-app [--keep] [--no-cli-override] \
-        [--timeout-minutes 20]
+        (--fixture ci-test-go-app | --repo hyperi-io/ci-test-go-app) \
+        [--keep] [--no-cli-override] [--timeout-minutes 20]
+
+A fixture in a shared repo (a hyperi-ci-test scenario) takes --fixture. Its
+rehearsal swaps refs in that scenario's caller workflow only, and its record
+names the scenario.
 """
 
 import argparse
@@ -424,17 +428,19 @@ def summarise_jobs(jobs: list[dict]) -> tuple[bool, list[str]]:
 
 RECORD_MARKER = "Rehearsal record"
 _RECORD_FIELD = re.compile(
-    r"^(hyperi-ci-sha|run-id|verdict):\s*(\S+)\s*$", re.MULTILINE
+    r"^(hyperi-ci-sha|run-id|verdict|fixture):\s*(\S+)\s*$", re.MULTILINE
 )
 
 
-def record_block(sha: str, run_id: int, verdict: str) -> str:
+def record_block(sha: str, run_id: int, verdict: str, fixture: str = "") -> str:
     """The rehearsal record appended to the fixture PR body.
 
     Args:
         sha: The hyperi-ci commit that was rehearsed.
         run_id: The fixture run that proved it.
         verdict: pass, fail or timeout.
+        fixture: The scenario rehearsed, for a repo holding several. Empty
+            for a repo that is one fixture.
 
     Returns:
         A plain-text block the gate parses and a human can read.
@@ -443,7 +449,7 @@ def record_block(sha: str, run_id: int, verdict: str) -> str:
         f"\n\n{RECORD_MARKER}\n"
         f"hyperi-ci-sha: {sha}\n"
         f"run-id: {run_id}\n"
-        f"verdict: {verdict}\n"
+        f"verdict: {verdict}\n" + (f"fixture: {fixture}\n" if fixture else "")
     )
 
 
@@ -763,7 +769,11 @@ def main() -> int:
         description="Rehearse a hyperi-ci branch against a fixture repo"
     )
     parser.add_argument("--branch", required=True, help="hyperi-ci branch to rehearse")
-    parser.add_argument("--repo", required=True, help="fixture repo (org/name)")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--repo", help="fixture repo (org/name)")
+    target.add_argument(
+        "--fixture", help="fixture name from config/fixtures.yaml, scenarios included"
+    )
     parser.add_argument(
         "--keep",
         action="store_true",
@@ -777,7 +787,14 @@ def main() -> int:
     parser.add_argument("--timeout-minutes", type=int, default=20)
     args = parser.parse_args()
 
-    branch, repo = args.branch, args.repo
+    branch = args.branch
+    entry = fixture_fleet.find(fixture_fleet.load_fleet(), args.fixture or args.repo)
+    if args.fixture and entry is None:
+        return _fail(f"{args.fixture!r} is not in config/fixtures.yaml")
+    repo = fixture_fleet.repo_of(entry) if args.fixture and entry else args.repo
+    # A scenario's rehearsal swaps its own caller only, so the PR runs just it.
+    scenario = entry["name"] if entry and fixture_fleet.is_scenario(entry) else ""
+    only_caller = fixture_fleet.caller_of(entry) if scenario and entry else None
 
     if repo == _HYPERI_CI_REPO:
         return _fail("rehearse against a fixture, not hyperi-ci itself")
@@ -840,9 +857,11 @@ def main() -> int:
         # that run on a pull request.
         swapped_workflows: list[str] = []
         total_swaps = 0
-        declared = declared_workflow(repo)
+        declared = entry.get("workflow") if entry else declared_workflow(repo)
         declared_called = False
         for wf in sorted((clone / ".github" / "workflows").glob("*.yml")):
+            if only_caller is not None and wf.name != only_caller:
+                continue
             new_text, count = swap_refs(wf.read_text(encoding="utf-8"), branch)
             if count:
                 wf.write_text(new_text, encoding="utf-8", newline="\n")
@@ -980,7 +999,10 @@ def main() -> int:
                 )
             else:
                 _write_record(
-                    repo, pr_number, body, record_block(head_sha, run_id, verdict)
+                    repo,
+                    pr_number,
+                    body,
+                    record_block(head_sha, run_id, verdict, scenario),
                 )
 
             if args.keep:

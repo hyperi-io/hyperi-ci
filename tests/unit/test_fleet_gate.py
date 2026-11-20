@@ -134,10 +134,30 @@ class TestTheGateVerdict:
     def test_the_advice_names_the_command(self) -> None:
         lines = gate._advice("fix/thing", ["ci-test-go-app"])
         assert any(
-            "rehearse-branch.py --branch fix/thing --repo hyperi-io/ci-test-go-app"
-            in line
+            "rehearse-branch.py --branch fix/thing --fixture ci-test-go-app" in line
             for line in lines
         )
+
+    @pytest.mark.parametrize(
+        ("scenario", "records", "found"),
+        [
+            # A repo that is one fixture: any record for the commit counts.
+            (None, [("abc", "")], True),
+            # A scenario needs a record naming it, not a sibling's.
+            ("ci-test-a", [("abc", "ci-test-b")], False),
+            ("ci-test-a", [("abc", "ci-test-b"), ("abc", "ci-test-a")], True),
+            ("ci-test-a", [("abc", "")], False),
+            ("ci-test-a", [("def", "ci-test-a")], False),
+        ],
+    )
+    def test_a_scenario_record_must_name_the_scenario(
+        self, scenario, records, found
+    ) -> None:
+        prs = [
+            {"body": rehearse.record_block(sha, 1, "pass", fixture)}
+            for sha, fixture in records
+        ]
+        assert (gate.find_record(prs, "abc", scenario) is not None) is found
 
 
 class TestACompositeChangeIsUnrehearsed:
@@ -589,11 +609,11 @@ class TestAFixtureARehearsalHolds:
         def read_override(repo):
             raise AssertionError(f"the sweep read {repo}'s install override")
 
-        def run_ids(repo):
+        def run_ids(repo, _workflow):
             name = repo.rsplit("/", 1)[-1]
             return {7} if name in dispatched else set()
 
-        def dispatch(repo):
+        def dispatch(repo, _workflow):
             dispatched[repo.rsplit("/", 1)[-1]] = clock.now
             return ""
 

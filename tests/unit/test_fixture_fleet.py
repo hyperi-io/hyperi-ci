@@ -103,6 +103,72 @@ class TestTheCheckHasThreeOutcomes:
         assert cff.actual() is None
 
 
+class TestScenariosInASharedRepo:
+    """A fixture that lives in hyperi-ci-test resolves to that repo and its caller."""
+
+    _FLEET = [
+        {"name": "ci-test-go-app"},
+        {
+            "name": "ci-test-ts-app",
+            "repo": "hyperi-ci-test",
+            "caller": "ci-test-ts-app.yml",
+            "dir": "scenarios/ci-test-ts-app",
+            "negative_cases": True,
+        },
+        {"name": "ci-test-rust-lib", "repo": "hyperi-ci-test", "negative_cases": True},
+    ]
+
+    @pytest.mark.parametrize(
+        ("name", "repo", "caller", "directory", "scenario"),
+        [
+            ("ci-test-go-app", "hyperi-io/ci-test-go-app", "ci.yml", "", False),
+            (
+                "ci-test-ts-app",
+                "hyperi-io/hyperi-ci-test",
+                "ci-test-ts-app.yml",
+                "scenarios/ci-test-ts-app",
+                True,
+            ),
+        ],
+    )
+    def test_an_entry_resolves(self, name, repo, caller, directory, scenario) -> None:
+        entry = fixture_fleet.find(self._FLEET, name)
+        assert entry is not None
+        assert fixture_fleet.repo_of(entry) == repo
+        assert fixture_fleet.caller_of(entry) == caller
+        assert fixture_fleet.project_dir(entry) == directory
+        assert fixture_fleet.is_scenario(entry) is scenario
+
+    @pytest.mark.parametrize(
+        ("query", "found"),
+        [
+            ("hyperi-io/ci-test-go-app", "ci-test-go-app"),
+            ("ci-test-ts-app", "ci-test-ts-app"),
+            # A repo holding two scenarios names neither of them.
+            ("hyperi-ci-test", None),
+            ("ci-test-nope", None),
+        ],
+    )
+    def test_find(self, query, found) -> None:
+        entry = fixture_fleet.find(self._FLEET, query)
+        assert (entry["name"] if entry else None) == found
+
+    def test_a_token_scope_names_a_shared_repo_once(self) -> None:
+        scope = fixture_fleet.token_scope(self._FLEET, negative_cases_only=True)
+        assert scope == ["hyperi-ci-test"]
+
+    def test_the_shared_repo_is_not_unlisted_drift(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            cff, "declared", lambda: {"ci-test-go-app", "hyperi-ci-test"}
+        )
+        monkeypatch.setattr(
+            cff, "actual", lambda: {"ci-test-go-app", "hyperi-ci-test", "hyperi-ci"}
+        )
+        assert cff.main() == 0
+
+
 class TestTheSsotDrivesSelection:
     """The path -> fixture mapping is data in the SSoT, not a table in code."""
 
