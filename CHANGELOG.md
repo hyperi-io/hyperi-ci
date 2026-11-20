@@ -3,6 +3,18 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.0...v2.15.1) (2026-11-20)
+
+### Bug Fixes
+
+* **ci:** run Go, TypeScript and IaC from a project dir ([3ff543e](https://github.com/hyperi-io/hyperi-ci/commit/3ff543eacbc566d2a6283f267d75df5be2c40afb))
+* **ci:** run Python pipeline from a project dir ([6d41708](https://github.com/hyperi-io/hyperi-ci/commit/6d417084fe03314970133ff36ea1649c3f4e5148))
+* **ci:** run Rust pipeline from a project dir ([546a87d](https://github.com/hyperi-io/hyperi-ci/commit/546a87d387600ee42c9121d10c4d1a8094ce8b95))
+* **fleet:** run fixtures that share a repo ([7f5f97f](https://github.com/hyperi-io/hyperi-ci/commit/7f5f97f0362ec8a12461f8a2ff393a6db3098fd1))
+* **fleet:** run Rust fixtures from hyperi-ci-test ([1afddeb](https://github.com/hyperi-io/hyperi-ci/commit/1afddebfe8f45940c5620eea8b668e3b79931940))
+* **quality:** apply the 7-day cooldown to uvx tool dependencies ([a0f1b51](https://github.com/hyperi-io/hyperi-ci/commit/a0f1b51eb153c71bcb741550d1997d10fcdf3cc3))
+* **rust-ci:** use project-dir in concurrency group ([362722b](https://github.com/hyperi-io/hyperi-ci/commit/362722b2a6506dfa5cbec9e4ce971fb0454934ac))
+
 ## [2.15.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.82...v2.15.0) (2026-11-20)
 
 ### Features
