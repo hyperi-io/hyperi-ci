@@ -45,6 +45,10 @@ inputs:
     description: How to invoke the hyperi-ci CLI
     required: false
     default: "uvx --no-cache --refresh --exclude-newer P7D --exclude-newer-package hyperi-ci=P0D --exclude-newer-package scalo=P0D hyperi-ci"
+  project-dir:
+    description: The project's directory inside the repo, whose config names the native deps. Empty (default) is the repo root.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -85,6 +89,7 @@ runs:
 
     - name: Install native dependencies
       shell: bash
+      working-directory: ${{ inputs.project-dir || '.' }}
       env:
         INSTALL_CMD: ${{ inputs.hyperci-install }}
         LANGUAGE: ${{ inputs.language }}

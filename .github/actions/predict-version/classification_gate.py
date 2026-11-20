@@ -39,7 +39,9 @@ def _load_package() -> None:
 
 def run() -> int:
     """Check the declared classification and say whether this run may publish."""
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+        "PROJECT_SUBDIR", ""
+    )
     private = os.environ.get("REPO_PRIVATE", "") == "true"
     try:
         _load_package()

@@ -107,6 +107,10 @@ on:
         type: string
         default: ""
         description: "'release' if this run asked for the release optimisation tier. It overrides skip-optimize, so the image label and release notes match the binary."
+      project-dir:
+        type: string
+        default: ""
+        description: "The project's directory inside the repo. Empty (default) is the repo root."
 
 env:
   # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a
@@ -152,6 +156,9 @@ jobs:
         github.event_name == 'pull_request'
       )
     runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     permissions:
       contents: read
       packages: read
@@ -253,6 +260,9 @@ jobs:
     # arm64 builds on GitHub's native arm64 runner in every mode, never under
     # emulation on x64. ARC has no arm64 nodes.
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-26.04-arm' || (inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest') }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     permissions:
       contents: read
       packages: write
@@ -413,6 +423,9 @@ jobs:
           && (needs.container-build.result == 'success'
               || needs.container-plan.outputs.reuse == 'true') }}
     runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     permissions:
       contents: read
       packages: write
@@ -501,6 +514,9 @@ jobs:
     # leaves (issue #409).
     if: inputs.will-publish == 'true'
     runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     permissions:
       contents: read
     steps:
@@ -668,6 +684,9 @@ jobs:
     # hyperi-ci installs AWS's signed v2 bundle on demand
     # (native_deps.ensure_aws_cli).
     runs-on: ${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     permissions:
       contents: write
       issues: write

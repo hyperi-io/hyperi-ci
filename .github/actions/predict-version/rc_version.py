@@ -49,7 +49,9 @@ def run() -> int:
         sys.modules["hyperi_ci"] = package
     from hyperi_ci.release_candidate import hotfix_reason, repo_tags, resolve
 
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".")
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or ".") / os.environ.get(
+        "PROJECT_SUBDIR", ""
+    )
     try:
         decision = resolve(
             workspace, planned, repo_tags(workspace), hotfix_reason(workspace)

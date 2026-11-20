@@ -2772,7 +2772,7 @@ class TestTestTierThreading:
             "${{ fromJson(needs.plan.outputs.os-test-include || '[]') }}"
         )
         for job in ("build-os", "test"):
-            assert jobs[job]["defaults"] == {"run": {"shell": "bash"}}
+            assert jobs[job]["defaults"]["run"]["shell"] == "bash"
         test_runs = [
             s for s in jobs["test"]["steps"] if "run test" in str(s.get("run", ""))
         ]
@@ -2790,6 +2790,29 @@ class TestTestTierThreading:
             "${{ needs.plan.outputs.has-os-legs == 'true' "
             "&& needs.build-os.result || '' }}"
         )
+
+    @pytest.mark.parametrize("workflow_name", ["rust-ci.yml", "_release-tail.yml"])
+    def test_every_job_that_checks_out_runs_in_the_project_dir(
+        self, workflow_name: str
+    ) -> None:
+        project = "${{ inputs.project-dir || '.' }}"
+        wf = _load_workflow(workflow_name)
+        # PyYAML reads the bare `on:` key as True.
+        assert wf[True]["workflow_call"]["inputs"]["project-dir"]["default"] == ""
+        for name, job in wf["jobs"].items():
+            steps = job.get("steps") or []
+            if not any("actions/checkout" in str(s.get("uses", "")) for s in steps):
+                continue
+            if name == "commit-check":
+                continue  # reads only git history, which is repo-wide
+            run_defaults = (job.get("defaults") or {}).get("run") or {}
+            assert run_defaults.get("working-directory") == project, name
+            for step in steps:
+                path = str((step.get("with") or {}).get("path", ""))
+                for entry in filter(None, (p.strip() for p in path.splitlines())):
+                    if entry.startswith(("~", "${{ runner.temp }}")):
+                        continue
+                    assert entry.startswith(project), (name, entry)
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_non_publishing_runs_have_their_own_concurrency_group(

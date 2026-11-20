@@ -52,6 +52,10 @@ inputs:
     description: "The caller's runner-mode input or GH_RUNNER_MODE, empty when neither is set. Empty resolves from repo visibility: public free, private self-hosted."
     required: false
     default: ""
+  project-dir:
+    description: "The project's directory inside the repo, read for .hyperi-ci.yaml and the language manifests. Empty (default) is the repo root."
+    required: false
+    default: ""
   python-version:
     description: "Fallback Python version. The project's own declaration wins over it -- a pegged .python-version, else the requires-python floor."
     required: false
@@ -119,6 +123,14 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Name the project directory
+      # Read by the config helpers below. The HYPERCI_ prefix is avoided because
+      # load_config reads those variables as config.
+      shell: bash
+      env:
+        PROJECT_DIR: ${{ inputs.project-dir }}
+      run: echo "PROJECT_SUBDIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
     - name: Install uv (config readers)
       # A failed download must not fail Plan. The next step finds no uv and
       # falls back to python3, loudly.

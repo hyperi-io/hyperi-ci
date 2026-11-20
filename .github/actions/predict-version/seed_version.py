@@ -22,6 +22,7 @@ tree via ``hyperi_ci/__init__``.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -37,7 +38,9 @@ def main() -> int:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    version, source = module.seed_version(Path.cwd())
+    version, source = module.seed_version(
+        Path.cwd() / os.environ.get("PROJECT_SUBDIR", "")
+    )
     print(f"seed version {version} ({source})", file=sys.stderr)
     print(version)
     return 0

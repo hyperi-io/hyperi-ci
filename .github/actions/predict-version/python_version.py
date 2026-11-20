@@ -41,7 +41,11 @@ def main() -> int:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    version, source = module.resolve(Path.cwd(), requested=requested, default=fallback)
+    version, source = module.resolve(
+        Path.cwd() / os.environ.get("PROJECT_SUBDIR", ""),
+        requested=requested,
+        default=fallback,
+    )
     print(f"python {version or '(unresolved)'} (from {source})", file=sys.stderr)
     print(version)
     return 0
