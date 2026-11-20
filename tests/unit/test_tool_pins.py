@@ -66,14 +66,9 @@ class TestSemgrepRunsItsPin:
     ) -> None:
         cmd = self._scan(monkeypatch, "semgrep", "uv", "uvx")
         spec = f"semgrep=={tool_version('semgrep')}"
-        assert cmd[:6] == [
-            "uvx",
-            "--python",
-            runtime_version("python"),
-            "--from",
-            spec,
-            "semgrep",
-        ]
+        assert cmd[:3] == ["uvx", "--python", runtime_version("python")]
+        start = cmd.index("--from")
+        assert cmd[start : start + 3] == ["--from", spec, "semgrep"]
 
     def test_without_uv_the_path_copy_runs_with_a_warning(
         self, monkeypatch: pytest.MonkeyPatch

@@ -44,15 +44,21 @@ class TestCommand:
     ) -> None:
         _uv_on_path(monkeypatch)
         monkeypatch.setattr(quality, "_parse_python", lambda: "3.14")
-        assert _build_pip_audit_cmd([_IGNORE], Path("req.txt")) == [
+        assert _build_pip_audit_cmd([_IGNORE], Path("req.txt"), Path("c")) == [
             "uvx",
             "--python",
             "3.14",
+            "--exclude-newer",
+            "P7D",
+            "--exclude-newer-package",
+            "pip-audit=P0D",
             "--from",
             _SPEC,
             "pip-audit",
             "--ignore-vuln",
             "PYSEC-1",
+            "--cache-dir",
+            "c",
             "-r",
             "req.txt",
             "--disable-pip",
@@ -176,7 +182,20 @@ class TestFlow:
         _uv_on_path(monkeypatch, present=False)
         rec = _Recorder(monkeypatch)
         assert quality._run_pip_audit("blocking", []) is True
-        assert rec.steps == [("audit", ["pip-audit"])]
+        ((kind, cmd),) = rec.steps
+        assert kind == "audit"
+        assert cmd[:2] == ["pip-audit", "--cache-dir"]
+
+    def test_every_audit_has_its_own_cache_dir(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # platformdirs refuses a runner home that other users can write to.
+        rec = _Recorder(monkeypatch)
+        assert quality._run_pip_audit("blocking", []) is True
+        audit = rec.steps[-1][1]
+        cache = audit[audit.index("--cache-dir") + 1]
+        assert Path(cache).name == "cache"
+        assert not Path(cache).parent.exists()
 
     def test_a_disabled_gate_exports_nothing(
         self, project: Path, monkeypatch: pytest.MonkeyPatch

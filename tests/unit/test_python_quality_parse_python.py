@@ -29,15 +29,8 @@ class TestUvxTakesTheInterpreter:
         resolved = resolve_tool_cmd(
             ["vulture", "src/"], via="uvx", spec="vulture==2.16", python="3.14"
         )
-        assert resolved == [
-            "uvx",
-            "--python",
-            "3.14",
-            "--from",
-            "vulture==2.16",
-            "vulture",
-            "src/",
-        ]
+        assert resolved[:3] == ["uvx", "--python", "3.14"]
+        assert resolved[-4:] == ["--from", "vulture==2.16", "vulture", "src/"]
 
     def test_no_python_takes_the_baseline(
         self, monkeypatch: pytest.MonkeyPatch

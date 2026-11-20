@@ -435,8 +435,9 @@ class TestSrcLayoutIsByteIdentical:
             "--output-format=concise", "src/", "--extend-exclude=vendor",
         ]  # fmt: skip
         assert _scan(argvs, "vulture") == [
-            "uvx", "--python", python, "--from", vulture, "vulture", "src/",
-            "--exclude=*/vendor/*",
+            "uvx", "--python", python, "--exclude-newer", "P7D",
+            "--exclude-newer-package", "vulture=P0D", "--from", vulture,
+            "vulture", "src/", "--exclude=*/vendor/*",
         ]  # fmt: skip
 
     def test_pytest_argv(self, repo: Path, pytest_run: _Pytest) -> None:

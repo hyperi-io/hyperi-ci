@@ -16,8 +16,31 @@ import shutil
 import pytest
 
 from hyperi_ci.languages import quality_common
-from hyperi_ci.languages.quality_common import resolve_tool_cmd
+from hyperi_ci.languages.quality_common import resolve_tool_cmd, uvx_from
 from hyperi_ci.versions import runtime_version
+
+
+class TestUvxHoldsBackToolDependencies:
+    """uvx resolves a pinned tool's dependencies to the newest upload."""
+
+    @pytest.mark.parametrize(
+        ("spec", "python", "exempt"),
+        [
+            ("pip-audit==2.10.0", "3.14", "pip-audit=P0D"),
+            ("reuse==6.2.0", None, "reuse=P0D"),
+            ("semgrep[extra]==1.2.3", "3.14", "semgrep=P0D"),
+            ("bare", None, "bare=P0D"),
+        ],
+    )
+    def test_the_cooldown_spares_only_the_tool(
+        self, spec: str, python: str | None, exempt: str
+    ) -> None:
+        prefix = uvx_from(spec, python)
+        assert prefix[0] == "uvx"
+        assert ("--python" in prefix) is (python is not None)
+        assert prefix[prefix.index("--exclude-newer") + 1] == "P7D"
+        assert prefix[prefix.index("--exclude-newer-package") + 1] == exempt
+        assert prefix[-2:] == ["--from", spec]
 
 
 class TestPinnedSpecBeatsPath:
@@ -34,6 +57,10 @@ class TestPinnedSpecBeatsPath:
             "uvx",
             "--python",
             runtime_version("python"),
+            "--exclude-newer",
+            "P7D",
+            "--exclude-newer-package",
+            "vulture=P0D",
             "--from",
             "vulture==2.16",
             "vulture",

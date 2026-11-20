@@ -24,7 +24,11 @@ from packaging.utils import canonicalize_name
 
 from hyperi_ci.common import error, info, run_cmd
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import emit_tool_output, resolve_tool_mode
+from hyperi_ci.languages.quality_common import (
+    emit_tool_output,
+    resolve_tool_mode,
+    uvx_from,
+)
 from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
@@ -207,9 +211,7 @@ def findings_for(
 def _pip_licenses_cmd(python: str, output: Path) -> list[str]:
     spec = f"pip-licenses=={tool_version('pip-licenses')}"
     return [
-        "uvx",
-        "--from",
-        spec,
+        *uvx_from(spec),
         "pip-licenses",
         "--python",
         python,
