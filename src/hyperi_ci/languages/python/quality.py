@@ -38,6 +38,7 @@ from hyperi_ci.languages.quality_common import (
     resolve_tool_cmd,
     resolve_tool_mode,
     run_gate_tool,
+    uvx_from,
 )
 from hyperi_ci.python_version import resolve as resolve_python_version
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
@@ -199,7 +200,9 @@ _UV_LOCK_EXPORT = [
 
 
 def _build_pip_audit_cmd(
-    ignores: list[IgnoreEntry], requirements: Path | None = None
+    ignores: list[IgnoreEntry],
+    requirements: Path | None = None,
+    cache_dir: Path | None = None,
 ) -> list[str]:
     """Build the pip-audit command, one ``--ignore-vuln <id>`` per ignore entry.
 
@@ -213,6 +216,9 @@ def _build_pip_audit_cmd(
     Args:
         ignores: ``quality.ignore`` entries for the ``pip-audit`` slug.
         requirements: A ``uv export`` of the project's lock, or None.
+        cache_dir: pip-audit's HTTP cache. Without one it asks platformdirs,
+            which refuses a home directory other users can write to, as some
+            runners have.
 
     Returns:
         The command, before resolution.
@@ -221,17 +227,15 @@ def _build_pip_audit_cmd(
     base = ["pip-audit"]
     for entry in ignores:
         base.extend(["--ignore-vuln", entry.id])
+    if cache_dir is not None:
+        base.extend(["--cache-dir", str(cache_dir)])
     if not shutil.which("uv"):
         return base
     spec = f"pip-audit=={tool_version('pip-audit')}"
     if requirements is None:
         return ["uv", "run", "--with", spec, "--", *base]
     return [
-        "uvx",
-        "--python",
-        _parse_python(),
-        "--from",
-        spec,
+        *uvx_from(spec, _parse_python()),
         *base,
         "-r",
         str(requirements),
@@ -255,20 +259,20 @@ def _run_pip_audit(mode: str, ignores: list[IgnoreEntry]) -> bool:
         True if the pipeline should continue, False on a blocking failure.
 
     """
-
-    def audit(requirements: Path | None) -> bool:
-        return run_gate_tool(
-            "pip-audit",
-            _build_pip_audit_cmd(ignores, requirements),
-            mode,
-            via="uv",
-            retry_unreachable=_advisory_db_unreachable,
-        )
-
-    if mode == "disabled" or not (shutil.which("uv") and Path("uv.lock").is_file()):
-        return audit(None)
-
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-pip-audit-") as tmp:
+
+        def audit(requirements: Path | None) -> bool:
+            return run_gate_tool(
+                "pip-audit",
+                _build_pip_audit_cmd(ignores, requirements, Path(tmp) / "cache"),
+                mode,
+                via="uv",
+                retry_unreachable=_advisory_db_unreachable,
+            )
+
+        if mode == "disabled" or not (shutil.which("uv") and Path("uv.lock").is_file()):
+            return audit(None)
+
         requirements = Path(tmp) / "requirements.txt"
         exported = run_cmd(
             [*_UV_LOCK_EXPORT, "-o", str(requirements)], check=False, capture=True

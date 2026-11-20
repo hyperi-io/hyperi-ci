@@ -15,6 +15,7 @@ overridable in .hyperi-ci.yaml.
 import contextlib
 import fnmatch
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -23,6 +24,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
 
+from hyperi_ci.channel import COOLDOWN_DAYS
 from hyperi_ci.common import (
     URL_ATTEMPTS,
     announce,
@@ -458,13 +460,12 @@ def resolve_tool_cmd(
     pinned = "==" in spec
     wants_uv_form = via in ("uvx", "uv-with")
     uv = shutil.which("uv")
-    uvx = ["uvx", "--python", python or runtime_version("python")]
+    uvx = uvx_from(spec, python or runtime_version("python"))
 
     if pinned and wants_uv_form and uv:
         if via == "uv-with":
             return ["uv", "run", "--with", spec, "--", *cmd]
-        # --from, as the package spec and the command differ once pinned.
-        return [*uvx, "--from", spec, *cmd]
+        return [*uvx, *cmd]
 
     if shutil.which(cmd[0]):
         if pinned and wants_uv_form:
@@ -479,9 +480,39 @@ def resolve_tool_cmd(
         if via == "uv-with":
             return ["uv", "run", "--with", spec, "--", *cmd]
         if via == "uvx":
-            return [*uvx, "--from", spec, *cmd]
+            return [*uvx, *cmd]
         return ["uv", "run", *cmd]
     return cmd
+
+
+def uvx_from(spec: str, python: str | None = None) -> list[str]:
+    """Return a ``uvx --from <spec>`` prefix that holds the tool's dependencies back.
+
+    The tool itself is pinned in versions.yaml, but uvx resolves its
+    dependencies to the newest release. ``--exclude-newer`` applies the
+    supply-chain cooldown to them, and the tool is exempt so a fresh pin still
+    installs.
+
+    Args:
+        spec: Requirement to install, e.g. ``pip-audit==2.10.0``.
+        python: Interpreter for the tool's environment. None lets uvx choose.
+
+    Returns:
+        The command prefix. Append the tool's command and arguments.
+    """
+    name = re.split(r"[=<>!~\[ ;]", spec, maxsplit=1)[0]
+    prefix = ["uvx"]
+    if python:
+        prefix += ["--python", python]
+    return [
+        *prefix,
+        "--exclude-newer",
+        f"P{COOLDOWN_DAYS}D",
+        "--exclude-newer-package",
+        f"{name}=P0D",
+        "--from",
+        spec,
+    ]
 
 
 def emit_tool_output(

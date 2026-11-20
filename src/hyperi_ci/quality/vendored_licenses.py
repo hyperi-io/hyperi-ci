@@ -20,7 +20,7 @@ from typing import Any
 
 from hyperi_ci.common import error, run_cmd
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import emit_tool_output
+from hyperi_ci.languages.quality_common import emit_tool_output, uvx_from
 from hyperi_ci.quality.dep_licenses import (
     Finding,
     Mode,
@@ -92,7 +92,7 @@ def parse_vendored(raw: Any) -> list[VendoredPath]:
 
 def _reuse_cmd(root: Path) -> list[str]:
     spec = f"reuse=={tool_version('reuse')}"
-    return ["uvx", "--from", spec, "reuse", "--root", str(root), "lint", "--json"]
+    return [*uvx_from(spec), "reuse", "--root", str(root), "lint", "--json"]
 
 
 def findings_for(
