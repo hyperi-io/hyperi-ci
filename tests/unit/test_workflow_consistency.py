@@ -3491,9 +3491,10 @@ class TestAReleaseRunIsNeverCancelled:
         main = _gh_render(concurrency["group"], self._others()["plain push"])
         assert main == "CI-refs/heads/main"
 
-    def test_each_monorepo_project_has_its_own_group(self) -> None:
+    @pytest.mark.parametrize("workflow_name", ["rust-ci.yml", "python-ci.yml"])
+    def test_each_monorepo_project_has_its_own_group(self, workflow_name: str) -> None:
         # Two caller jobs on one ref would otherwise cancel each other.
-        group = _load_workflow("rust-ci.yml")["concurrency"]["group"]
+        group = _load_workflow(workflow_name)["concurrency"]["group"]
         rendered = {
             _gh_render(group, {**self._event("push"), "inputs.project-dir": d})
             for d in ("", "scenarios/a", "scenarios/b")
