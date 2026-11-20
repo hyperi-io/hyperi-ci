@@ -2791,7 +2791,9 @@ class TestTestTierThreading:
             "&& needs.build-os.result || '' }}"
         )
 
-    @pytest.mark.parametrize("workflow_name", ["rust-ci.yml", "_release-tail.yml"])
+    @pytest.mark.parametrize(
+        "workflow_name", ["rust-ci.yml", "python-ci.yml", "_release-tail.yml"]
+    )
     def test_every_job_that_checks_out_runs_in_the_project_dir(
         self, workflow_name: str
     ) -> None:
