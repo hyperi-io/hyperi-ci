@@ -19,8 +19,11 @@
 # does not, so a rename or a deletion surfaces the same day.
 #
 # Fields:
-#   name            upstream repo name under hyperi-io
-#   language        the fixture's own language; `none` where it has no build
+#   name            the fixture, and its repo under hyperi-io unless `repo` is set
+#   repo            the repo a scenario shares, e.g. hyperi-ci-test
+#   caller          its workflow file that calls hyperi-ci (default ci.yml)
+#   dir             its directory in the repo (default the root)
+#   language       the fixture's own language; `none` where it has no build
 #   workflow        the reusable workflow its ci.yml calls. Drives which
 #                   fixtures a workflow change has to be rehearsed against
 #                   (scripts/rehearse-gate.py), so it is data, not prose.

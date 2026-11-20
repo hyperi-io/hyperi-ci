@@ -52,8 +52,56 @@ def load_fleet(path: Path | None = None) -> list[Entry]:
     return list(data.get("fleet", []))
 
 
+def repo_name(entry: Entry) -> str:
+    """The fixture's upstream repo name: `repo`, else its own name."""
+    return entry.get("repo") or entry["name"]
+
+
+def repo_of(entry: Entry) -> str:
+    """The fixture's repo as ``owner/name``, the form `gh --repo` takes."""
+    return f"{ORG}/{repo_name(entry)}"
+
+
+def caller_of(entry: Entry) -> str:
+    """The workflow file in the fixture repo that calls hyperi-ci."""
+    return entry.get("caller") or "ci.yml"
+
+
+def project_dir(entry: Entry) -> str:
+    """The fixture's directory inside its repo, empty for the repo root."""
+    return entry.get("dir") or ""
+
+
+def is_scenario(entry: Entry) -> bool:
+    """Whether the fixture shares its repo with others, as a monorepo scenario."""
+    return repo_name(entry) != entry["name"]
+
+
+def find(fleet: list[Entry], name: str) -> Entry | None:
+    """The fixture called ``name``, or the one fixture living in repo ``name``.
+
+    Args:
+        fleet: Fleet entries.
+        name: A fixture name, or a repo name with or without the owner.
+
+    Returns:
+        The entry, or None when nothing matches or a repo holds several.
+    """
+    name = name.rsplit("/", 1)[-1]
+    for entry in fleet:
+        if entry["name"] == name:
+            return entry
+    in_repo = [entry for entry in fleet if repo_name(entry) == name]
+    return in_repo[0] if len(in_repo) == 1 else None
+
+
 def declared_names(fleet: list[Entry]) -> set[str]:
     """Upstream repo names the fleet claims exist."""
+    return {repo_name(entry) for entry in fleet}
+
+
+def fixture_names(fleet: list[Entry]) -> set[str]:
+    """Every fixture's name."""
     return {entry["name"] for entry in fleet}
 
 
@@ -63,11 +111,12 @@ def token_scope(fleet: list[Entry], *, negative_cases_only: bool = False) -> lis
     The token action widens an EMPTY list to every repo in the org, so callers
     must treat an empty answer as an error, never pass it on.
     """
-    return [
-        entry["name"]
+    repos = [
+        repo_name(entry)
         for entry in fleet
         if not negative_cases_only or entry.get("negative_cases")
     ]
+    return list(dict.fromkeys(repos))
 
 
 def language_workflows(fleet: list[Entry]) -> set[str]:

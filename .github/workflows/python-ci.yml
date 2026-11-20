@@ -88,6 +88,10 @@ on:
         type: string
         default: ""
         description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for Python today, kept for parity."
+      project-dir:
+        type: string
+        default: ""
+        description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
     secrets:
       ALERT_BRIDGE_TOKEN:
         required: false
@@ -116,7 +120,8 @@ concurrency:
   # a tag with no artefact behind it (issue #717). Plan matches the trailer with a line
   # regex (predict-version/action.yml) but this is a substring test, so it also holds a
   # message that only mentions the trailer and misses odd spacing like `Release:  true`.
-  group: "${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || (inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) && format('release-{0}', github.ref) || github.ref }}"
+  # project-dir keys each project of a monorepo caller apart.
+  group: "${{ github.workflow }}${{ inputs.project-dir && format('-{0}', inputs.project-dir) || '' }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || (inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) && format('release-{0}', github.ref) || github.ref }}"
   cancel-in-progress: "${{ !(inputs.tag != '' || inputs.from-head == 'true' || github.event_name == 'push' && (contains(github.event.head_commit.message, 'Release: true') || contains(github.event.head_commit.message, 'Release:true') || contains(github.event.head_commit.message, 'Publish: true') || contains(github.event.head_commit.message, 'Publish:true'))) }}"
 
 env:
@@ -160,6 +165,9 @@ jobs:
     # the default set is enough (issue #291). It runs before the mode is
     # resolved, so it reads the payload's visibility directly.
     runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     # semantic-release's git plugin verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
@@ -200,6 +208,7 @@ jobs:
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
           runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
           python-version: ${{ inputs.python-version }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Install uv (preflight)
         if: steps.predict.outputs.will-release == 'true'
@@ -286,6 +295,9 @@ jobs:
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -304,6 +316,7 @@ jobs:
           # run-checks run, once, where Test is a matrix and Build needs both.
           save-uv-cache: "true"
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Install dependencies
         # Step-scoped: workflow-wide UV_PYTHON would also capture `uvx hyperi-ci` (docs/languages/python.md).
@@ -371,6 +384,9 @@ jobs:
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       matrix:
         os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
@@ -389,6 +405,7 @@ jobs:
           force-python-install: "true"
           enable-uv-cache: "true"
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Install dependencies
         # Step-scoped: workflow-wide UV_PYTHON would also capture `uvx hyperi-ci` (docs/languages/python.md).
@@ -453,7 +470,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-python-${{ matrix.os }}
-          path: test-results/
+          path: ${{ inputs.project-dir || '.' }}/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -466,6 +483,9 @@ jobs:
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
     runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -481,6 +501,7 @@ jobs:
           force-python-install: "true"
           enable-uv-cache: "true"
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
+          project-dir: ${{ inputs.project-dir }}
 
       - name: Stamp predicted version
         # Stamps VERSION + pyproject.toml before `uv sync` installs the project, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
@@ -505,8 +526,8 @@ jobs:
         with:
           name: build-dist-default
           path: |
-            dist/
-            VERSION
+            ${{ inputs.project-dir || '.' }}/dist/
+            ${{ inputs.project-dir || '.' }}/VERSION
           if-no-files-found: ignore
           retention-days: 1
 
@@ -538,6 +559,7 @@ jobs:
       skip-optimize: ${{ inputs.skip-optimize }}
       release-unoptimized: ${{ inputs.release-unoptimized }}
       optimize-tier: ${{ inputs.optimize-tier }}
+      project-dir: ${{ inputs.project-dir }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------
