@@ -2758,6 +2758,39 @@ class TestTestTierThreading:
             "${{ needs.plan.outputs.full-required-for-release }}"
         )
 
+    def test_rust_os_legs_reach_the_tail_and_the_gate(self) -> None:
+        jobs = _load_workflow("rust-ci.yml")["jobs"]
+        build_os = jobs["build-os"]
+        assert build_os["if"] == (
+            "needs.plan.outputs.run-build == 'true' && "
+            "needs.plan.outputs.has-os-legs == 'true'"
+        )
+        assert build_os["strategy"]["matrix"] == (
+            "${{ fromJson(needs.plan.outputs.os-build-matrix) }}"
+        )
+        assert jobs["test"]["strategy"]["matrix"]["include"] == (
+            "${{ fromJson(needs.plan.outputs.os-test-include || '[]') }}"
+        )
+        for job in ("build-os", "test"):
+            assert jobs[job]["defaults"] == {"run": {"shell": "bash"}}
+        test_runs = [
+            s for s in jobs["test"]["steps"] if "run test" in str(s.get("run", ""))
+        ]
+        assert len(test_runs) == 2
+        for step in test_runs:
+            assert step["env"]["HYPERCI_CLIPPY_IN_TEST"] == (
+                "${{ runner.os != 'Linux' && 'true' || '' }}"
+            )
+        assert "build-os" in jobs["release-tail"]["needs"]
+        assert "build-os" in jobs["gate"]["needs"]
+        env = next(
+            s for s in jobs["gate"]["steps"] if "gate-check" in str(s.get("run", ""))
+        )["env"]
+        assert env["HYPERCI_GATE_BUILD_OS"] == (
+            "${{ needs.plan.outputs.has-os-legs == 'true' "
+            "&& needs.build-os.result || '' }}"
+        )
+
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_non_publishing_runs_have_their_own_concurrency_group(
         self, workflow_name: str

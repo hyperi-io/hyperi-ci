@@ -14,6 +14,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust.test import (
+    CLIPPY_IN_TEST_ENV,
     _build_test_cmd,
     _has_nextest,
     _note_coverage_runner,
@@ -149,6 +150,43 @@ class TestStageFailsClosed:
         monkeypatch.setattr(f"{MODULE}.run_cmd", _never)
         monkeypatch.setattr(f"{MODULE}.stream_cmd", _never)
         assert run(_make_config(nextest=True)) == 1
+
+
+class TestNonLinuxLegLintsFirst:
+    """Quality lints on Linux, so a Windows or macOS Test leg runs clippy itself."""
+
+    @pytest.mark.parametrize(
+        ("flag", "clippy_passes", "linted", "rc"),
+        [
+            pytest.param("true", False, True, 1, id="os-leg-clippy-fails"),
+            pytest.param("true", True, True, 1, id="os-leg-clippy-passes"),
+            pytest.param("", False, False, 1, id="linux-leg-no-lint"),
+            pytest.param(None, False, False, 1, id="unset-no-lint"),
+        ],
+    )
+    @pytest.mark.usefixtures("_no_nextest")
+    def test_clippy_runs_only_when_the_workflow_asks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        flag: str | None,
+        clippy_passes: bool,
+        linted: bool,
+        rc: int,
+    ) -> None:
+        calls: list[str] = []
+
+        def _clippy(*_args: object) -> bool:
+            calls.append("clippy")
+            return clippy_passes
+
+        if flag is None:
+            monkeypatch.delenv(CLIPPY_IN_TEST_ENV, raising=False)
+        else:
+            monkeypatch.setenv(CLIPPY_IN_TEST_ENV, flag)
+        monkeypatch.setattr(f"{MODULE}.run_clippy", _clippy)
+        # nextest: true with no nextest fails right after the lint, so no test runs.
+        assert run(_make_config(nextest=True)) == rc
+        assert calls == (["clippy"] if linted else [])
 
 
 class TestCoverageOverridesTheRunner:

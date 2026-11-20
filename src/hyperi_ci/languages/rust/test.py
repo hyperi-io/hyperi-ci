@@ -22,6 +22,7 @@ from pathlib import Path
 from hyperi_ci.common import (
     announce,
     echo_chunk,
+    env_true,
     error,
     info,
     normalise_tristate,
@@ -38,6 +39,7 @@ from hyperi_ci.languages.rust._manifest import (
     split_feature_sets,
 )
 from hyperi_ci.languages.rust._threads import capped_nextest_threads
+from hyperi_ci.languages.rust.quality import run_clippy
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
     KeptLines,
@@ -48,6 +50,9 @@ from hyperi_ci.languages.tiering import (
 from hyperi_ci.versions import tool_version
 
 _RESULTS_DIR = Path("test-results")
+
+#: Set by rust-ci.yml on a Windows or macOS Test leg to run clippy first.
+CLIPPY_IN_TEST_ENV = "HYPERCI_CLIPPY_IN_TEST"
 
 # The full tier under nextest: run #[ignore] tests too, and drop the profile's
 # default-filter. `cargo llvm-cov nextest` takes the same switches.
@@ -526,6 +531,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
+    # rust-ci.yml sets it on a Windows or macOS Test leg: Quality runs on Linux,
+    # where cfg(windows) and cfg(target_os = "macos") code never compiles.
+    if env_true(CLIPPY_IN_TEST_ENV):
+        info("Linting this OS's code before the tests (Quality runs on Linux)...")
+        if not run_clippy(config, extra_env):
+            return 1
+
     info("Running Rust tests...")
     runner = _resolve_runner(config)
     if runner is None:
