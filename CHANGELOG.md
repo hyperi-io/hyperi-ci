@@ -3,6 +3,18 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.82...v2.15.0) (2026-11-20)
+
+### Features
+
+* **rust:** build, test and release Windows and macOS targets ([2ccd6d0](https://github.com/hyperi-io/hyperi-ci/commit/2ccd6d0fb6e139549ad10e4baaa5959341dd04d2))
+
+### Bug Fixes
+
+* **predict-version:** add Windows and macOS legs from build.rust.targets ([7ab3422](https://github.com/hyperi-io/hyperi-ci/commit/7ab3422885799ec4f10eb600fe0dbe89ce7689eb))
+* **push:** run Rust pre-push checks on the offload host ([f98cdd6](https://github.com/hyperi-io/hyperi-ci/commit/f98cdd6c3288c6bcd02be6ebe4f9ef92c0fde652)), closes [#913](https://github.com/hyperi-io/hyperi-ci/issues/913)
+* **setup-nextest:** install the x64 build on Windows runners ([0d41e8d](https://github.com/hyperi-io/hyperi-ci/commit/0d41e8d920492698d51a790ce11567d6b057e2ac))
+
 ## [2.14.82](https://github.com/hyperi-io/hyperi-ci/compare/v2.14.81...v2.14.82) (2026-11-19)
 
 ### Bug Fixes
