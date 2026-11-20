@@ -2792,7 +2792,7 @@ class TestTestTierThreading:
         )
 
     @pytest.mark.parametrize(
-        "workflow_name", ["rust-ci.yml", "python-ci.yml", "_release-tail.yml"]
+        "workflow_name", [*LANGUAGE_WORKFLOWS, "iac-ci.yml", "_release-tail.yml"]
     )
     def test_every_job_that_checks_out_runs_in_the_project_dir(
         self, workflow_name: str
@@ -3491,7 +3491,7 @@ class TestAReleaseRunIsNeverCancelled:
         main = _gh_render(concurrency["group"], self._others()["plain push"])
         assert main == "CI-refs/heads/main"
 
-    @pytest.mark.parametrize("workflow_name", ["rust-ci.yml", "python-ci.yml"])
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_each_monorepo_project_has_its_own_group(self, workflow_name: str) -> None:
         # Two caller jobs on one ref would otherwise cancel each other.
         group = _load_workflow(workflow_name)["concurrency"]["group"]

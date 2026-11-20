@@ -20,11 +20,16 @@ on:
         type: string
         default: ""
         description: "Runner mode: free (GitHub-hosted) or self-hosted. Empty takes GH_RUNNER_MODE, else the repo's visibility: public free, private self-hosted"
+      project-dir:
+        type: string
+        default: ""
+        description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
 
 concurrency:
   # The literal keeps this group apart from a language workflow the same caller
-  # runs beside it, which would otherwise cancel one or the other.
-  group: ${{ github.workflow }}-iac-ci-${{ github.ref }}
+  # runs beside it, which would otherwise cancel one or the other. project-dir
+  # keys each project of a monorepo caller apart.
+  group: ${{ github.workflow }}-iac-ci${{ inputs.project-dir && format('-{0}', inputs.project-dir) || '' }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -49,6 +54,9 @@ jobs:
     # hadolint at their versions.yaml pins and runs checkov and ansible-lint
     # through uvx, so the default runner is enough (issue #291).
     runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
