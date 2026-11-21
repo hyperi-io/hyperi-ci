@@ -114,6 +114,10 @@ class DepGroup:
     apt_repos: list[AptRepo] = field(default_factory=list)
     dpkg_min_version: str = ""
     bake: bool = True
+    # Off Linux: the packages to install, and the binary whose presence skips them.
+    brew_packages: list[str] = field(default_factory=list)
+    choco_packages: list[str] = field(default_factory=list)
+    binary_check: str = ""
 
 
 def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
@@ -162,6 +166,9 @@ def _dep_group_from_entry(entry: dict) -> DepGroup:
         dpkg_check=entry["dpkg_check"],
         apt_packages=list(entry.get("apt_packages", [])),
         bake=entry.get("bake", True),
+        brew_packages=list(entry.get("brew_packages", [])),
+        choco_packages=list(entry.get("choco_packages", [])),
+        binary_check=entry.get("binary_check", ""),
         apt_repos=[
             AptRepo(
                 key_url=r["key_url"],
@@ -815,6 +822,62 @@ def ensure_aws_cli() -> str | None:
     return installed
 
 
+# Package managers the GitHub-hosted macOS and Windows images ship.
+_OS_INSTALLERS = {
+    "Darwin": ["brew", "install"],
+    "Windows": ["choco", "install", "-y", "--no-progress"],
+}
+
+
+def _os_packages(group: DepGroup, system: str) -> list[str]:
+    """The group's packages for a macOS or Windows runner."""
+    return group.brew_packages if system == "Darwin" else group.choco_packages
+
+
+def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
+    """Install the matched groups' brew or choco packages on a macOS or Windows runner.
+
+    A group is skipped when its binary_check is already on PATH, and a group
+    with no packages for this OS is skipped silently.
+
+    Args:
+        language: Language identifier for the native-deps table.
+        cwd: Project root whose manifests select the groups.
+        system: ``Darwin`` or ``Windows``.
+
+    Returns:
+        0 on success, the installer's exit code on failure.
+    """
+    try:
+        dep_groups = _load_dep_groups(language, category="native-deps", project_dir=cwd)
+    except LLVMVersionError as exc:
+        logger.error(str(exc))
+        return 1
+    packages: list[str] = []
+    for group in dep_groups:
+        wanted = _os_packages(group, system)
+        if not wanted or not _group_matches(group, cwd):
+            continue
+        if group.binary_check and shutil.which(group.binary_check):
+            logger.info(f"[{group.name}] already installed ({group.binary_check})")
+            continue
+        packages.extend(p for p in wanted if p not in packages)
+    if not packages:
+        logger.info(f"No native-deps to install for {language} on {system}")
+        return 0
+    installer = _OS_INSTALLERS[system]
+    if not shutil.which(installer[0]):
+        logger.error(
+            f"{installer[0]} is not on PATH, so {packages} cannot be installed"
+        )
+        return 1
+    logger.info(f"Installing native-deps with {installer[0]}: {packages}")
+    result = run_cmd([*installer, *packages], check=False)
+    if result.returncode != 0:
+        logger.error(f"{installer[0]} install failed (exit {result.returncode})")
+    return result.returncode
+
+
 def install_native_deps(
     language: str,
     project_dir: Path | None = None,
@@ -838,8 +901,11 @@ def install_native_deps(
     """
     cwd = project_dir or Path.cwd()
 
-    if platform.system() != "Linux":
-        logger.info(f"Skipping {category} on {platform.system()}")
+    system = platform.system()
+    if system in _OS_INSTALLERS and category == "native-deps":
+        return _install_os_native_deps(language, cwd, system)
+    if system != "Linux":
+        logger.info(f"Skipping {category} on {system}")
         return 0
 
     try:
