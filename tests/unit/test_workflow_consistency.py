@@ -2304,7 +2304,7 @@ class TestReleaseTailRunnerMode:
     FORWARD = "${{ needs.plan.outputs.runner-mode }}"
     CHAIN = (
         "${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || "
-        "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+        "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     )
 
     def test_the_tail_declares_an_optional_runner_mode_input(self) -> None:
