@@ -47,6 +47,9 @@ fleet:
   # fleet-wide `destinations_oss` opt-outs are NOT masks - cutting the leg
   # out to a public registry is standing fleet policy, not a hidden gap.
   - name: ci-test-go-app
+    repo: hyperi-ci-test
+    caller: ci-test-go-app.yml
+    dir: scenarios/ci-test-go-app
     language: go
     workflow: go-ci.yml
     covers: four-target build and GHCR dev-push
@@ -54,6 +57,9 @@ fleet:
     negative_cases: true
 
   - name: ci-test-manifests
+    repo: hyperi-ci-test
+    caller: ci-test-manifests.yml
+    dir: scenarios/ci-test-manifests
     language: none
     workflow: iac-ci.yml
     covers: container, Kubernetes and IaC linting
@@ -61,6 +67,9 @@ fleet:
     negative_cases: true
 
   - name: ci-test-python-app
+    repo: hyperi-ci-test
+    caller: ci-test-python-app.yml
+    dir: scenarios/ci-test-python-app
     language: python
     workflow: python-ci.yml
     covers: container custom mode on GHCR
@@ -118,6 +127,9 @@ fleet:
         why: cargo-hack --each-feature check --lib fails on a member with no lib target
 
   - name: ci-test-ts-app
+    repo: hyperi-ci-test
+    caller: ci-test-ts-app.yml
+    dir: scenarios/ci-test-ts-app
     language: typescript
     workflow: ts-ci.yml
     covers: container custom mode on GHCR

@@ -618,6 +618,8 @@ class TestAFixtureARehearsalHolds:
             return ""
 
         monkeypatch.setattr(sweep, "time", clock)
+        # The names here are stand-ins, so each is its own repo.
+        monkeypatch.setattr(sweep, "_fleet_by_name", dict)
         monkeypatch.setattr(sweep, "_run", fake_run)
         monkeypatch.setattr(sweep.rehearse_branch, "_read_override", read_override)
         monkeypatch.setattr(sweep, "_run_ids", run_ids)
