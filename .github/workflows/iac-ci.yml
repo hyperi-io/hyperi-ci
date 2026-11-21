@@ -24,6 +24,10 @@ on:
         type: string
         default: ""
         description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
+      runner-default:
+        type: string
+        default: ""
+        description: "Runner for the jobs that otherwise read GH_RUNNER_DEFAULT (plan, gate, release tail), ahead of the variable. For a repo whose projects need different runners, such as the runner-image canary's scenarios."
 
 concurrency:
   # The literal keeps this group apart from a language workflow the same caller
@@ -53,7 +57,7 @@ jobs:
     # lint-iac fetches helm, kubeconform, kube-linter, kustomize, tofu and
     # hadolint at their versions.yaml pins and runs checkov and ansible-lint
     # through uvx, so the default runner is enough (issue #291).
-    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
