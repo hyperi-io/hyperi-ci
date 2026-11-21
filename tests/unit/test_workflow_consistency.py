@@ -1933,6 +1933,20 @@ class TestReleaseTailDecoupling:
             ), f"{name} must gate on the plan's resolve output (issue #33)."
 
 
+class TestCallerSeesTheRelease:
+    """A caller's own post-release job reads whether the run released, and at what version."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    @pytest.mark.parametrize("output", ["will-release", "next-version"])
+    def test_the_plan_output_is_a_workflow_output(
+        self, workflow_name: str, output: str
+    ) -> None:
+        wf = _load_workflow(workflow_name)
+        exported = wf[True]["workflow_call"]["outputs"][output]["value"]
+        assert exported == f"${{{{ jobs.plan.outputs.{output} }}}}"
+        assert output in wf["jobs"]["plan"]["outputs"]
+
+
 class TestCommitCheckJob:
     """The commit-check job is the landing gate for conventional-commit
     messages: it validates what actually reaches main (push) and gives

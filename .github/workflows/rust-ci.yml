@@ -129,6 +129,13 @@ on:
         required: false
       GH_APP_PRIVATE_KEY:
         required: false
+    outputs:
+      will-release:
+        description: "'true' when this run releases: the release tail tags v<next-version> at the commit it built. A caller job chaining on the release also needs this workflow's job to succeed."
+        value: ${{ jobs.plan.outputs.will-release }}
+      next-version:
+        description: "The version this run builds and, when will-release is 'true', tags. No leading v."
+        value: ${{ jobs.plan.outputs.next-version }}
 
 concurrency:
   # A schedule and a no-publish dispatch get their own group: sharing main's, either
