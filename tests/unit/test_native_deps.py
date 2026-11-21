@@ -1204,6 +1204,78 @@ class TestExpandTemplateVarsOsCodename:
         assert native_deps._get_os_codename() == ""
 
 
+class TestOsNativeDeps:
+    """macOS and Windows legs install protoc through brew or choco."""
+
+    @staticmethod
+    def _run(
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        system: str,
+        on_path: set[str],
+        *,
+        lock: str = 'name = "prost-build"\n',
+        exit_code: int = 0,
+    ) -> tuple[int, list[list[str]]]:
+        (tmp_path / "Cargo.lock").write_text(lock, encoding="utf-8")
+        monkeypatch.setattr(native_deps.platform, "system", lambda: system)
+        monkeypatch.setattr(
+            native_deps.shutil, "which", lambda name: name if name in on_path else None
+        )
+        calls: list[list[str]] = []
+
+        def run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, exit_code, "", "")
+
+        monkeypatch.setattr(native_deps, "run_cmd", run)
+        rc = native_deps.install_native_deps("rust", project_dir=tmp_path)
+        return rc, calls
+
+    @pytest.mark.parametrize(
+        ("system", "on_path", "exit_code", "rc", "calls"),
+        [
+            ("Darwin", {"brew"}, 0, 0, [["brew", "install", "protobuf"]]),
+            (
+                "Windows",
+                {"choco"},
+                0,
+                0,
+                [["choco", "install", "-y", "--no-progress", "protoc"]],
+            ),
+            # Already there: nothing to install.
+            ("Darwin", {"brew", "protoc"}, 0, 0, []),
+            # No package manager is a failure, not a silent skip.
+            ("Windows", set(), 0, 1, []),
+            # The installer's own failure is the stage's failure.
+            ("Darwin", {"brew"}, 3, 3, [["brew", "install", "protobuf"]]),
+        ],
+        ids=["mac", "windows", "present", "no-installer", "install-fails"],
+    )
+    def test_the_installer_runs_only_when_needed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        system: str,
+        on_path: set[str],
+        exit_code: int,
+        rc: int,
+        calls: list[list[str]],
+    ) -> None:
+        got_rc, got_calls = self._run(
+            monkeypatch, tmp_path, system, on_path, exit_code=exit_code
+        )
+        assert (got_rc, got_calls) == (rc, calls)
+
+    def test_a_project_without_prost_installs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        rc, calls = self._run(
+            monkeypatch, tmp_path, "Darwin", {"brew"}, lock='name = "serde"\n'
+        )
+        assert (rc, calls) == (0, [])
+
+
 class TestAllModeBypass:
     """`all_mode=True` bypasses pattern matching for runner image bake."""
 
