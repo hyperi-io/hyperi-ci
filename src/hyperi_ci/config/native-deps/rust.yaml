@@ -166,6 +166,11 @@
   apt_packages:
     - protobuf-compiler
     - libprotobuf-dev
+  binary_check: protoc
+  brew_packages:
+    - protobuf
+  choco_packages:
+    - protoc
 
 # --- OpenSSL (libssl) ---
 # openssl-sys links dynamically by default via pkg-config.

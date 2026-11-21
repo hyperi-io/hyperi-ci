@@ -788,9 +788,23 @@ def main() -> int:
     args = parser.parse_args()
 
     branch = args.branch
-    entry = fixture_fleet.find(fixture_fleet.load_fleet(), args.fixture or args.repo)
-    if args.fixture and entry is None:
-        return _fail(f"{args.fixture!r} is not in config/fixtures.yaml")
+    fleet = fixture_fleet.load_fleet()
+    if args.fixture:
+        entry = fixture_fleet.find(fleet, args.fixture)
+        if entry is None:
+            return _fail(f"{args.fixture!r} is not in config/fixtures.yaml")
+    else:
+        # --repo names a repo, so it never selects a scenario sharing a name with it.
+        short = args.repo.rsplit("/", 1)[-1]
+        entry = next(
+            (
+                e
+                for e in fleet
+                if fixture_fleet.repo_name(e) == short
+                and not fixture_fleet.is_scenario(e)
+            ),
+            None,
+        )
     repo = fixture_fleet.repo_of(entry) if args.fixture and entry else args.repo
     # A scenario's rehearsal swaps its own caller only, so the PR runs just it.
     scenario = entry["name"] if entry and fixture_fleet.is_scenario(entry) else ""
