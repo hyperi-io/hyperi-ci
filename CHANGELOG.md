@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.1...v2.15.2) (2026-11-21)
+
+### Bug Fixes
+
+* **fleet:** run four fixtures from hyperi-ci-test ([805b81e](https://github.com/hyperi-io/hyperi-ci/commit/805b81e6022147f66af1e73ac808a1b080d58317))
+* **fleet:** run the python-lib fixture from hyperi-ci-test ([716e1b6](https://github.com/hyperi-io/hyperi-ci/commit/716e1b65b6a9908ce4f7ab2e75b54adc1b5ef70f))
+* **native-deps:** install protoc on macOS and Windows ([b119418](https://github.com/hyperi-io/hyperi-ci/commit/b119418c0f95daaa20fb57030592980ef9c546a8))
+
 ## [2.15.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.0...v2.15.1) (2026-11-20)
 
 ### Bug Fixes
