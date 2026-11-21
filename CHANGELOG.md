@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.2...v2.15.3) (2026-11-21)
+
+### Bug Fixes
+
+* **check:** skip the host lock for checks with a grant ([6026eac](https://github.com/hyperi-io/hyperi-ci/commit/6026eac110dbc31352ff0ac5ed44277e5f8f23b8))
+* **ci:** export will-release and next-version to callers ([8d904aa](https://github.com/hyperi-io/hyperi-ci/commit/8d904aa8d783bb73e36adce879ded9dd5c4805fb))
+* **ci:** pass runner-default to the release tail ([2210e9c](https://github.com/hyperi-io/hyperi-ci/commit/2210e9cc1d083bb6fadcbdb2ab6892e0a629b541))
+* **go-ci:** run the beta notice from the workspace ([8ed6fa1](https://github.com/hyperi-io/hyperi-ci/commit/8ed6fa131bd84f9cabc86889c8e214f3dbf0eded))
+* **release-tail:** add a runner-default input ([f4ecdbc](https://github.com/hyperi-io/hyperi-ci/commit/f4ecdbc3c01f787322a5e8ee40ebf12c6864ac06))
+
 ## [2.15.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.1...v2.15.2) (2026-11-21)
 
 ### Bug Fixes
