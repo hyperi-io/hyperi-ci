@@ -25,6 +25,8 @@ The gates differ only in how a missing tool is handled (below).
 
 A local check also runs one at a time per host, and on Linux with a user systemd it runs in a scope capped at the host's free memory less 2 GiB. A rustc that outgrows the cap swaps or is killed inside the check instead of the host OOM killer picking from the editor and other sessions. `HYPERCI_MEMORY_SCOPE=off` runs it without the scope.
 
+A check that `hyperi-ai remote run` admits on a shared host gets a grant in `HYPERI_BUDGET_MEM_MB` and `HYPERI_BUDGET_CPUS`. With both set to positive integers it takes no lock and no scope, and it sizes cargo jobs and test workers to the grant, or to free memory where that is less. Admission accounts for each job's memory, so several checks share the host at once.
+
 ## Effective mode - how a tool's fate is decided
 
 Bottom line: **skip beats strict beats configured mode.** A force-skip disables

@@ -22,6 +22,7 @@ from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from hyperi_ci.admission import admitted_budget
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget, cpu_model
@@ -164,8 +165,12 @@ def cargo_jobs_env(
         return {}
 
     gib_per_job = _gib_per_job(config, environ)
-    cpus = cpus if cpus is not None else cpu_budget()
+    grant = admitted_budget(environ)
+    if cpus is None:
+        cpus = grant.cpus if grant is not None else cpu_budget()
     limit = limit if limit is not None else memory_limit()
+    if grant is not None:
+        limit = grant.cap(limit)
     jobs = jobs_for(cpus, limit, gib_per_job)
     memory = (
         f"{limit.gib:.1f} GiB memory limit from {limit.source}"

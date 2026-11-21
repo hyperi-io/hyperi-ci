@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import sizing, workers
+from hyperi_ci.admission import CPUS_ENV, MEM_ENV, AdmittedBudget, admitted_budget
 from hyperi_ci.config import CIConfig
 from hyperi_ci.memory import (
     GIB,
@@ -106,6 +107,68 @@ class TestMemoryBound:
         assert budget.workers == 12
         assert budget.memory_bound is None
         assert "unreadable" in budget.describe()
+
+
+class TestAdmittedGrant:
+    @pytest.mark.parametrize(
+        ("grant_gib", "grant_cpus", "free", "expected"),
+        [
+            # Peers' load of 30 is ignored: 6 CPUs, 8 GiB * 0.8 = 6 workers.
+            (8, 6, _free(100), 6),
+            # Free memory under the grant wins: 4 GiB * 0.8 = 3.
+            (20, 16, _free(4), 3),
+            # The grant under free memory wins: 4 GiB * 0.8 = 3.
+            (4, 32, _free(100), 3),
+            # Unreadable free memory falls back to the grant: CPUs cap at 4.
+            (64, 4, None, 4),
+        ],
+        ids=["busy-peers", "free-below-grant", "grant-below-free", "memory-unreadable"],
+    )
+    def test_a_grant_sizes_as_a_dedicated_host(
+        self,
+        grant_gib: int,
+        grant_cpus: int,
+        free: MemoryLimit | None,
+        expected: int,
+    ) -> None:
+        grant = AdmittedBudget(grant_gib * GIB, grant_cpus)
+        budget = sizing.worker_budget(
+            1024,
+            ci=False,
+            read_load=lambda: 30.0,
+            read_memory=lambda: free,
+            read_grant=lambda: grant,
+        )
+        assert budget.workers == expected
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected"),
+    [
+        ({MEM_ENV: "8192", CPUS_ENV: "4"}, AdmittedBudget(8 * GIB, 4)),
+        ({MEM_ENV: " 8192 ", CPUS_ENV: "4"}, AdmittedBudget(8 * GIB, 4)),
+        ({MEM_ENV: "8192"}, None),
+        ({CPUS_ENV: "4"}, None),
+        ({MEM_ENV: "0", CPUS_ENV: "4"}, None),
+        ({MEM_ENV: "8192", CPUS_ENV: "-1"}, None),
+        ({MEM_ENV: "8G", CPUS_ENV: "4"}, None),
+        ({}, None),
+    ],
+    ids=[
+        "whole",
+        "padded",
+        "no-cpus",
+        "no-memory",
+        "zero",
+        "negative",
+        "unit",
+        "unset",
+    ],
+)
+def test_only_a_whole_positive_grant_is_read(
+    environ: dict[str, str], expected: AdmittedBudget | None
+) -> None:
+    assert admitted_budget(environ) == expected
 
 
 class TestForcedWorkers:

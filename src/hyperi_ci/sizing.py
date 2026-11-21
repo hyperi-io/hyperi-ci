@@ -15,6 +15,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from hyperi_ci.admission import AdmittedBudget, admitted_budget
 from hyperi_ci.ci_env import is_ci
 from hyperi_ci.cpu import cpu_budget
 from hyperi_ci.memory import MemoryLimit, available_memory
@@ -137,29 +138,38 @@ def worker_budget(
     ci: bool | None = None,
     read_load: Callable[[], float | None] = load_average,
     read_memory: Callable[[], MemoryLimit | None] = available_memory,
+    read_grant: Callable[[], AdmittedBudget | None] = admitted_budget,
 ) -> WorkerBudget:
     """Return the worker count the CPUs and the free memory both allow.
 
+    An admission grant sizes the run as a CI runner's: its CPUs, no load-average
+    term, and its memory or free memory, whichever is less. Peers' load would
+    otherwise push every shared check to the floor.
+
     Args:
         mb_per_worker: Memory planned per worker.
-        cpus: The CPU budget, read from the host when None.
+        cpus: The CPU budget, read from the grant or the host when None.
         ci: Whether this is a CI runner, detected when None.
         read_load: Reads the 1-minute load average, None where it cannot.
         read_memory: Reads free memory, None where it cannot.
+        read_grant: Reads the admission grant, None where there is none.
 
     Returns:
         The budget, with at least 1 worker.
 
     """
-    on_ci = is_ci() if ci is None else ci
-    cpu_cap = cpu_bound(
-        cpu_budget() if cpus is None else cpus,
-        None if on_ci else read_load(),
-        ci=on_ci,
-    )
+    grant = read_grant()
+    dedicated = (is_ci() if ci is None else ci) or grant is not None
+    if cpus is None:
+        cpus = grant.cpus if grant is not None else cpu_budget()
+    cpu_cap = cpu_bound(cpus, None if dedicated else read_load(), ci=dedicated)
     available = read_memory()
+    if grant is not None:
+        available = grant.cap(available)
     mem_cap = (
-        None if available is None else memory_bound(available, mb_per_worker, ci=on_ci)
+        None
+        if available is None
+        else memory_bound(available, mb_per_worker, ci=dedicated)
     )
     workers = cpu_cap if mem_cap is None else min(cpu_cap, mem_cap)
     return WorkerBudget(max(1, workers), cpu_cap, mem_cap, available, mb_per_worker)

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import memory_scope
+from hyperi_ci.admission import CPUS_ENV, MEM_ENV
 from hyperi_ci.memory import GIB
 from hyperi_ci.memory_scope import SCOPE_ENV, scope_cap_bytes, scope_command
 
@@ -66,6 +67,7 @@ def test_a_local_check_reruns_itself_in_a_capped_scope(
         "no-runtime-dir",
         "no-bus",
         "no-systemd-run",
+        "admitted",
     ],
 )
 def test_no_scope_where_one_cannot_or_should_not_run(
@@ -90,4 +92,7 @@ def test_no_scope_where_one_cannot_or_should_not_run(
             (tmp_path / "bus").unlink()
         case "no-systemd-run":
             monkeypatch.setattr(memory_scope.shutil, "which", lambda _name: None)
+        case "admitted":
+            environ[MEM_ENV] = "8192"
+            environ[CPUS_ENV] = "4"
     assert scope_command(["hyperi-ci", "check"], 8 * GIB, environ) is None

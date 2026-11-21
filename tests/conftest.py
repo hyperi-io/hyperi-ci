@@ -19,6 +19,7 @@ from scalo.logger import setup as setup_logger
 
 from hyperi_ci import channel, common, config, labels
 from hyperi_ci import check_lock as check_lock_module
+from hyperi_ci.admission import CPUS_ENV, MEM_ENV
 from hyperi_ci.common import is_ci, run_cmd
 from hyperi_ci.container import stage as container_stage
 from hyperi_ci.languages.tiering import TIER_EXPORT_ENV
@@ -300,6 +301,13 @@ def no_exported_test_tier(monkeypatch: pytest.MonkeyPatch) -> None:
 def private_check_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Point a CLI `check` at a lock file of its own, not the host's."""
     monkeypatch.setattr(check_lock_module, "LOCK_FILE", tmp_path / "check.lock")
+
+
+@pytest.fixture(autouse=True)
+def no_admission_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the grant `hyperi-ai remote run` exports, which turns the lock and scope off."""
+    monkeypatch.delenv(MEM_ENV, raising=False)
+    monkeypatch.delenv(CPUS_ENV, raising=False)
 
 
 @pytest.fixture(autouse=True)

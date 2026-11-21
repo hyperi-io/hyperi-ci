@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import check_lock as module
+from hyperi_ci.admission import CPUS_ENV, MEM_ENV
 from hyperi_ci.check_lock import check_lock
 
 
@@ -59,6 +60,38 @@ def test_a_check_inside_the_holder_does_not_wait_on_it(tmp_path: Path) -> None:
         with check_lock(path):
             pass
     assert module.HELD_ENV not in os.environ
+
+
+@pytest.mark.parametrize(
+    ("memory_mb", "cpus", "waits"),
+    [
+        ("8192", "4", False),
+        ("8192", "", True),
+        ("0", "4", True),
+        ("lots", "4", True),
+    ],
+    ids=["admitted", "no-cpus", "zero-memory", "not-a-number"],
+)
+def test_only_a_whole_grant_skips_a_held_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    memory_mb: str,
+    cpus: str,
+    waits: bool,
+) -> None:
+    monkeypatch.setenv(MEM_ENV, memory_mb)
+    monkeypatch.setenv(CPUS_ENV, cpus)
+    path = tmp_path / "check.lock"
+    holder = path.open("a+", encoding="utf-8")
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    entered = threading.Event()
+    thread = _enter_in_thread(path, entered)
+    try:
+        assert entered.wait(0.5) is not waits
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        holder.close()
+        thread.join(5)
 
 
 def test_ci_takes_no_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
