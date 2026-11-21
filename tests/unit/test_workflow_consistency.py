@@ -2318,7 +2318,7 @@ class TestReleaseTailRunnerMode:
     FORWARD = "${{ needs.plan.outputs.runner-mode }}"
     CHAIN = (
         "${{ inputs.runner-mode == 'free' && 'ubuntu-latest' || "
-        "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+        "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     )
 
     def test_the_tail_declares_an_optional_runner_mode_input(self) -> None:
@@ -2804,6 +2804,22 @@ class TestTestTierThreading:
             "${{ needs.plan.outputs.has-os-legs == 'true' "
             "&& needs.build-os.result || '' }}"
         )
+
+    @pytest.mark.parametrize(
+        "workflow_name", [*LANGUAGE_WORKFLOWS, "iac-ci.yml", "_release-tail.yml"]
+    )
+    def test_no_shell_step_runs_in_the_project_dir_before_checkout(
+        self, workflow_name: str
+    ) -> None:
+        # The directory only exists once the checkout has run, so bash fails to start.
+        for name, job in _load_workflow(workflow_name)["jobs"].items():
+            if not (job.get("defaults") or {}).get("run", {}).get("working-directory"):
+                continue
+            for step in job.get("steps") or []:
+                if "actions/checkout" in str(step.get("uses", "")):
+                    break
+                if "run" in step:
+                    assert step.get("working-directory"), (name, step.get("name"))
 
     @pytest.mark.parametrize(
         "workflow_name", [*LANGUAGE_WORKFLOWS, "iac-ci.yml", "_release-tail.yml"]

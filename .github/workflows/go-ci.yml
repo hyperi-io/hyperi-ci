@@ -192,6 +192,8 @@ jobs:
       build-matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: Beta notice
+        # Before checkout the project-dir default does not exist yet.
+        working-directory: ${{ github.workspace }}
         run: echo "::warning title=Go CI is beta::The Go reusable workflow is less battle-tested than Rust/Python/TS -- verify results carefully."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
