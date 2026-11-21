@@ -2100,19 +2100,19 @@ class TestRunnerSelection:
     payload's visibility themselves. A fork PR runs free, whatever the mode.
     """
 
-    TAIL = "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+    TAIL = "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     EXPLICIT = "(inputs.runner-mode || vars.GH_RUNNER_MODE)"
     PRE_PLAN_CHAIN = (
         "${{ (github.event.pull_request.head.repo.fork || "
         "(inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || "
         "!(inputs.runner-mode || vars.GH_RUNNER_MODE) && "
         "github.event.repository.visibility == 'public') && 'ubuntu-latest' || "
-        "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+        "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     )
     FREE_AFTER_PLAN = "needs.plan.outputs.runner-mode == 'free' && "
     GATE_CHAIN = (
         "${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || "
-        "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+        "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
     )
     RETIRED = (
         "renovate/",
@@ -2178,6 +2178,21 @@ class TestRunnerSelection:
                 },
                 "arc",
             ),
+            # The runner-image canary names each scenario's scale set this way.
+            (
+                {
+                    "inputs.runner-mode": "self-hosted",
+                    "inputs.runner-default": "arc-native-16cpu-canary",
+                },
+                "arc-native-16cpu-canary",
+            ),
+            (
+                {
+                    "inputs.runner-mode": "free",
+                    "inputs.runner-default": "arc-native-16cpu-canary",
+                },
+                "ubuntu-latest",
+            ),
         ],
         ids=[
             "public",
@@ -2188,6 +2203,8 @@ class TestRunnerSelection:
             "input-free",
             "var-self-hosted-beats-public",
             "input-beats-var",
+            "runner-default-beats-var",
+            "free-ignores-runner-default",
         ],
     )
     def test_the_pre_plan_chain_routes(
@@ -2198,6 +2215,18 @@ class TestRunnerSelection:
             self.PRE_PLAN_CHAIN, {"vars.GH_RUNNER_DEFAULT": "arc", **context}
         )
         assert rendered == runner
+
+    @pytest.mark.parametrize("workflow_name", [*LANGUAGE_WORKFLOWS, "iac-ci.yml"])
+    def test_runner_default_is_declared_and_reaches_the_tail(
+        self, workflow_name: str
+    ) -> None:
+        # The release tail's jobs read GH_RUNNER_DEFAULT too, so a caller's
+        # runner-default that stopped at the language workflow would miss them.
+        wf = _load_workflow(workflow_name)
+        assert wf[True]["workflow_call"]["inputs"]["runner-default"]["default"] == ""
+        tail = wf["jobs"].get("release-tail")
+        if tail is not None:
+            assert tail["with"]["runner-default"] == "${{ inputs.runner-default }}"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_the_gate_reads_plans_mode(self, workflow_name: str) -> None:
@@ -2219,7 +2248,10 @@ class TestRunnerSelection:
             assert self.EXPLICIT not in runs_on, (job, runs_on)
             assert f"vars.{mine}" in runs_on, (job, runs_on)
             assert not any(f"vars.{other}" in runs_on for other in theirs)
-            assert "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest'" in runs_on
+            assert (
+                "inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest'"
+                in runs_on
+            )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_matrix_runners_read_the_resolved_mode(

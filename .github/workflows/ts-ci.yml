@@ -92,6 +92,10 @@ on:
         type: string
         default: ""
         description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
+      runner-default:
+        type: string
+        default: ""
+        description: "Runner for the jobs that otherwise read GH_RUNNER_DEFAULT (plan, gate, release tail), ahead of the variable. For a repo whose projects need different runners, such as the runner-image canary's scenarios."
     secrets:
       ALERT_BRIDGE_TOKEN:
         required: false
@@ -163,7 +167,7 @@ jobs:
     # The composite installs uv and runs its config readers with PyYAML, so
     # the default set is enough (issue #291). It runs before the mode is
     # resolved, so it reads the payload's visibility directly.
-    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
@@ -262,7 +266,7 @@ jobs:
       github.event_name == 'merge_group'
     # Needs only git and uv, so no language variable (issue #291). It does not
     # wait for Plan, so it reads the payload's visibility directly.
-    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # pull-requests: read reads the PR title live. A job-level block replaces the
     # workflow default, so contents: read is restated.
     permissions:
@@ -289,7 +293,7 @@ jobs:
     timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
@@ -386,7 +390,7 @@ jobs:
         working-directory: ${{ inputs.project-dir || '.' }}
     strategy:
       matrix:
-        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -481,7 +485,7 @@ jobs:
     timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
-    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
@@ -559,6 +563,7 @@ jobs:
       release-unoptimized: ${{ inputs.release-unoptimized }}
       optimize-tier: ${{ inputs.optimize-tier }}
       project-dir: ${{ inputs.project-dir }}
+      runner-default: ${{ inputs.runner-default }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------
@@ -579,7 +584,7 @@ jobs:
     # push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.

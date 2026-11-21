@@ -110,6 +110,10 @@ on:
         type: string
         default: ""
         description: "The project's directory inside the repo, for a repo holding one project per directory. Empty (default) is the repo root."
+      runner-default:
+        type: string
+        default: ""
+        description: "Runner for the jobs that otherwise read GH_RUNNER_DEFAULT (plan, gate, release tail), ahead of the variable. For a repo whose projects need different runners, such as the runner-image canary's scenarios."
     secrets:
       ALERT_BRIDGE_TOKEN:
         required: false
@@ -187,7 +191,7 @@ jobs:
     # The composite installs uv and runs its config readers with PyYAML, so
     # the default set is enough (issue #291). It runs before the mode is
     # resolved, so it reads the payload's visibility directly.
-    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
@@ -308,7 +312,7 @@ jobs:
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
-          AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          AMD64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
           ARM64_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
           # Its own runner, so a parity build does not take a release-sized slot.
           ARM64_CHECK_RUNNER: ${{ steps.predict.outputs.runner-mode == 'free' && 'ubuntu-26.04-arm' || inputs.runner-build-arm64 || 'ubuntu-26.04-arm' }}
@@ -350,7 +354,7 @@ jobs:
       github.event_name == 'merge_group'
     # Needs only git and uv, so no language variable (issue #291). It does not
     # wait for Plan, so it reads the payload's visibility directly.
-    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' || !(inputs.runner-mode || vars.GH_RUNNER_MODE) && github.event.repository.visibility == 'public') && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # pull-requests: read reads the PR title live. A job-level block replaces the
     # workflow default, so contents: read is restated.
     permissions:
@@ -381,7 +385,7 @@ jobs:
     env:
       HYPERCI_RUNNER_MODE: ${{ needs.plan.outputs.runner-mode }}
     if: needs.plan.outputs.run-checks == 'true'
-    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: ${{ inputs.project-dir || '.' }}
@@ -499,7 +503,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(needs.plan.outputs.runner-mode == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
         # One leg per Windows or macOS runner the build legs use. An entry
         # naming an os already listed adds no leg.
         include: ${{ fromJson(needs.plan.outputs.os-test-include || '[]') }}
@@ -1139,6 +1143,7 @@ jobs:
       release-unoptimized: ${{ inputs.release-unoptimized }}
       optimize-tier: ${{ inputs.optimize-tier }}
       project-dir: ${{ inputs.project-dir }}
+      runner-default: ${{ inputs.runner-default }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------
@@ -1159,7 +1164,7 @@ jobs:
     # push and works as a required context by itself.
     needs: [plan, quality, test, build, build-os, build-pgo-profile, build-pgo-optimize, build-bolt]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ needs.plan.outputs.runner-mode == 'free' && 'ubuntu-latest' || inputs.runner-default || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.
