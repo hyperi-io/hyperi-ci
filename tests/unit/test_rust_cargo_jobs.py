@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from hyperi_ci import dispatch
+from hyperi_ci.admission import CPUS_ENV, MEM_ENV
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.rust import _jobs
@@ -138,6 +139,27 @@ class TestPrecedence:
             cpus=16,
         )
         assert got == {JOBS_ENV: "8"}
+
+    @pytest.mark.parametrize(
+        ("memory_mb", "cpus", "jobs"),
+        [
+            # The 8 GiB grant caps the 16 GiB host limit: 8 / 2 = 4.
+            ("8192", "12", "4"),
+            # The host limit is under the grant, and the grant's 3 CPUs cap it.
+            ("65536", "3", "3"),
+        ],
+        ids=["grant-caps-memory", "grant-caps-cpus"],
+    )
+    def test_an_admission_grant_sizes_the_jobs(
+        self, clean_dir: Path, memory_mb: str, cpus: str, jobs: str
+    ) -> None:
+        got = cargo_jobs_env(
+            _config(jobs="auto", memory_per_job_gib=2),
+            _environ(clean_dir, **{MEM_ENV: memory_mb, CPUS_ENV: cpus}),
+            cwd=clean_dir / "repo",
+            limit=SIXTEEN_GIB,
+        )
+        assert got == {JOBS_ENV: jobs}
 
     @pytest.mark.parametrize(
         ("rust", "mode", "jobs"),

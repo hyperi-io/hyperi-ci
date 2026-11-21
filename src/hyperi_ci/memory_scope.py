@@ -18,6 +18,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from hyperi_ci.admission import admitted_budget
 from hyperi_ci.common import info, is_ci, is_linux, run_cmd
 from hyperi_ci.memory import GIB, mem_available
 
@@ -47,10 +48,13 @@ def scope_command(
 
     Returns:
         The ``systemd-run`` command, or None in CI, off Linux, inside a scope
-        already, or with no user systemd bus to ask for one.
+        already, with no user systemd bus to ask for one, or with an admission
+        grant, whose job stays in the scope its admission accounts.
 
     """
     if is_ci() or not is_linux() or environ.get(SCOPE_ENV):
+        return None
+    if admitted_budget(environ) is not None:
         return None
     runtime = environ.get("XDG_RUNTIME_DIR")
     systemd_run = shutil.which("systemd-run")

@@ -7,7 +7,8 @@
 """Serialise local ``hyperi-ci check`` runs on one host.
 
 Each check sizes its cargo jobs and test workers from the whole host's memory,
-so two at once each plan for all of it and the host runs out.
+so two at once each plan for all of it and the host runs out. A check admitted
+with a grant (:mod:`hyperi_ci.admission`) sizes to the grant and takes no lock.
 """
 
 import os
@@ -15,6 +16,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from hyperi_ci.admission import admitted_budget
 from hyperi_ci.common import info, is_ci
 from hyperi_ci.upgrade import CACHE_DIR
 
@@ -30,7 +32,8 @@ def check_lock(path: Path | None = None) -> Iterator[None]:
     """Hold the host-wide check lock, waiting while another check holds it.
 
     A CI runner runs one job, so CI skips the lock. So does a platform with no
-    ``fcntl``, and a check started inside one that holds it.
+    ``fcntl``, a check started inside one that holds it, and a check admitted
+    with a grant.
 
     Args:
         path: The lock file, ``LOCK_FILE`` when None.
@@ -45,6 +48,13 @@ def check_lock(path: Path | None = None) -> Iterator[None]:
         yield
         return
     if is_ci() or os.environ.get(HELD_ENV):
+        yield
+        return
+    if (grant := admitted_budget()) is not None:
+        info(
+            f"check admitted with {grant.memory_bytes // 1024**2} MiB and "
+            f"{grant.cpus} CPUs, so it shares this host without the check lock"
+        )
         yield
         return
 
