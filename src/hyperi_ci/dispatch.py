@@ -117,9 +117,10 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
     Looks for ``hyperi_ci.languages.<language>.<stage>``, through
     ``_LANGUAGE_ALIASES``, and returns the module if it has a callable ``run``.
 
-    Returns ``None`` only when the module does not exist (ImportError). A module
-    whose ``run`` is missing or not callable is a packaging bug and raises
-    ``TypeError``, so it is not mistaken for "no handler".
+    Returns ``None`` only when that module, or a package above it, does not
+    exist. An import that fails inside the module propagates, and so does a
+    module whose ``run`` is missing or not callable (``TypeError``): both are
+    packaging bugs, not "no handler".
     """
     stage = _STAGE_ALIASES.get(stage, stage)
     canonical = _LANGUAGE_ALIASES.get(language, language)
@@ -129,8 +130,10 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
     try:
         # The module name comes from a closed set (languages + known stages).
         mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
-    except ImportError:
-        return None
+    except ModuleNotFoundError as exc:
+        if exc.name and f"{module_name}.".startswith(f"{exc.name}."):
+            return None
+        raise
     run_fn = getattr(mod, "run", None)
     if run_fn is None or not callable(run_fn):
         raise TypeError(
@@ -171,26 +174,33 @@ def _dispatch_to_handler(
     stage: str,
     config: CIConfig,
     extra_env: dict[str, str] | None = None,
-) -> int:
+) -> int | None:
     """Dispatch to a Python handler module.
 
-    Returns -1 if no handler found, otherwise the handler's return code.
+    Returns None if no handler found, otherwise the handler's return code. A
+    negative code, a subprocess killed by a signal, is logged and returned as
+    128 plus the signal number.
     """
     handler = _find_handler_module(language, stage)
-    if not handler:
-        return -1
+    if handler is None:
+        return None
     if _LANGUAGE_ALIASES.get(language, language) != "rust":
-        return handler.run(config, extra_env=extra_env)
-    # cargo sizes jobs by CPUs alone, which OOM-kills a runner whose memory
-    # limit is below one rustc per CPU.
-    with capped_cargo_jobs(config):
-        return handler.run(config, extra_env=extra_env)
+        rc = handler.run(config, extra_env=extra_env)
+    else:
+        # cargo sizes jobs by CPUs alone, which OOM-kills a runner whose memory
+        # limit is below one rustc per CPU.
+        with capped_cargo_jobs(config):
+            rc = handler.run(config, extra_env=extra_env)
+    if rc < 0:
+        error(f"The {stage} stage's command was killed by signal {-rc}")
+        return 128 - rc
+    return rc
 
 
 def stage_setup(language: str, config: CIConfig) -> int:
     """Environment setup -- dispatch to language-specific handler."""
     rc = _dispatch_to_handler(language, "setup", config)
-    if rc == -1:
+    if rc is None:
         error(f"Setup handler not found for {language}")
         return 1
     return rc
@@ -341,7 +351,7 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         info(f"Rust features config: {features}")
 
     rc = _dispatch_to_handler(language, "quality", config, extra_env=extra_env)
-    if rc == -1:
+    if rc is None:
         error(f"Quality handler not found for {language}")
         return 1
     return rc
@@ -404,7 +414,7 @@ def stage_test(language: str, config: CIConfig) -> int:
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
     show_test_logs(config.setting("test.logs"), Path.cwd())
-    if rc == -1:
+    if rc is None:
         # A missing handler is a packaging bug, not "no tests". A project with
         # none sets `test.enabled: false`.
         error(
@@ -454,7 +464,7 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
                     config,
                     extra_env=extra_env,
                 )
-                if rc == -1:
+                if rc is None:
                     error(f"Build handler not found for {language}")
                     return 1
                 if rc != 0:
@@ -560,7 +570,7 @@ def stage_release(language: str, config: CIConfig) -> int:
         return rc
 
     rc = _dispatch_to_handler(language, "release", config)
-    if rc == -1:
+    if rc is None:
         error(f"Release handler not found for {language}")
         return 1
     if rc != 0:

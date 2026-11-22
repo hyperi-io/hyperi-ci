@@ -314,7 +314,7 @@ class TestCoverageSaysWhenItDidNotRun:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
         monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
-        assert _run_coverage("default") == -1
+        assert _run_coverage("default") is None
         out = capsys.readouterr().out
         assert "::warning title=hyperi-ci coverage skipped::" in out
         assert "did NOT run" in out
@@ -328,7 +328,7 @@ class TestCoverageSaysWhenItDidNotRun:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
         monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: False)
-        assert _run_coverage("default") == -1
+        assert _run_coverage("default") is None
         assert "::warning" not in capsys.readouterr().out
 
 
@@ -344,12 +344,13 @@ class _Recorder:
         self.streamed: list[_Call] = []
         self.ran: list[_Call] = []
         self.report_rc = 0
+        self.stream_rc = 0
 
     def stream(
         self, cmd: list[str], *, env: dict[str, str] | None = None, **_kw: Any
     ) -> tuple[int, str]:
         self.streamed.append((cmd, env))
-        return 0, ""
+        return self.stream_rc, ""
 
     def run(
         self, cmd: list[str], *, env: dict[str, str] | None = None, **_kw: Any
@@ -550,6 +551,15 @@ class TestCoverageOnTheFirstFeatureSetOnly:
             ["cargo", "nextest", "run", "--features", "c"],
         ]
         assert len(recorder.ran) == 1
+
+    @pytest.mark.parametrize("rc", [-1, -9, 101])
+    def test_a_failed_coverage_run_fails_without_a_plain_rerun(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder, rc: int
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        recorder.stream_rc = rc
+        assert run(_make_config(), extra_env={"RUST_FEATURES": "a|b"}) == rc
+        assert len(recorder.streamed) == 1
 
     def test_a_missing_tool_is_reported_once(
         self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
