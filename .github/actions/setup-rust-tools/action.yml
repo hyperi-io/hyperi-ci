@@ -51,7 +51,7 @@ inputs:
     description: cargo-audit release tag to pin (upstream tags carry a `v`)
     required: false
     # hyperi-ci:pin tools.cargo-audit
-    default: v0.22.2
+    default: v0.23.0
   cargo-deny-version:
     description: cargo-deny release tag to pin (upstream tags have NO `v`)
     required: false
@@ -61,12 +61,12 @@ inputs:
     description: sha256 of the x86_64-musl cargo-audit tarball
     required: false
     # hyperi-ci:pin tools.cargo-audit.sha256.amd64
-    default: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+    default: 4f01c74ed84b2dffd0b1d37012a62cdf2a92c96e25bdf8eec7fcc0d4d3eb7811
   cargo-audit-sha256-arm64:
     description: sha256 of the aarch64-gnu cargo-audit tarball
     required: false
     # hyperi-ci:pin tools.cargo-audit.sha256.arm64
-    default: c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd
+    default: 00eff3158429b9629abe8748e971f29f99ee53d4cff54a25072cbb15167bdda8
   cargo-deny-sha256-amd64:
     description: sha256 of the x86_64-musl cargo-deny tarball
     required: false
