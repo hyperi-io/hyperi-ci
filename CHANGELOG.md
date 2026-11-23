@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.8...v2.15.9) (2026-11-23)
+
+### Bug Fixes
+
+* **memory:** account for memory.high in the cgroup budget ([de67256](https://github.com/hyperi-io/hyperi-ci/commit/de67256f708cb955a9756b7905ed791c3c3bc29b))
+
 ## [2.15.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.7...v2.15.8) (2026-11-23)
 
 ### Bug Fixes
