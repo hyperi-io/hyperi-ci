@@ -721,6 +721,40 @@ class TestSetGithubOutput:
             assert out.read_text(encoding="utf-8") == written
 
 
+class TestPrependPath:
+    """A directory reaches this process's PATH and every later step's."""
+
+    @pytest.mark.parametrize("in_actions", [True, False])
+    def test_this_process_and_later_steps_see_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, in_actions: bool
+    ) -> None:
+        gh_path = tmp_path / "github_path"
+        gh_path.write_text("", encoding="utf-8")
+        monkeypatch.setenv("PATH", "/usr/bin")
+        if in_actions:
+            monkeypatch.setenv("GITHUB_PATH", str(gh_path))
+        else:
+            monkeypatch.delenv("GITHUB_PATH", raising=False)
+        common.prepend_path(tmp_path / "bin")
+        assert os.environ["PATH"] == os.pathsep.join(
+            [str(tmp_path / "bin"), "/usr/bin"]
+        )
+        expected = f"{tmp_path / 'bin'}\n" if in_actions else ""
+        assert gh_path.read_text(encoding="utf-8") == expected
+
+    def test_a_line_break_changes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gh_path = tmp_path / "github_path"
+        gh_path.write_text("", encoding="utf-8")
+        monkeypatch.setenv("GITHUB_PATH", str(gh_path))
+        monkeypatch.setenv("PATH", "/usr/bin")
+        with pytest.raises(ValueError, match="line break"):
+            common.prepend_path(Path("/opt/bin\n/evil"))
+        assert os.environ["PATH"] == "/usr/bin"
+        assert gh_path.read_text(encoding="utf-8") == ""
+
+
 class TestStripAnsi:
     """Terminal escapes come out; the text around them stays."""
 

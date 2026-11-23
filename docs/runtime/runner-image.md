@@ -80,6 +80,18 @@ One optional field: `bake: false` (below).
 | `${HYPERCI_LLVM_VERSION}` | the designated LLVM major: `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`) | native-deps/rust.yaml, for the job-time bolt, lld and clang |
 | `${HYPERCI_LLVM_DEFAULT}` | versions.yaml `runtimes.llvm` (`23`) alone | toolchains/llvm.yaml, so the bake never follows the env var or a project pin |
 
+Off Linux, `install-native-deps` installs a matched entry's `brew_packages` on macOS or `choco_packages` on Windows, and skips the entry when its `binary_check` is already on PATH. The install runs up to 4 times, with backoff, until it exits 0 and every `binary_check` is on PATH, because choco exits 0 having installed nothing when its feed is down.
+
+`release_fallback` names a pinned release zip (`_OS_RELEASE_TOOLS` in `native_tools.py`, versions.yaml `tools.<name>`). When the binary is still missing, or there is no brew or choco, the zip is checked against its digest, unpacked, and its directory goes on `$GITHUB_PATH` for the later steps.
+
+```yaml
+- name: protobuf / gRPC
+  binary_check: protoc
+  brew_packages: [protobuf]
+  choco_packages: [protoc]
+  release_fallback: protoc
+```
+
 ## The `bake: false` flag - non-coinstallable toolsets
 
 When an apt package declares `Conflicts: <package>-x.y`, only one version may be

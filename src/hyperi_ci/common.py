@@ -209,6 +209,24 @@ def set_github_output(**pairs: str) -> None:
             fh.write(f"{key}={value}\n")
 
 
+def prepend_path(directory: Path) -> None:
+    """Put ``directory`` first on PATH here, and in later steps through ``$GITHUB_PATH``.
+
+    Raises:
+        ValueError: The path holds a line break, which would add a second
+            entry. Nothing is changed.
+
+    """
+    entry = str(directory)
+    if "\n" in entry or "\r" in entry:
+        raise ValueError(f"PATH entry {entry!r} holds a line break")
+    os.environ["PATH"] = os.pathsep.join([entry, os.environ.get("PATH", "")])
+    gh_path = os.environ.get("GITHUB_PATH")
+    if gh_path:
+        with Path(gh_path).open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"{entry}\n")
+
+
 def is_linux() -> bool:
     """Detect if running on Linux."""
     return sys.platform.startswith("linux")

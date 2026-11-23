@@ -1217,10 +1217,12 @@ class TestOsNativeDeps:
         lock: str = 'name = "prost-build"\n',
         exit_codes: tuple[int, ...] = (0,),
         installed_by: int = 1,
-    ) -> tuple[int, list[list[str]]]:
+        release_ok: bool = False,
+    ) -> tuple[int, list[list[str]], list[str]]:
         """Run the install, protoc reaching PATH on call ``installed_by`` (0: never).
 
-        Each call exits with the next of ``exit_codes``, the last repeating.
+        Each call exits with the next of ``exit_codes``, the last repeating. The
+        release fallback puts protoc on PATH when ``release_ok``.
         """
         (tmp_path / "Cargo.lock").write_text(lock, encoding="utf-8")
         on_path = set(on_path)
@@ -1230,6 +1232,7 @@ class TestOsNativeDeps:
         )
         monkeypatch.setattr(native_deps.time, "sleep", lambda _s: None)
         calls: list[list[str]] = []
+        released: list[str] = []
 
         def run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
             calls.append(cmd)
@@ -1238,37 +1241,50 @@ class TestOsNativeDeps:
             code = exit_codes[min(len(calls), len(exit_codes)) - 1]
             return subprocess.CompletedProcess(cmd, code, "", "")
 
+        def release(tool: str, bin_dir: Path) -> Path | None:
+            released.append(tool)
+            if not release_ok:
+                return None
+            on_path.add("protoc")
+            return bin_dir / "protoc"
+
         monkeypatch.setattr(native_deps, "run_cmd", run)
+        monkeypatch.setattr(native_deps, "install_os_release", release)
+        monkeypatch.setattr(native_deps, "prepend_path", lambda _d: None)
         rc = native_deps.install_native_deps("rust", project_dir=tmp_path)
-        return rc, calls
+        return rc, calls, released
 
     _BREW = ["brew", "install", "protobuf"]
     _CHOCO = ["choco", "install", "-y", "--no-progress", "protoc"]
 
     @pytest.mark.parametrize(
-        ("system", "on_path", "exit_codes", "installed_by", "rc", "calls"),
+        ("system", "on_path", "exit_codes", "installed_by", "release_ok", "expected"),
         [
-            ("Darwin", {"brew"}, (0,), 1, 0, [_BREW]),
-            ("Windows", {"choco"}, (0,), 1, 0, [_CHOCO]),
+            ("Darwin", {"brew"}, (0,), 1, False, (0, [_BREW], [])),
+            ("Windows", {"choco"}, (0,), 1, False, (0, [_CHOCO], [])),
             # Already there: nothing to install.
-            ("Darwin", {"brew", "protoc"}, (0,), 1, 0, []),
-            # No package manager is a failure, not a silent skip.
-            ("Windows", set(), (0,), 1, 1, []),
-            # The installer's own failure is the stage's failure, after retries.
-            ("Darwin", {"brew"}, (3,), 0, 3, [_BREW] * 4),
+            ("Darwin", {"brew", "protoc"}, (0,), 1, False, (0, [], [])),
+            # No package manager: the release zip, else a failure.
+            ("Windows", set(), (0,), 1, False, (1, [], ["protoc"])),
+            ("Windows", set(), (0,), 1, True, (0, [], ["protoc"])),
+            # The installer fails every retry and so does the release zip.
+            ("Darwin", {"brew"}, (3,), 0, False, (1, [_BREW] * 4, ["protoc"])),
             # choco exits 0 having installed nothing while its feed is down.
-            ("Windows", {"choco"}, (0,), 0, 1, [_CHOCO] * 4),
+            ("Windows", {"choco"}, (0,), 0, False, (1, [_CHOCO] * 4, ["protoc"])),
+            ("Windows", {"choco"}, (0,), 0, True, (0, [_CHOCO] * 4, ["protoc"])),
             # The feed comes back on the second attempt.
-            ("Windows", {"choco"}, (0,), 2, 0, [_CHOCO] * 2),
-            ("Windows", {"choco"}, (1, 0), 2, 0, [_CHOCO] * 2),
+            ("Windows", {"choco"}, (0,), 2, False, (0, [_CHOCO] * 2, [])),
+            ("Windows", {"choco"}, (1, 0), 2, False, (0, [_CHOCO] * 2, [])),
         ],
         ids=[
             "mac",
             "windows",
             "present",
             "no-installer",
+            "no-installer-release",
             "install-fails",
             "exit-0-installs-nothing",
+            "exit-0-installs-nothing-release",
             "feed-recovers",
             "exit-1-then-recovers",
         ],
@@ -1281,26 +1297,32 @@ class TestOsNativeDeps:
         on_path: set[str],
         exit_codes: tuple[int, ...],
         installed_by: int,
-        rc: int,
-        calls: list[list[str]],
+        release_ok: bool,
+        expected: tuple[int, list[list[str]], list[str]],
     ) -> None:
-        got_rc, got_calls = self._run(
+        got = self._run(
             monkeypatch,
             tmp_path,
             system,
             on_path,
             exit_codes=exit_codes,
             installed_by=installed_by,
+            release_ok=release_ok,
         )
-        assert (got_rc, got_calls) == (rc, calls)
+        assert got == expected
 
     def test_a_project_without_prost_installs_nothing(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        rc, calls = self._run(
+        got = self._run(
             monkeypatch, tmp_path, "Darwin", {"brew"}, lock='name = "serde"\n'
         )
-        assert (rc, calls) == (0, [])
+        assert got == (0, [], [])
+
+    def test_the_protobuf_group_names_its_release_fallback(self) -> None:
+        groups = native_deps._load_dep_groups("rust", category="native-deps")
+        protobuf = next(g for g in groups if g.binary_check == "protoc")
+        assert protobuf.release_fallback == "protoc"
 
 
 class TestAllModeBypass:

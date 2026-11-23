@@ -40,6 +40,7 @@ from hyperi_ci.common import (
     curl_read,
     download_artefact,
     info,
+    prepend_path,
     run_cmd,
     sudo_prefix,
     url_read,
@@ -50,6 +51,7 @@ from hyperi_ci.llvm_version import (
     default_llvm_major,
     designated_llvm_version,
 )
+from hyperi_ci.native_tools import install_os_release, install_root
 from hyperi_ci.versions import tool_version
 
 _LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
@@ -120,6 +122,8 @@ class DepGroup:
     brew_packages: list[str] = field(default_factory=list)
     choco_packages: list[str] = field(default_factory=list)
     binary_check: str = ""
+    # The pinned release zip installed when brew or choco leaves binary_check missing.
+    release_fallback: str = ""
 
 
 def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
@@ -171,6 +175,7 @@ def _dep_group_from_entry(entry: dict) -> DepGroup:
         brew_packages=list(entry.get("brew_packages", [])),
         choco_packages=list(entry.get("choco_packages", [])),
         binary_check=entry.get("binary_check", ""),
+        release_fallback=entry.get("release_fallback", ""),
         apt_repos=[
             AptRepo(
                 key_url=r["key_url"],
@@ -843,6 +848,8 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
     with no packages for this OS is skipped silently. The install runs up to
     ``URL_ATTEMPTS`` times until it exits 0 and every binary_check is on PATH,
     because choco exits 0 having installed nothing when its feed is down.
+    A binary still missing after that, or with no installer on PATH, comes
+    from its group's pinned ``release_fallback`` zip when it has one.
 
     Args:
         language: Language identifier for the native-deps table.
@@ -850,8 +857,8 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         system: ``Darwin`` or ``Windows``.
 
     Returns:
-        0 on success, the installer's exit code when it failed, or 1 when it
-        exited 0 and a binary_check is still not on PATH.
+        0 on success, the installer's exit code when it failed, or 1 when a
+        binary_check is still not on PATH.
     """
     try:
         dep_groups = _load_dep_groups(language, category="native-deps", project_dir=cwd)
@@ -860,6 +867,8 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         return 1
     packages: list[str] = []
     binaries: list[str] = []
+    fallbacks: dict[str, str] = {}
+    unchecked = False
     for group in dep_groups:
         wanted = _os_packages(group, system)
         if not wanted or not _group_matches(group, cwd):
@@ -868,17 +877,39 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
             logger.info(f"[{group.name}] already installed ({group.binary_check})")
             continue
         packages.extend(p for p in wanted if p not in packages)
-        if group.binary_check:
-            binaries.append(group.binary_check)
+        if not group.binary_check:
+            unchecked = True
+            continue
+        binaries.append(group.binary_check)
+        if group.release_fallback:
+            fallbacks[group.binary_check] = group.release_fallback
     if not packages:
         logger.info(f"No native-deps to install for {language} on {system}")
         return 0
+    installer = _OS_INSTALLERS[system][0]
+    if shutil.which(installer):
+        rc = _run_os_installer(system, packages, binaries)
+    else:
+        logger.error(f"{installer} is not on PATH, so {packages} cannot be installed")
+        rc = 1
+    missing = [binary for binary in binaries if not shutil.which(binary)]
+    if rc == 0 and not missing:
+        return 0
+    # With a group that has no binary_check, a failed installer may have left
+    # it out, and no release zip can tell.
+    if missing and set(missing) <= fallbacks.keys() and (rc == 0 or not unchecked):
+        return 0 if _install_release_fallbacks(missing, fallbacks) else 1
+    return rc or 1
+
+
+def _run_os_installer(system: str, packages: list[str], binaries: list[str]) -> int:
+    """Run brew or choco up to ``URL_ATTEMPTS`` times, until every binary is on PATH.
+
+    Returns:
+        0 when the installer exited 0 and every binary is on PATH, else the
+        last exit code, or 1 when it exited 0 and a binary is still missing.
+    """
     installer = _OS_INSTALLERS[system]
-    if not shutil.which(installer[0]):
-        logger.error(
-            f"{installer[0]} is not on PATH, so {packages} cannot be installed"
-        )
-        return 1
     logger.info(f"Installing native-deps with {installer[0]}: {packages}")
     for attempt in range(1, URL_ATTEMPTS + 1):
         rc = run_cmd([*installer, *packages], check=False).returncode
@@ -899,6 +930,25 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         )
         time.sleep(delay)
     return 1
+
+
+def _install_release_fallbacks(missing: list[str], fallbacks: dict[str, str]) -> bool:
+    """Install each missing binary from its pinned release zip and put it on PATH.
+
+    Returns:
+        True when every binary in ``missing`` is on PATH afterwards.
+    """
+    for binary in missing:
+        tool = fallbacks[binary]
+        info(f"  {binary}: installing the pinned {tool} {tool_version(tool)} release")
+        installed = install_os_release(tool, install_root() / tool / tool_version(tool))
+        if installed is None:
+            return False
+        prepend_path(installed.parent)
+    still = [binary for binary in missing if not shutil.which(binary)]
+    if still:
+        logger.error(f"{still} still not on PATH after the release install")
+    return not still
 
 
 def install_native_deps(
