@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.5...v2.15.6) (2026-11-23)
+
+### Bug Fixes
+
+* **push:** reject a pull that would undo a local rebase ([d4d98dc](https://github.com/hyperi-io/hyperi-ci/commit/d4d98dca89640866c4a7c91e04af524178bd06b8))
+
 ## [2.15.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.4...v2.15.5) (2026-11-23)
 
 ### Bug Fixes
