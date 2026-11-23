@@ -414,7 +414,7 @@ _AWS_CONFIG_CLASSIC = "[default]\ns3 =\n    preferred_transfer_client = classic\
 
 
 @contextmanager
-def _classic_s3_config() -> Generator[str]:
+def classic_s3_config() -> Generator[str]:
     """Yield an AWS config file path that pins `aws s3` to the classic client."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "config"
@@ -465,7 +465,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     public_url = f"{org.r2_public_url}/{key_prefix}"
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
-    with _classic_s3_config() as aws_config:
+    with classic_s3_config() as aws_config:
         aws_env = {
             "AWS_ACCESS_KEY_ID": access_key,
             "AWS_SECRET_ACCESS_KEY": secret_key,

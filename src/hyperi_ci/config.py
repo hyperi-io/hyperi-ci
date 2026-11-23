@@ -73,6 +73,9 @@ class OrgConfig:
     diagram_check_repo: str = "hyperi-ai"
     diagram_check_path: str = "tools/diagram_check.py"
     diagram_check_ref: str = "main"
+    openbao_addr: str = "https://bao.devex.hyperi.io:8200"
+    openbao_jwt_mount: str = "github-actions"
+    openbao_audience: str = "https://bao.devex.hyperi.io"
 
     @property
     def r2_endpoint(self) -> str:
@@ -286,6 +289,7 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     r2 = raw.get("r2", {})
     mirror = raw.get("mirror", {})
     diagram = raw.get("diagram_check", {})
+    openbao = raw.get("openbao", {})
     fallback = OrgConfig()
 
     _org_cache = OrgConfig(
@@ -304,6 +308,9 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
         diagram_check_repo=diagram.get("repo", fallback.diagram_check_repo),
         diagram_check_path=diagram.get("path", fallback.diagram_check_path),
         diagram_check_ref=diagram.get("ref", fallback.diagram_check_ref),
+        openbao_addr=openbao.get("addr", fallback.openbao_addr),
+        openbao_jwt_mount=openbao.get("jwt_mount", fallback.openbao_jwt_mount),
+        openbao_audience=openbao.get("audience", fallback.openbao_audience),
     )
     return _org_cache
 

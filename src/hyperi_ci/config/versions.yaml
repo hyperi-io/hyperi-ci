@@ -319,6 +319,13 @@ tools:
     sha256:
       x86_64: aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d
       aarch64: cd59b90fce5fa84c4189648fec33404ec5491791eebdb812df5e7fca8336408d
+  # Alpine's static apk, run by linux_repo.py to build APKINDEX. It comes from the
+  # Alpine CDN branch `alpine` names, so bumps are by hand, digest included.
+  apk-tools-static:
+    version: 3.0.9-r0
+    alpine: v3.24
+    sha256:
+      x86_64: 0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
   # native_tools.py fetches Helm from get.helm.sh for a project's tests
   # (`test.native_tools`) and for lint-iac, and checks these digests. They were cross-checked
   # against upstream's `.sha256sum` files and the release notes at pin time.

@@ -715,7 +715,7 @@ class TestDepGroupLoading:
         monkeypatch.setattr(native_deps.logger, "error", errors.append)
         installed: list[str] = []
         monkeypatch.setattr(
-            native_deps, "_apt_install", lambda pkgs: installed.extend(pkgs) or 0
+            native_deps, "apt_install", lambda pkgs: installed.extend(pkgs) or 0
         )
 
         assert native_deps.install_native_deps("rust", project_dir=tmp_path) == 1
@@ -781,7 +781,7 @@ class TestDepGroupLoading:
         monkeypatch.setattr(native_deps, "_install_language_tools", lambda _l: 0)
         installed: list[str] = []
         monkeypatch.setattr(
-            native_deps, "_apt_install", lambda pkgs: installed.extend(pkgs) or 0
+            native_deps, "apt_install", lambda pkgs: installed.extend(pkgs) or 0
         )
         assert native_deps.install_native_deps("rust", project_dir=project) == 0
         return installed
@@ -1100,7 +1100,7 @@ class TestBakeFlag:
             installed.extend(packages)
             return 0
 
-        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(native_deps, "apt_install", fake_apt_install)
         monkeypatch.setattr(
             native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
         )
@@ -1142,7 +1142,7 @@ class TestBakeFlag:
             installed.extend(packages)
             return 0
 
-        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(native_deps, "apt_install", fake_apt_install)
         monkeypatch.setattr(
             native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
         )
@@ -1344,7 +1344,7 @@ class TestAllModeBypass:
             installed_packages.extend(packages)
             return 0
 
-        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(native_deps, "apt_install", fake_apt_install)
         monkeypatch.setattr(
             native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
         )
@@ -1374,7 +1374,7 @@ class TestAllModeBypass:
             installed_packages.extend(packages)
             return 0
 
-        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(native_deps, "apt_install", fake_apt_install)
         monkeypatch.setattr(
             native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
         )

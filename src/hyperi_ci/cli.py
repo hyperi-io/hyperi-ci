@@ -1659,6 +1659,86 @@ def mirror_copy_cmd() -> None:
     raise typer.Exit(copy(pins, load_org_config().mirror_prefix))
 
 
+openbao_app = typer.Typer(help="Secrets from OpenBao, through the job's OIDC token")
+app.add_typer(openbao_app, name="openbao")
+
+
+@openbao_app.command(name="read")
+def openbao_read_cmd(
+    path: Annotated[
+        str, typer.Argument(help="kv-v2 secret as <mount>/<path>, e.g. kv/ci/app/gpg")
+    ],
+    field: Annotated[str, typer.Option("--field", help="Field of the secret")],
+    role: Annotated[str, typer.Option("--role", help="OpenBao jwt role to log in as")],
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="File to write, mode 0600. Default: a new one"),
+    ] = None,
+) -> None:
+    """Write one OpenBao secret field to a 0600 file and print its path."""
+    from hyperi_ci.common import error
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.openbao import OpenBaoError, read_to_file
+
+    try:
+        written = read_to_file(
+            load_org_config(), role=role, path=path, field=field, out=out
+        )
+    except OpenBaoError as exc:
+        error(str(exc))
+        raise typer.Exit(1) from exc
+    typer.echo(str(written))
+
+
+linux_repo_app = typer.Typer(help="Signed apt, rpm and apk repositories on R2")
+app.add_typer(linux_repo_app, name="linux-repo")
+
+
+@linux_repo_app.command(name="publish")
+def linux_repo_publish_cmd(
+    packages: Annotated[
+        Path, typer.Argument(help="Directory of unsigned .deb, .rpm and .apk files")
+    ],
+    channel: Annotated[
+        str, typer.Option("--channel", help="release (apt suite stable), beta, alpha")
+    ] = "release",
+    keep: Annotated[
+        int, typer.Option("--keep", help="Versions kept per package and arch, 0 all")
+    ] = 10,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help="R2 prefix. Default: the repository name"),
+    ] = None,
+    role: Annotated[
+        str | None,
+        typer.Option("--role", help="OpenBao jwt role. Default: <project>-release"),
+    ] = None,
+    key_path: Annotated[
+        str | None,
+        typer.Option(
+            "--key-path",
+            help="kv-v2 path of the gpg and apk keys. "
+            "Default: kv/ci/<project>/package-signing",
+        ),
+    ] = None,
+) -> None:
+    """Sign and publish a release's Linux packages as apt, rpm and apk repos."""
+    from hyperi_ci.linux_repo import Target, publish
+
+    name = project or os.environ.get("GITHUB_REPOSITORY", "").rpartition("/")[2]
+    if not name:
+        typer.echo("--project is needed outside GitHub Actions", err=True)
+        raise typer.Exit(2)
+    target = Target(
+        project=name,
+        channel=channel,
+        keep=keep,
+        role=role or f"{name}-release",
+        key_path=key_path or f"kv/ci/{name}/package-signing",
+    )
+    raise typer.Exit(publish(packages, target))
+
+
 static_libs_app = typer.Typer(help="Static librdkafka, OpenSSL, zstd and zlib")
 app.add_typer(static_libs_app, name="static-libs")
 
