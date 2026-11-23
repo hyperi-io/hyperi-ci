@@ -20,7 +20,7 @@ import json
 import os
 import tarfile
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -89,7 +89,7 @@ def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
 
 
 @contextmanager
-def _isolated_npm(lines: list[str]) -> Iterator[tuple[Path, Path]]:
+def _isolated_npm(lines: list[str]) -> Generator[tuple[Path, Path]]:
     """Yield an empty working directory and a user config holding ``lines``.
 
     The config file is created 0600 and removed with the directory.

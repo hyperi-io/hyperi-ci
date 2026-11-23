@@ -93,6 +93,7 @@ class TestCgroupV2:
             assert found is None
             return
         assert found is not None
+        assert binding is not None
         assert found.limit_bytes == expected
         assert found.source == f"cgroup v2 {root / binding}"
 

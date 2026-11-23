@@ -16,7 +16,7 @@ design says must always be sufficient.
 import json
 import subprocess
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -745,7 +745,7 @@ class TestUnclassified:
 
 
 @contextmanager
-def _capture_debug_reasons() -> Iterator[list[str]]:
+def _capture_debug_reasons() -> Generator[list[str]]:
     """Collect the debug-level reasons ``_run_tool`` logs, for a failure message."""
     reasons: list[str] = []
     sink_id = logger.add(reasons.append, level="DEBUG", format="{message}")

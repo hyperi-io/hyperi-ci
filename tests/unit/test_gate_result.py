@@ -13,6 +13,8 @@ version of this module failed every PR by treating build as run-checks
 governed.
 """
 
+from typing import Any
+
 import pytest
 
 from hyperi_ci.gate_result import GateVerdict, TierContext, evaluate
@@ -155,7 +157,7 @@ _BOTH_PASS = {"quality": "success", "test": "success"}
     ],
 )
 def test_the_gate_fails_and_says_why(
-    kwargs: dict[str, object], needles: list[str]
+    kwargs: dict[str, Any], needles: list[str]
 ) -> None:
     verdict = evaluate(**kwargs)
     assert not verdict.ok

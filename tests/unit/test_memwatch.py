@@ -111,7 +111,12 @@ class TestProcesses:
         assert processes(tmp_path / "absent") == []
 
     def test_tree_takes_descendants_only(self, tmp_path: Path) -> None:
-        rows = [(10, 1, "a", 1), (11, 10, "b", 1), (12, 11, "c", 1), (20, 1, "d", 1)]
+        rows: list[tuple[int, int, str, int | None]] = [
+            (10, 1, "a", 1),
+            (11, 10, "b", 1),
+            (12, 11, "c", 1),
+            (20, 1, "d", 1),
+        ]
         procs = processes(_proc(tmp_path, rows))
         assert sorted(tree(10, procs)) == [10, 11, 12]
         assert tree(99, procs) == [99]

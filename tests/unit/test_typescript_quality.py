@@ -14,6 +14,7 @@ the pure-JS case where a project has no npm scripts and no tsconfig.json
 
 import json
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -286,7 +287,7 @@ def _shipped_config(**typescript: object) -> CIConfig:
 
 def _write_manifest(
     tmp_path: Path,
-    scripts: dict[str, object] | None = None,
+    scripts: Mapping[str, object] | None = None,
     dev_deps: dict[str, str] | None = None,
 ) -> None:
     manifest = {
