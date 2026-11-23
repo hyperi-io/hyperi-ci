@@ -79,11 +79,12 @@ A stamp that fails fails the prepare job, so nothing is tagged.
 
 `release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
 
-- prepare ran on a different commit from Tag & Release's checkout, so the files were rendered from other source;
-- the branch has changed that file since the release's checkout, because a merge during the release, or a retroactive dispatch of an old tag, would otherwise have its newer copy overwritten;
-- it is missing, a directory or a symlink, or it is `VERSION`, `CHANGELOG.md` or `.github/release-notes/NEXT.md`.
+- prepare ran on a different commit from Tag & Release's checkout, so the files were rendered from other source
+- it is missing, a directory or a symlink, or it is `VERSION`, `CHANGELOG.md` or `.github/release-notes/NEXT.md`
 
 A list with any entry that is absolute, holds a `..`, sits under `.git/` or resolves outside the repo is refused whole. None of these stop `VERSION` and `CHANGELOG.md` landing.
+
+When the branch has changed any listed file since the release's checkout, `VERSION` and every listed file stay as the branch has them, and only `CHANGELOG.md` lands. A merge during the release, or a retroactive dispatch of an old tag, regenerated that file from newer source. Writing the rest at the new version would leave the branch's files on two versions. The next release from the branch stamps them together.
 
 ## See also
 

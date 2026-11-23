@@ -338,10 +338,10 @@ class TestStampPaths:
         tree = api.bodies_for("/git/trees")[0]["tree"]
         assert [entry["path"] for entry in tree].count("VERSION") == 1
 
-    def test_a_file_the_branch_changed_since_the_checkout_is_left_alone(
+    def test_a_file_the_branch_changed_keeps_version_and_every_stamp(
         self, api: _Api, project: Path
     ) -> None:
-        """A merge during the release regenerated it from newer source."""
+        """A merge regenerated one spec from newer source, so no file moves to 3.1.0."""
         self._spec(project, "openapi.json")
         self._spec(project, "openapi.e2e.json")
         self._configure(
@@ -349,11 +349,7 @@ class TestStampPaths:
         )
         api.tip_blobs["openapi-spec/openapi.json"] = "newer-on-main"
         assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
-        assert self._tree_paths(api) == {
-            "VERSION",
-            "CHANGELOG.md",
-            "openapi-spec/openapi.e2e.json",
-        }
+        assert self._tree_paths(api) == {"CHANGELOG.md"}
 
     def test_a_file_new_to_both_sides_is_committed(
         self, api: _Api, project: Path, _checkout_head: dict[str, str | None]
@@ -372,7 +368,7 @@ class TestStampPaths:
         self._configure(project, ["openapi-spec/openapi.json"])
         _checkout_head["openapi-spec/openapi.json"] = None
         commit_release_artefacts(version="3.1.0", project_dir=project)
-        assert "openapi-spec/openapi.json" not in self._tree_paths(api)
+        assert self._tree_paths(api) == {"CHANGELOG.md"}
 
     @pytest.mark.parametrize("name", [".git/config", SUPPLEMENT])
     def test_paths_release_commit_owns_are_refused(
@@ -511,6 +507,26 @@ class TestATagDispatch:
         tip.notes = notes
         commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
         assert self._tree(tip) == tree
+
+    def test_a_stamp_newer_on_the_branch_keeps_its_version(
+        self, tip: _Api, tagged: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A re-dispatched old tag: the branch regenerated one spec since the tag."""
+        for name in ("openapi.json", "openapi.e2e.json"):
+            (tagged / name).write_text('{"version": "3.1.0"}\n', encoding="utf-8")
+        (tagged / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump(
+                {"release": {"stamp_paths": ["openapi.json", "openapi.e2e.json"]}}
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(release_commit, "_local_blob", lambda _r, _n: _HEAD_BLOB)
+        tip.tip_blobs["openapi.json"] = "newer-on-main"
+        assert (
+            commit_release_artefacts(version="3.1.0", project_dir=tagged, from_tag=True)
+            == 0
+        )
+        assert self._tree(tip) == {"CHANGELOG.md"}
 
     def test_an_older_tag_commits_nothing(self, tip: _Api, tagged: Path) -> None:
         tip.tip_version = "3.2.0\n"
