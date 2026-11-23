@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.4...v2.15.5) (2026-11-23)
+
+### Bug Fixes
+
+* **charts:** retry chart pushes when GHCR can't find the manifest ([7ddbdb0](https://github.com/hyperi-io/hyperi-ci/commit/7ddbdb079a1f6807a1573e6db7a29de2f20f3fe5))
+* **native-deps:** install protoc from its release as a fallback ([5ca8ae5](https://github.com/hyperi-io/hyperi-ci/commit/5ca8ae5843472c9463f9a948b259916cbc1e66bc))
+* **native-deps:** retry brew and choco installs ([5b1a9b5](https://github.com/hyperi-io/hyperi-ci/commit/5b1a9b5ee3da20733743d52e01cda463be7228c4))
+* **pgo:** fail the profile phase when the workload wrote no profile ([e04414f](https://github.com/hyperi-io/hyperi-ci/commit/e04414fb5759b9341c57d46146b0ad5c966bd1f4))
+
 ## [2.15.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.3...v2.15.4) (2026-11-23)
 
 ### Bug Fixes
