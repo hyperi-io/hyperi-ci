@@ -22,7 +22,9 @@ build wins over a copy in the runner image. A quality gate uses an existing
 copy and installs only without one.
 
 Linux only. Elsewhere a copy already on PATH is used with a warning, and a
-missing one fails the stage with install advice.
+missing one fails the stage with install advice. The one exception is
+:func:`install_os_release`, which install-native-deps uses on Windows and macOS
+when brew or choco left a tool missing.
 """
 
 import contextlib
@@ -35,6 +37,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import zipfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -297,14 +300,18 @@ def _api_download(name: str, repo: str, tag: str, asset: str, dest: Path) -> boo
 
 
 def _fetch_pinned(name: str, arch: str, dest: Path) -> bool:
-    """Download ``name`` for ``arch`` into ``dest``, False after logging why not.
+    """Download ``name`` for ``arch`` into ``dest``, False after logging why not."""
+    url, _ = _asset_url(name, arch)
+    return _fetch_verified(name, url, _pinned_digest(name, arch), dest)
+
+
+def _fetch_verified(name: str, url: str, expected: str, dest: Path) -> bool:
+    """Download ``url`` into ``dest`` and check its sha256, False after logging why not.
 
     A pinned URL is not integrity: a release asset can be re-uploaded under the
     same tag, and these bytes are exec'd in every consumer's CI. The digest
     covers the raw download, before anything is unpacked.
     """
-    url, _ = _asset_url(name, arch)
-    expected = _pinned_digest(name, arch)
     fetched = download_to_file(name, url, dest, max_time=_DOWNLOAD_MAX_TIME)
     if not fetched and (source := github_release_source(url)):
         info(f"  {name}: retrying through the GitHub API")
@@ -450,6 +457,80 @@ def install_into(name: str, bin_dir: Path) -> Path | None:
         with contextlib.suppress(OSError):
             binary.unlink(missing_ok=True)
         return None
+    return binary
+
+
+@dataclass(frozen=True, slots=True)
+class OsReleaseTool:
+    """One tool's Windows and macOS release zips.
+
+    ``url`` is a format string over ``{version}``, ``{bare}`` and ``{asset}``.
+    ``assets`` maps ``(platform.system(), arch)`` to the asset's platform
+    spelling, which is also its digest key in versions.yaml. ``member`` is the
+    binary's path in the zip, without the ``.exe`` Windows adds.
+    """
+
+    url: str
+    assets: dict[tuple[str, str], str]
+    member: str
+
+
+_OS_RELEASE_TOOLS: dict[str, OsReleaseTool] = {
+    "protoc": OsReleaseTool(
+        url=(
+            "https://github.com/protocolbuffers/protobuf/releases/download/"
+            "{version}/protoc-{bare}-{asset}.zip"
+        ),
+        assets={
+            ("Windows", "amd64"): "win64",
+            ("Darwin", "arm64"): "osx-aarch_64",
+            ("Darwin", "amd64"): "osx-x86_64",
+        },
+        member="bin/protoc",
+    ),
+}
+
+
+def install_os_release(name: str, bin_dir: Path) -> Path | None:
+    """Write the pinned ``name`` from its Windows or macOS release zip into ``bin_dir``.
+
+    Args:
+        name: A key of the Windows and macOS release table.
+        bin_dir: The directory to write the binary into.
+
+    Returns:
+        The binary's path, or None after logging why there is none: no zip
+        for this host, a failed download, a digest mismatch, or a zip without
+        the binary.
+
+    """
+    tool = _OS_RELEASE_TOOLS[name]
+    system = platform.system()
+    key = tool.assets.get((system, machine_arch() or ""))
+    if key is None:
+        error(f"  {name}: no pinned release zip for {system} {platform.machine()}")
+        return None
+    version = tool_version(name)
+    url = tool.url.format(version=version, bare=version.removeprefix("v"), asset=key)
+    member = f"{tool.member}.exe" if system == "Windows" else tool.member
+    binary = bin_dir / PurePosixPath(member).name
+    expected = tool_sha256(name, key).strip().lower()
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-tool-") as scratch:
+        asset = Path(scratch) / "asset.zip"
+        if not _fetch_verified(name, url, expected, asset):
+            return None
+        partial = bin_dir / f".{binary.name}.partial"
+        try:
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(asset) as archive:
+                partial.write_bytes(archive.read(member))
+            partial.chmod(0o755)
+            os.replace(partial, binary)
+        except (OSError, KeyError, zipfile.BadZipFile) as exc:
+            error(f"  {name}: cannot unpack {member} from {url}: {exc}")
+            with contextlib.suppress(OSError):
+                partial.unlink(missing_ok=True)
+            return None
     return binary
 
 

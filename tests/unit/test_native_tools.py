@@ -14,6 +14,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO
@@ -685,6 +686,97 @@ class TestOffLinux:
     ) -> None:
         monkeypatch.setattr(native_tools.shutil, "which", lambda n: None)
         assert native_tools.install_tool("helm", tmp_path) is None
+
+
+def _zip(*members: str, data: bytes = b"protoc-binary") -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        for name in members:
+            archive.writestr(name, data)
+    return buf.getvalue()
+
+
+class TestOsRelease:
+    """The Windows and macOS release zip install-native-deps falls back to."""
+
+    @staticmethod
+    def _host(monkeypatch: pytest.MonkeyPatch, system: str, machine: str) -> None:
+        monkeypatch.setattr(native_tools.platform, "system", lambda: system)
+        monkeypatch.setattr(native_tools.platform, "machine", lambda: machine)
+
+    @staticmethod
+    def _serve(
+        monkeypatch: pytest.MonkeyPatch, payload: bytes, *, digest: str | None = None
+    ) -> list[str]:
+        urls: list[str] = []
+        pinned = digest or hashlib.sha256(payload).hexdigest()
+        monkeypatch.setattr(native_tools, "tool_sha256", lambda _n, _k: pinned)
+
+        def _download(name: str, url: str, dest: Path, **_kw: object) -> bool:
+            urls.append(url)
+            dest.write_bytes(payload)
+            return True
+
+        monkeypatch.setattr(native_tools, "download_to_file", _download)
+        return urls
+
+    @pytest.mark.parametrize(
+        ("system", "machine", "member", "asset"),
+        [
+            ("Windows", "AMD64", "bin/protoc.exe", "win64"),
+            ("Darwin", "arm64", "bin/protoc", "osx-aarch_64"),
+            ("Darwin", "x86_64", "bin/protoc", "osx-x86_64"),
+        ],
+    )
+    def test_the_binary_comes_out_of_the_verified_zip(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        system: str,
+        machine: str,
+        member: str,
+        asset: str,
+    ) -> None:
+        self._host(monkeypatch, system, machine)
+        urls = self._serve(monkeypatch, _zip(member, "include/x.proto"))
+        binary = native_tools.install_os_release("protoc", tmp_path)
+        assert binary == tmp_path / Path(member).name
+        assert binary.read_bytes() == b"protoc-binary"
+        assert binary.stat().st_mode & stat.S_IXUSR
+        bare = tool_version("protoc").removeprefix("v")
+        assert urls == [
+            "https://github.com/protocolbuffers/protobuf/releases/download/"
+            f"{tool_version('protoc')}/protoc-{bare}-{asset}.zip"
+        ]
+
+    def test_no_zip_for_this_host_downloads_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._host(monkeypatch, "Linux", "x86_64")
+        monkeypatch.setattr(native_tools, "download_to_file", _never)
+        assert native_tools.install_os_release("protoc", tmp_path) is None
+
+    def test_a_digest_mismatch_installs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._host(monkeypatch, "Darwin", "arm64")
+        self._serve(monkeypatch, _zip("bin/protoc"), digest="0" * 64)
+        assert native_tools.install_os_release("protoc", tmp_path) is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_zip_without_the_binary_leaves_nothing_behind(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._host(monkeypatch, "Darwin", "arm64")
+        self._serve(monkeypatch, _zip("include/x.proto"))
+        assert native_tools.install_os_release("protoc", tmp_path) is None
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "key", sorted(set(native_tools._OS_RELEASE_TOOLS["protoc"].assets.values()))
+    )
+    def test_every_asset_has_a_pinned_digest(self, key: str) -> None:
+        assert re.fullmatch(r"[0-9a-f]{64}", tool_sha256("protoc", key))
 
 
 class TestPrepare:
