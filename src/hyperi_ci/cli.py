@@ -1659,6 +1659,37 @@ def mirror_copy_cmd() -> None:
     raise typer.Exit(copy(pins, load_org_config().mirror_prefix))
 
 
+openbao_app = typer.Typer(help="Secrets from OpenBao, through the job's OIDC token")
+app.add_typer(openbao_app, name="openbao")
+
+
+@openbao_app.command(name="read")
+def openbao_read_cmd(
+    path: Annotated[
+        str, typer.Argument(help="kv-v2 secret as <mount>/<path>, e.g. kv/ci/app/gpg")
+    ],
+    field: Annotated[str, typer.Option("--field", help="Field of the secret")],
+    role: Annotated[str, typer.Option("--role", help="OpenBao jwt role to log in as")],
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="File to write, mode 0600. Default: a new one"),
+    ] = None,
+) -> None:
+    """Write one OpenBao secret field to a 0600 file and print its path."""
+    from hyperi_ci.common import error
+    from hyperi_ci.config import load_org_config
+    from hyperi_ci.openbao import OpenBaoError, read_to_file
+
+    try:
+        written = read_to_file(
+            load_org_config(), role=role, path=path, field=field, out=out
+        )
+    except OpenBaoError as exc:
+        error(str(exc))
+        raise typer.Exit(1) from exc
+    typer.echo(str(written))
+
+
 static_libs_app = typer.Typer(help="Static librdkafka, OpenSSL, zstd and zlib")
 app.add_typer(static_libs_app, name="static-libs")
 
