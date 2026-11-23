@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.3...v2.15.4) (2026-11-23)
+
+### Bug Fixes
+
+* **dispatch:** separate signal exits from missing handlers ([d7c2dea](https://github.com/hyperi-io/hyperi-ci/commit/d7c2dea7facc83c77a6a71b81c5d28d35d79143c))
+
 ## [2.15.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.2...v2.15.3) (2026-11-21)
 
 ### Bug Fixes
