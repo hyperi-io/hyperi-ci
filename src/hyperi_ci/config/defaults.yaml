@@ -285,6 +285,16 @@ test:
   logs:
     - "target/tmp/shared-services-*.log"
 
+  # Rust, Linux only. Every 30s of the test command, log memory, swap, the
+  # share of the interval every task spent stalled on memory (PSI "full") and
+  # the 5 largest processes. Past abort_stall_percent for abort_after_samples
+  # heartbeats running, stop the command and fail the stage, so the step ends
+  # with its log instead of GitHub losing a starved runner. 0 never stops.
+  memory_watch:
+    enabled: false
+    abort_stall_percent: 50
+    abort_after_samples: 4
+
   full:
     # Whether a release must have run the full tier.
     required_for_release: false
