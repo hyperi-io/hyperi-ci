@@ -249,6 +249,16 @@ class TestFreeMemoryReaders:
         assert found is not None
         assert found.limit_bytes == 3 * GIB
 
+    def test_cgroup_headroom_counts_memory_high(self, tmp_path: Path) -> None:
+        root, proc = self._cgroup(tmp_path, "max", str(GIB))
+        (root / "runner" / "memory.high").write_text(
+            str(4 * GIB), encoding="utf-8", newline="\n"
+        )
+        found = cgroup_v2_headroom(root, proc)
+        assert found is not None
+        assert found.limit_bytes == 3 * GIB
+        assert found.source.endswith("memory.high")
+
     def test_an_unlimited_cgroup_has_no_headroom_figure(self, tmp_path: Path) -> None:
         root, proc = self._cgroup(tmp_path, "max", str(GIB))
         assert cgroup_v2_headroom(root, proc) is None

@@ -106,7 +106,7 @@ There is no 2-CPU tier. Each runner also requests `hyperi.io/arc-mem-gi` equal t
 
 cargo starts one rustc per CPU whatever the memory. So every Rust stage caps `CARGO_BUILD_JOBS` at the memory limit over `build.rust.memory_per_job_gib` (default 2). That gives 16 jobs on 16x32, 8 on 8x16 and 4 on 4x8. A workspace with multi-GiB crates raises it. `free` mode plans at least `build.rust.free_memory_per_job_gib` (default 4), so a 15.6 GiB runner gets 3 jobs.
 
-The limit comes from cgroup v2 `memory.max`, then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
+The limit comes from the tightest cgroup v2 `memory.max` or `memory.high` (past `memory.high` the kernel throttles the cgroup), then cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a cargo-config `[build] jobs` is left alone unless `build.rust.jobs` is set.
 
 Every Rust Build writes `runner-fit.json` at the project root and a table to the job summary. `rust-ci.yml` uploads it as `runner-fit-<os_arch>`, 30 days, apart from `dist/`. It is written only when the workflow names the runner through `HYPERCI_RUNNER_LABEL`, so a local build leaves no file. A failed Build writes one too.
 

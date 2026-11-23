@@ -22,7 +22,12 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_linux
 from hyperi_ci.config import CIConfig
-from hyperi_ci.memory import GIB, cgroup_v2_memory_stall, mem_available, swap_used
+from hyperi_ci.memory import (
+    GIB,
+    available_memory,
+    cgroup_v2_memory_stall,
+    swap_used,
+)
 
 PROC = Path("/proc")
 _TOP = 5
@@ -150,7 +155,8 @@ def _cgroup_full_stall() -> float | None:
 
 
 def _available() -> int | None:
-    found = mem_available()
+    # MemAvailable counts page cache as free and memory.high counts it as used.
+    found = available_memory()
     return None if found is None else found.limit_bytes
 
 
