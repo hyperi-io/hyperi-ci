@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.6...v2.15.7) (2026-11-23)
+
+### Bug Fixes
+
+* **test:** stop a Rust test run that thrashes swap ([3703e91](https://github.com/hyperi-io/hyperi-ci/commit/3703e91c1e0ed879b4e82b0d5376339978bf6b9c))
+
 ## [2.15.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.5...v2.15.6) (2026-11-23)
 
 ### Bug Fixes
