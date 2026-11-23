@@ -175,12 +175,30 @@ class Signer:
         )
 
 
+def signing_key(listing: str) -> str | None:
+    """Return ``<fingerprint>!`` of the first signing key whose secret is present.
+
+    ``listing`` is ``gpg --with-colons --list-secret-keys``. A key exported
+    with its primary secret stripped signs with a subkey, and the ``!`` stops
+    gpg choosing the primary.
+    """
+    candidate = False
+    for line in listing.splitlines():
+        fields = line.split(":")
+        if fields[0] in {"sec", "ssb"}:
+            capabilities, serial = fields[11], fields[14]
+            candidate = "s" in capabilities and not serial.startswith("#")
+        elif fields[0] == "fpr" and candidate:
+            return f"{fields[9]}!"
+    return None
+
+
 @contextmanager
 def gpg_signer(private_key: Path) -> Iterator[Signer]:
     """Import ``private_key`` into a throwaway GNUPGHOME and yield its signer.
 
     Raises:
-        RepoError: The import failed or yielded no secret key.
+        RepoError: The import failed or yielded no key that can sign.
 
     """
     home = Path(tempfile.mkdtemp(prefix="gnupg-"))
@@ -188,14 +206,10 @@ def gpg_signer(private_key: Path) -> Iterator[Signer]:
     try:
         _out([*gpg, "--import", str(private_key)])
         listing = _out([*gpg, "--with-colons", "--list-secret-keys"])
-        fingerprints = [
-            line.split(":")[9]
-            for line in listing.splitlines()
-            if line.startswith("fpr:")
-        ]
-        if not fingerprints:
-            raise RepoError("the GPG key file holds no secret key")
-        yield Signer(home, fingerprints[0])
+        fingerprint = signing_key(listing)
+        if not fingerprint:
+            raise RepoError("the GPG key file holds no secret key that can sign")
+        yield Signer(home, fingerprint)
     finally:
         run_cmd(["gpgconf", "--homedir", str(home), "--kill", "gpg-agent"], check=False)
         shutil.rmtree(home, ignore_errors=True)

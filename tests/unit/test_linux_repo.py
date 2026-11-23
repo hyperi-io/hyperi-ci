@@ -20,6 +20,7 @@ from hyperi_ci.linux_repo import (
     parse_apkindex,
     prune,
     publish,
+    signing_key,
 )
 
 TARGET = Target("app", "release", 10, "app-release", "kv/ci/app/package-signing")
@@ -97,6 +98,25 @@ def test_signature_segment_pads_a_short_signature() -> None:
     assert len(segment) == 1024
     assert segment[512:515] == b"sig"
     assert segment[515:] == b"\0" * 509
+
+
+PRIMARY = "sec:u:255:22:AAAA:1:::u:::scSC:::{serial}:::ed25519:::0:\nfpr:::::::::PRIMARYFPR:\n"
+SIGN_SUB = "ssb:u:255:22:BBBB:1::::::s:::+:::ed25519::\nfpr:::::::::SUBFPR:\n"
+ENC_SUB = "ssb:u:255:18:CCCC:1::::::e:::+:::cv25519::\nfpr:::::::::ENCFPR:\n"
+
+
+@pytest.mark.parametrize(
+    ("listing", "chosen"),
+    [
+        (PRIMARY.format(serial="+") + SIGN_SUB, "PRIMARYFPR!"),
+        (PRIMARY.format(serial="#") + SIGN_SUB, "SUBFPR!"),
+        (PRIMARY.format(serial="#") + ENC_SUB + SIGN_SUB, "SUBFPR!"),
+        (PRIMARY.format(serial="#") + ENC_SUB, None),
+        ("", None),
+    ],
+)
+def test_signing_key_skips_a_stripped_primary(listing: str, chosen: str | None) -> None:
+    assert signing_key(listing) == chosen
 
 
 def test_publish_with_no_packages_fails(tmp_path: Path) -> None:
