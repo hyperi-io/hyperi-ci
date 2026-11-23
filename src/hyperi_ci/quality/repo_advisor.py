@@ -16,6 +16,9 @@ tree (issue #75). When the primary language is known, a generated layer turns
 off the other ecosystems' root-only rules, plus ``rust-cargo-lock-exists`` for
 a Rust library with no bin target.
 
+The runner moves an annotation's ``title=`` and ``file=`` out of the log text,
+so in CI each line's message is prefixed with its rule id and path.
+
 Config (``.hyperi-ci.yaml``):
 
     quality.alint: auto      # run if alint is installed, else info-skip (default)
@@ -23,12 +26,13 @@ Config (``.hyperi-ci.yaml``):
     quality.alint: disabled  # never run
 """
 
+import re
 import tempfile
 from pathlib import Path
 
 import yaml
 
-from hyperi_ci.common import is_ci, run_cmd, warn
+from hyperi_ci.common import echo_chunk, escape_command_data, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
 from hyperi_ci.languages.rust.targets import rust_is_library
@@ -68,6 +72,40 @@ _ROOT_ONLY_RULES: dict[str, tuple[str, ...]] = {
 
 # Off for a Rust primary with no bin target.
 _RUST_LIBRARY_OFF_RULES: tuple[str, ...] = ("rust-cargo-lock-exists",)
+
+_ANNOTATION = re.compile(r"^::(notice|warning|error)( [^:]*)?::(.*)$")
+
+# Property values escape these on top of what escape_command_data covers.
+_PROPERTY_ESCAPES = (("%2C", ","), ("%3A", ":"), ("%0A", "\n"), ("%0D", "\r"))
+
+
+def _unescape_property(value: str) -> str:
+    """Decode a workflow command property value, ``%25`` last."""
+    for code, char in _PROPERTY_ESCAPES:
+        value = value.replace(code, char)
+    return value.replace("%25", "%")
+
+
+def _with_location(line: str) -> str:
+    """Prefix an annotation's message with its rule id and ``file=`` path.
+
+    Any other line is returned unchanged.
+    """
+    match = _ANNOTATION.match(line)
+    if not match:
+        return line
+    level, props, data = match.groups()
+    fields = dict(
+        prop.split("=", 1) for prop in (props or "").strip().split(",") if "=" in prop
+    )
+    prefix = ""
+    if rule := fields.get("title"):
+        prefix += f"[{_unescape_property(rule)}] "
+    if path := fields.get("file"):
+        prefix += f"{_unescape_property(path)}: "
+    if not prefix:
+        return line
+    return f"::{level}{props or ''}::{escape_command_data(prefix)}{data}"
 
 
 def _override_layer(language: str | None, project_dir: Path) -> str | None:
@@ -117,7 +155,8 @@ def run(
 ) -> int:
     """Run the alint advisory; always returns 0.
 
-    Output is ``--format github`` in CI and ``human`` locally. ``language`` is
+    Output is ``--format github`` in CI, passed through :func:`_with_location`,
+    and ``human`` locally. ``language`` is
     the primary language, else ``config.language``, for :func:`_override_layer`.
     """
     mode = str(config.get("quality.alint", "auto")).strip().lower()
@@ -132,7 +171,8 @@ def run(
             find_tool("alint", recommended=(mode == "enabled"))
             return 0
 
-        cmd = [exe, "check", "--format", "github" if is_ci() else "human"]
+        github = is_ci()
+        cmd = [exe, "check", "--format", "github" if github else "human"]
         # A repo's own .alint.yml is left for alint to discover.
         if not (root / ".alint.yml").exists():
             layer = _override_layer(language or getattr(config, "language", None), root)
@@ -144,10 +184,16 @@ def run(
                 cmd += ["-c", str(layer_path)]
 
         try:
-            result = run_cmd(cmd, check=False, cwd=root)
+            result = run_cmd(
+                cmd, check=False, cwd=root, capture=github, merge_stderr=github
+            )
         except OSError as exc:
             warn(f"alint could not be run ({exc}) - advisory only, not failing.")
             return 0
+    if github and result.stdout:
+        echo_chunk(
+            "".join(f"{_with_location(line)}\n" for line in result.stdout.splitlines())
+        )
     # alint exits 1 on error-level findings, and 2 or 3 when alint itself fails.
     if result.returncode >= 2:
         warn(

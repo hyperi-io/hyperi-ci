@@ -271,6 +271,22 @@ Two hygiene nudges run in the quality stage. Neither can fail a build.
 - alint's root-only manifest and lockfile rules (`go-mod-exists`, `node-package-json-exists`, ...) are off for every ecosystem except the repo's resolved language. The bundled `has_<lang>` facts match nested monorepo packages, so a TS monorepo with `packages/*/go.mod` got a red `go-mod-exists` (issue #75). Per-file rules (Trojan-Source, hygiene) stay on for every ecosystem.
 - A Rust-primary repo with no bin target in any member also gets `rust-cargo-lock-exists` off, since committing a library's `Cargo.lock` is the maintainer's call (<https://blog.rust-lang.org/2023/08/29/committing-lockfiles/>). A feature-gated bin still counts as an app.
 - The overrides are one generated layer file that `extends:` the shipped default. alint 0.13's repeatable `-c` honours only the first file, and 0.14 rejects a second outright. The layer carries `allow_out_of_root: true`, because it and the default both live outside the linted repo.
+- `oss-final-newline` skips `**/fixtures/**` and `**/testdata/**`, where a file can be a byte-exact response body.
+- In CI each finding's log line starts with its rule id and path, as in `[oss-final-newline] docs/notes.md: file does not end with a newline`. The runner shows `title=` and `file=` only on the annotation.
+- To narrow a rule for one repo, commit an `.alint.yml`. It replaces the shipped default rather than adding to it, so copy that file's `extends:` list and add the override under `rules:`:
+
+  ```yaml
+  version: 1
+  extends:
+    - alint://bundled/oss-baseline@v1
+    - alint://bundled/rust@v1
+  rules:
+    - id: oss-final-newline
+      paths:
+        include: ["**/*.md", "**/*.txt", "**/*.toml", "**/*.yml", "**/*.yaml"]
+        exclude: ["tests/golden/**"]
+  ```
+
 - `quality.alint` takes `auto` (run if installed, else info-skip), `enabled` (warn if missing) or `disabled`. Locally a missing alint info-skips with an install hint. In CI it is fetched as the pinned prebuilt binary (`tools.alint` in `src/hyperi_ci/config/versions.yaml`, static musl, run by path with no sudo).
 
 ## See also
