@@ -8,7 +8,7 @@
 
 Reads per-language YAML config from config/native-deps/{language}.yaml,
 scans project manifest files for known patterns, and installs missing
-apt packages on Linux. No-ops on non-Linux platforms.
+packages: apt on Linux, brew on macOS, choco on Windows.
 """
 
 import io
@@ -34,7 +34,9 @@ from hyperi_ci.apt_retry import (
     APT_UPDATE_BACKOFF_SECONDS,
 )
 from hyperi_ci.common import (
+    URL_ATTEMPTS,
     URL_ERRORS,
+    backoff,
     curl_read,
     download_artefact,
     info,
@@ -838,7 +840,9 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
     """Install the matched groups' brew or choco packages on a macOS or Windows runner.
 
     A group is skipped when its binary_check is already on PATH, and a group
-    with no packages for this OS is skipped silently.
+    with no packages for this OS is skipped silently. The install runs up to
+    ``URL_ATTEMPTS`` times until it exits 0 and every binary_check is on PATH,
+    because choco exits 0 having installed nothing when its feed is down.
 
     Args:
         language: Language identifier for the native-deps table.
@@ -846,7 +850,8 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         system: ``Darwin`` or ``Windows``.
 
     Returns:
-        0 on success, the installer's exit code on failure.
+        0 on success, the installer's exit code when it failed, or 1 when it
+        exited 0 and a binary_check is still not on PATH.
     """
     try:
         dep_groups = _load_dep_groups(language, category="native-deps", project_dir=cwd)
@@ -854,6 +859,7 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         logger.error(str(exc))
         return 1
     packages: list[str] = []
+    binaries: list[str] = []
     for group in dep_groups:
         wanted = _os_packages(group, system)
         if not wanted or not _group_matches(group, cwd):
@@ -862,6 +868,8 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
             logger.info(f"[{group.name}] already installed ({group.binary_check})")
             continue
         packages.extend(p for p in wanted if p not in packages)
+        if group.binary_check:
+            binaries.append(group.binary_check)
     if not packages:
         logger.info(f"No native-deps to install for {language} on {system}")
         return 0
@@ -872,10 +880,25 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         )
         return 1
     logger.info(f"Installing native-deps with {installer[0]}: {packages}")
-    result = run_cmd([*installer, *packages], check=False)
-    if result.returncode != 0:
-        logger.error(f"{installer[0]} install failed (exit {result.returncode})")
-    return result.returncode
+    for attempt in range(1, URL_ATTEMPTS + 1):
+        rc = run_cmd([*installer, *packages], check=False).returncode
+        missing = [binary for binary in binaries if not shutil.which(binary)]
+        if rc == 0 and not missing:
+            return 0
+        outcome = f"exit {rc}" if rc else f"{missing} still not on PATH"
+        if attempt == URL_ATTEMPTS:
+            logger.error(
+                f"{installer[0]} install of {packages} failed after "
+                f"{URL_ATTEMPTS} attempts ({outcome})"
+            )
+            return rc or 1
+        delay = backoff(attempt)
+        info(
+            f"  {installer[0]} install: {outcome}, retrying in {delay:.1f}s "
+            f"(retry {attempt} of {URL_ATTEMPTS - 1})"
+        )
+        time.sleep(delay)
+    return 1
 
 
 def install_native_deps(

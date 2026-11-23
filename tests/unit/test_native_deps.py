@@ -1215,55 +1215,82 @@ class TestOsNativeDeps:
         on_path: set[str],
         *,
         lock: str = 'name = "prost-build"\n',
-        exit_code: int = 0,
+        exit_codes: tuple[int, ...] = (0,),
+        installed_by: int = 1,
     ) -> tuple[int, list[list[str]]]:
+        """Run the install, protoc reaching PATH on call ``installed_by`` (0: never).
+
+        Each call exits with the next of ``exit_codes``, the last repeating.
+        """
         (tmp_path / "Cargo.lock").write_text(lock, encoding="utf-8")
+        on_path = set(on_path)
         monkeypatch.setattr(native_deps.platform, "system", lambda: system)
         monkeypatch.setattr(
             native_deps.shutil, "which", lambda name: name if name in on_path else None
         )
+        monkeypatch.setattr(native_deps.time, "sleep", lambda _s: None)
         calls: list[list[str]] = []
 
         def run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
             calls.append(cmd)
-            return subprocess.CompletedProcess(cmd, exit_code, "", "")
+            if len(calls) == installed_by:
+                on_path.add("protoc")
+            code = exit_codes[min(len(calls), len(exit_codes)) - 1]
+            return subprocess.CompletedProcess(cmd, code, "", "")
 
         monkeypatch.setattr(native_deps, "run_cmd", run)
         rc = native_deps.install_native_deps("rust", project_dir=tmp_path)
         return rc, calls
 
+    _BREW = ["brew", "install", "protobuf"]
+    _CHOCO = ["choco", "install", "-y", "--no-progress", "protoc"]
+
     @pytest.mark.parametrize(
-        ("system", "on_path", "exit_code", "rc", "calls"),
+        ("system", "on_path", "exit_codes", "installed_by", "rc", "calls"),
         [
-            ("Darwin", {"brew"}, 0, 0, [["brew", "install", "protobuf"]]),
-            (
-                "Windows",
-                {"choco"},
-                0,
-                0,
-                [["choco", "install", "-y", "--no-progress", "protoc"]],
-            ),
+            ("Darwin", {"brew"}, (0,), 1, 0, [_BREW]),
+            ("Windows", {"choco"}, (0,), 1, 0, [_CHOCO]),
             # Already there: nothing to install.
-            ("Darwin", {"brew", "protoc"}, 0, 0, []),
+            ("Darwin", {"brew", "protoc"}, (0,), 1, 0, []),
             # No package manager is a failure, not a silent skip.
-            ("Windows", set(), 0, 1, []),
-            # The installer's own failure is the stage's failure.
-            ("Darwin", {"brew"}, 3, 3, [["brew", "install", "protobuf"]]),
+            ("Windows", set(), (0,), 1, 1, []),
+            # The installer's own failure is the stage's failure, after retries.
+            ("Darwin", {"brew"}, (3,), 0, 3, [_BREW] * 4),
+            # choco exits 0 having installed nothing while its feed is down.
+            ("Windows", {"choco"}, (0,), 0, 1, [_CHOCO] * 4),
+            # The feed comes back on the second attempt.
+            ("Windows", {"choco"}, (0,), 2, 0, [_CHOCO] * 2),
+            ("Windows", {"choco"}, (1, 0), 2, 0, [_CHOCO] * 2),
         ],
-        ids=["mac", "windows", "present", "no-installer", "install-fails"],
+        ids=[
+            "mac",
+            "windows",
+            "present",
+            "no-installer",
+            "install-fails",
+            "exit-0-installs-nothing",
+            "feed-recovers",
+            "exit-1-then-recovers",
+        ],
     )
-    def test_the_installer_runs_only_when_needed(
+    def test_the_installer_runs_until_the_binary_is_on_path(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         system: str,
         on_path: set[str],
-        exit_code: int,
+        exit_codes: tuple[int, ...],
+        installed_by: int,
         rc: int,
         calls: list[list[str]],
     ) -> None:
         got_rc, got_calls = self._run(
-            monkeypatch, tmp_path, system, on_path, exit_code=exit_code
+            monkeypatch,
+            tmp_path,
+            system,
+            on_path,
+            exit_codes=exit_codes,
+            installed_by=installed_by,
         )
         assert (got_rc, got_calls) == (rc, calls)
 
