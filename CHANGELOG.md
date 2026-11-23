@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.7...v2.15.8) (2026-11-23)
+
+### Bug Fixes
+
+* **release:** skip partial version stamps ([c6ce4fd](https://github.com/hyperi-io/hyperi-ci/commit/c6ce4fdc4a91351d08d72e331df3888a94a94782))
+
 ## [2.15.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.6...v2.15.7) (2026-11-23)
 
 ### Bug Fixes
