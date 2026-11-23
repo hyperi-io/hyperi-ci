@@ -432,10 +432,10 @@ def _run_coverage(
     selection: FullSelection = _NO_EXCLUSIONS,
     what: str = "",
     workspace: bool = False,
-) -> int:
+) -> int | None:
     """Run tests with coverage using tarpaulin or llvm-cov.
 
-    Returns exit code (0 = success), or -1 when neither tool is installed.
+    Returns exit code (0 = success), or None when neither tool is installed.
     """
     _RESULTS_DIR.mkdir(exist_ok=True)
     full = test_tier is SuiteTier.FULL
@@ -517,7 +517,7 @@ def _run_coverage(
         "report. Install one, or set test.coverage: false to stop asking."
     )
     announce(missing, "hyperi-ci coverage skipped")
-    return -1
+    return None
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -613,11 +613,11 @@ def _run_feature_sets(
                 what=what,
                 workspace=workspace,
             )
-            if rc > 0:
-                return rc
             if rc == 0:
                 success(f"Rust tests passed{label} (with coverage)")
                 continue
+            if rc is not None:
+                return rc
 
         if rust_tier == "all":
             cmd = _build_test_cmd(

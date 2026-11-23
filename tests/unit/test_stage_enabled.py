@@ -73,7 +73,7 @@ class TestStageEnabledSwitches:
 
     def test_a_disabled_test_stage_does_not_mask_a_missing_handler(self) -> None:
         """Disabling tests is an opt-out, so the packaging-bug check is skipped."""
-        with patch("hyperi_ci.dispatch._dispatch_to_handler", return_value=-1):
+        with patch("hyperi_ci.dispatch._dispatch_to_handler", return_value=None):
             assert stage_test("python", _config(test={"enabled": False})) == 0
 
 

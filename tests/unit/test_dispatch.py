@@ -7,6 +7,7 @@
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -44,6 +45,79 @@ class TestPublishIsAnAliasForRelease:
         monkeypatch.setattr(dispatch, "detect_language", lambda _dir: None)
         assert dispatch.run_stage("publish", project_dir=tmp_path) == 1
         assert seen == [tmp_path.resolve()]
+
+
+class TestAFailingHandlerIsNotAMissingOne:
+    """A test command killed by SIGHUP returns -1, which once read as "no handler"."""
+
+    @staticmethod
+    def _handler(monkeypatch: pytest.MonkeyPatch, rc: int) -> list[str]:
+        stub = SimpleNamespace(run=lambda _config, extra_env=None: rc)
+        monkeypatch.setattr(dispatch, "_find_handler_module", lambda *_a: stub)
+        said: list[str] = []
+        monkeypatch.setattr(dispatch, "error", said.append)
+        return said
+
+    @pytest.mark.parametrize(
+        ("rc", "expected", "signal"),
+        [(-1, 129, "signal 1"), (-9, 137, "signal 9"), (0, 0, None), (3, 3, None)],
+    )
+    def test_the_stage_returns_the_handler_result(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        rc: int,
+        expected: int,
+        signal: str | None,
+    ) -> None:
+        said = self._handler(monkeypatch, rc)
+        assert dispatch.stage_test("python", CIConfig(_raw={})) == expected
+        assert not any("No test handler" in line for line in said), said
+        assert any(signal in line for line in said) if signal else said == []
+
+    def test_a_missing_handler_still_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(dispatch, "_find_handler_module", lambda *_a: None)
+        said: list[str] = []
+        monkeypatch.setattr(dispatch, "error", said.append)
+        assert dispatch.stage_test("python", CIConfig(_raw={})) == 1
+        assert any("No test handler" in line for line in said), said
+
+
+class TestOnlyTheHandlerModuleItselfMayBeMissing:
+    """An import that fails inside a handler module is a packaging bug."""
+
+    @staticmethod
+    def _importing_raises(monkeypatch: pytest.MonkeyPatch, exc: ImportError) -> None:
+        def _raise(_name: str) -> None:
+            raise exc
+
+        monkeypatch.setattr(dispatch.importlib, "import_module", _raise)
+
+    @pytest.mark.parametrize(
+        "missing", ["hyperi_ci.languages.python.test", "hyperi_ci.languages.python"]
+    )
+    def test_the_module_or_its_package_missing_is_no_handler(
+        self, monkeypatch: pytest.MonkeyPatch, missing: str
+    ) -> None:
+        self._importing_raises(monkeypatch, ModuleNotFoundError("gone", name=missing))
+        assert _find_handler_module("python", "test") is None
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            ModuleNotFoundError("gone", name="tomli_w"),
+            ModuleNotFoundError("gone", name="hyperi_ci.languages.py"),
+            ModuleNotFoundError("gone"),
+            ImportError("cannot import name 'run_clippy'"),
+        ],
+    )
+    def test_any_other_import_failure_propagates(
+        self, monkeypatch: pytest.MonkeyPatch, exc: ImportError
+    ) -> None:
+        self._importing_raises(monkeypatch, exc)
+        with pytest.raises(ImportError):
+            _find_handler_module("python", "test")
 
 
 class TestProjectDirReachesTheHandlers:
