@@ -20,6 +20,7 @@ from hyperi_ci.memory import (
     cgroup_v2_peak,
     cgroup_v2_swap_peak,
     memory_limit,
+    swap_used,
     total_ram,
 )
 
@@ -105,6 +106,19 @@ class TestTotalRam:
         assert found is not None
         assert found.source == "sysconf SC_PHYS_PAGES"
         assert found.limit_bytes > 0
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("SwapTotal: 4096 kB\nSwapFree: 1024 kB\n", 3 * 1024 * 1024),
+        ("SwapTotal: 0 kB\nSwapFree: 0 kB\n", 0),
+        ("SwapTotal: 4096 kB\n", None),
+        ("", None),
+    ],
+)
+def test_swap_used(tmp_path: Path, text: str, expected: int | None) -> None:
+    assert swap_used(_write(tmp_path / "meminfo", text)) == expected
 
 
 class TestMemoryLimit:

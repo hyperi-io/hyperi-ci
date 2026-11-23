@@ -172,6 +172,15 @@ def mem_available(meminfo: Path = MEMINFO) -> MemoryLimit | None:
     return _meminfo_limit(meminfo, "MemAvailable")
 
 
+def swap_used(meminfo: Path = MEMINFO) -> int | None:
+    """Return the host's swap in use, in bytes, or None where meminfo lacks it."""
+    total = _meminfo_limit(meminfo, "SwapTotal")
+    free = _meminfo_limit(meminfo, "SwapFree")
+    if total is None or free is None:
+        return None
+    return total.limit_bytes - free.limit_bytes
+
+
 def cgroup_v2_headroom(
     root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
 ) -> MemoryLimit | None:

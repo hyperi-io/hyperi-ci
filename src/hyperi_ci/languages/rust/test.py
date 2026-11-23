@@ -47,6 +47,7 @@ from hyperi_ci.languages.tiering import (
     announce_tier,
     handler_tier,
 )
+from hyperi_ci.memwatch import MemoryWatch, WatchSettings
 from hyperi_ci.versions import tool_version
 
 _RESULTS_DIR = Path("test-results")
@@ -334,6 +335,7 @@ def _run_tests(
     test_tier: SuiteTier,
     what: str = "",
     env: dict[str, str] | None = None,
+    watch: WatchSettings | None = None,
 ) -> int:
     """Run one test command, passing its output through, and announce it.
 
@@ -342,16 +344,22 @@ def _run_tests(
         test_tier: The tier it ran under.
         what: Prefix for the notice, e.g. the feature set.
         env: Env vars layered over the inherited environment, or None.
+        watch: Memory watch settings, or None to run unwatched.
 
     Returns:
-        The command's exit code.
+        The command's exit code, 1 when the memory watch stopped it.
 
     """
     kept = KeptLines(_KEEP)
     suffix = f" ({what})" if what else ""
     boundary = _CompileBoundary(kept, f"test-compile{suffix}")
-    rc, _tail = stream_cmd(cmd, on_line=boundary, on_chunk=echo_chunk, env=env)
+    watcher = MemoryWatch(watch) if watch is not None else None
+    rc, _tail = stream_cmd(
+        cmd, on_line=boundary, on_chunk=echo_chunk, on_heartbeat=watcher, env=env
+    )
     _mark_peak(f"test-run{suffix}")
+    if watcher is not None and watcher.aborted:
+        return 1
     prefix = f"{what}: " if what else ""
     announce_tier(test_tier, f"{prefix}{tier_detail(kept.text())}")
     return rc
@@ -432,6 +440,7 @@ def _run_coverage(
     selection: FullSelection = _NO_EXCLUSIONS,
     what: str = "",
     workspace: bool = False,
+    watch: WatchSettings | None = None,
 ) -> int | None:
     """Run tests with coverage using tarpaulin or llvm-cov.
 
@@ -460,7 +469,7 @@ def _run_coverage(
 
         info("  Running tests with cargo-tarpaulin for coverage...")
         _note_coverage_runner(runner, "cargo-tarpaulin")
-        rc = _run_tests(cmd, test_tier, what)
+        rc = _run_tests(cmd, test_tier, what, watch=watch)
         if rc != 0:
             error("Rust coverage tests failed")
             return rc
@@ -485,7 +494,7 @@ def _run_coverage(
 
         info("  Running tests with cargo-llvm-cov for coverage...")
         _note_coverage_runner(runner, "cargo-llvm-cov")
-        rc = _run_tests(cmd, test_tier, what, env=_LLVM_COV_ENV)
+        rc = _run_tests(cmd, test_tier, what, env=_LLVM_COV_ENV, watch=watch)
         if rc != 0:
             error("Rust coverage tests failed")
             return rc
@@ -556,6 +565,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     workspace = is_root_package_workspace()
     if workspace:
         info("  Root package is also a workspace: --workspace, so every member runs")
+    try:
+        watch = WatchSettings.from_config(config)
+    except ValueError as exc:
+        error(str(exc))
+        return 1
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     rust_tier = config.setting("test.rust.tier")
     feature_sets = split_feature_sets(features)
@@ -571,6 +585,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             test_tier=test_tier,
             selection=selection,
             workspace=workspace,
+            watch=watch,
         )
 
 
@@ -583,6 +598,7 @@ def _run_feature_sets(
     test_tier: SuiteTier,
     selection: FullSelection,
     workspace: bool,
+    watch: WatchSettings | None = None,
 ) -> int:
     """Run the tests once per feature set, stopping at the first failure.
 
@@ -594,6 +610,7 @@ def _run_feature_sets(
         test_tier: The test tier.
         selection: What full leaves out.
         workspace: Pass ``--workspace``.
+        watch: Memory watch settings, or None to run unwatched.
 
     Returns:
         Exit code (0 = success).
@@ -612,6 +629,7 @@ def _run_feature_sets(
                 selection=selection,
                 what=what,
                 workspace=workspace,
+                watch=watch,
             )
             if rc == 0:
                 success(f"Rust tests passed{label} (with coverage)")
@@ -627,7 +645,7 @@ def _run_feature_sets(
                 selection=selection,
                 workspace=workspace,
             )
-            rc = _run_tests(cmd, test_tier, what)
+            rc = _run_tests(cmd, test_tier, what, watch=watch)
             if rc != 0:
                 error(f"Rust tests failed{label}")
                 return rc
@@ -644,7 +662,7 @@ def _run_feature_sets(
                 workspace=workspace,
             )
             info(f"  Running {rust_tier} tests{label}...")
-            rc = _run_tests(cmd, test_tier, f"{what} {rust_tier}".strip())
+            rc = _run_tests(cmd, test_tier, f"{what} {rust_tier}".strip(), watch=watch)
             if rc != 0:
                 error(f"  {rust_tier} tests failed{label}")
                 return rc

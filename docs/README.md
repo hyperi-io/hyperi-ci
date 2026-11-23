@@ -21,8 +21,8 @@ sides fit, [flow.md](flow.md) for how a push becomes a release, and
 | nothing else | semantic-release tagging, version stamping, SHA-pinned deps, fork safety, ARC/free runner choice | Wiring semantic-release, Renovate, runner labels yourself |
 | `hyperi-ci check` locally | the same quality+test path CI runs - ~95% confidence pre-push | "works locally, fails in CI" |
 
-The CLI owns the work; the workflows are runner glue around it. That keeps the
-cost of switching CI vendors (GitHub -> Buildkite, one day) bounded to the glue.
+The CLI owns the work and the workflows are runner glue around it. That keeps the
+cost of moving CI from GitHub Actions to Buildkite, one day, bounded to the glue.
 
 ---
 
@@ -146,6 +146,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [runtime/RUNNER-IMAGE.md](runtime/runner-image.md) - the dep-install SSOT (`install-toolchains` / `install-native-deps`), the YAML schema, `bake: false`
 - [runtime/ARC-OPERATIONS.md](runtime/arc-operations.md) - rebuild the image, redeploy the scale sets, roll a change to the fleet
 - [runtime/BUILD-TIMES.md](runtime/build-times.md) - CI times and memory peaks per DFE repo, free vs paid runners
+- [runtime/MEMORY-WATCH.md](runtime/memory-watch.md) - a Rust Test job GitHub lost with no log: log memory every 30s and stop on a held memory stall
 - [runtime/PGO-BOLT.md](runtime/pgo-bolt.md) - how to write a PGO workload script
 - [runtime/TESTENV.md](runtime/testenv.md) - Redpanda / ClickHouse compose
   patterns for integration tests inside the 4 GB CI deck

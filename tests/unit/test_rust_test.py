@@ -652,6 +652,53 @@ class TestCompileBoundary:
         assert rust_test._run_tests(["cargo"], rust_test.SuiteTier.CORE, "x") == 0
         assert phases == ["test-compile (x)", "test-run (x)"]
 
+    @pytest.mark.parametrize(("aborted", "expected"), [(False, 0), (True, 1)])
+    def test_a_stopped_watch_fails_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, aborted: bool, expected: int
+    ) -> None:
+        from hyperi_ci.languages.rust import test as rust_test
+        from hyperi_ci.memwatch import WatchSettings
+
+        class Watch:
+            def __init__(self, _settings: WatchSettings) -> None:
+                self.aborted = aborted
+
+            def __call__(self, _elapsed: float, _pid: int) -> None:
+                return None
+
+        beats: list[Any] = []
+
+        def stream(cmd: list[str], *, on_heartbeat: Any, **_kw: Any) -> tuple[int, str]:
+            beats.append(on_heartbeat)
+            return -15 if aborted else 0, ""
+
+        monkeypatch.setattr(rust_test, "_mark_peak", lambda _p: None)
+        monkeypatch.setattr(rust_test, "announce_tier", lambda *_a: None)
+        monkeypatch.setattr(rust_test, "MemoryWatch", Watch)
+        monkeypatch.setattr(rust_test, "stream_cmd", stream)
+        rc = rust_test._run_tests(
+            ["cargo"], rust_test.SuiteTier.CORE, watch=WatchSettings(50, 4)
+        )
+        assert rc == expected
+        assert isinstance(beats[0], Watch)
+
+    def test_an_unwatched_run_sends_no_heartbeat(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust import test as rust_test
+
+        beats: list[Any] = []
+
+        def stream(cmd: list[str], *, on_heartbeat: Any, **_kw: Any) -> tuple[int, str]:
+            beats.append(on_heartbeat)
+            return 0, ""
+
+        monkeypatch.setattr(rust_test, "_mark_peak", lambda _p: None)
+        monkeypatch.setattr(rust_test, "announce_tier", lambda *_a: None)
+        monkeypatch.setattr(rust_test, "stream_cmd", stream)
+        assert rust_test._run_tests(["cargo"], rust_test.SuiteTier.CORE) == 0
+        assert beats == [None]
+
     def test_an_unreadable_peak_never_fails_the_run(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
