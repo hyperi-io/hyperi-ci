@@ -126,7 +126,7 @@ Quality and the release tail carry fixed limits. Test does not, because one repo
 
 ## The Docker Hub mirror
 
-Every Docker Hub image a repo pins is served from `ghcr.io/hyperi-io/mirror/<Docker Hub name>`, same tag and digest, with no pull limit. `hyperi-ci mirror list` prints a checkout's pins: Renovate-annotated, written out as `name:tag@sha256:...`, or on a `FROM` or `image:` line. `hyperi-ci mirror ensure` dispatches `mirror-images.yml` for any the mirror lacks and waits for the copy. Without a `GH_TOKEN` that can dispatch it, as on a fork PR, it names them and fails.
+Every Docker Hub image a repo pins is served from `ghcr.io/hyperi-io/mirror/<Docker Hub name>`, same tag and digest, with no pull limit. `hyperi-ci mirror list` prints a checkout's pins: Renovate-annotated, written out as `name:tag@sha256:...`, or on a `FROM` or `image:` line. `hyperi-ci mirror ensure` dispatches `mirror-images.yml` for any the mirror lacks and waits for the copy. Without a `GH_TOKEN` that can dispatch it, as on a fork PR or where the `hyperi-ci-tools` App key does not reach the caller, it names them and fails.
 
 ## Native tools the tests need
 

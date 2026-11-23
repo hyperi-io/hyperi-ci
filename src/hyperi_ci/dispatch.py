@@ -282,12 +282,8 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     with group("Repo hygiene advisory (alint)"):
         repo_advisor.run(config, language=language)
 
-    try:
-        with group("Gitleaks secret scanning"):
-            rc = gitleaks.run(config)
-    finally:
-        # Dependency build scripts run later in this environment.
-        os.environ.pop("GITLEAKS_GH_ACTIONS_KEY", None)
+    with group("Gitleaks secret scanning"):
+        rc = gitleaks.run(config)
     if rc != 0:
         return rc
 

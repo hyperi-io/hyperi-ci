@@ -195,8 +195,6 @@ jobs:
       - name: Run quality checks
         # The gate set every consumer gets, so a tool hyperi-ci ships but nobody
         # can install fails here too.
-        env:
-          GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
         run: uv run --no-sources hyperi-ci run quality
 
   test:

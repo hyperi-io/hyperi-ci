@@ -124,9 +124,11 @@ Three config homes, each with one job:
 |---|---|---|
 | `src/hyperi_ci/config/*.yaml` (`org`, `defaults`, `versions`, `toolchains`, `native-deps`) | CI logic, routing, registry URLs, runner labels, pinned versions | PR + review; unit-tested |
 | GitHub **Vars** | platform infra: `GH_RUNNER_MODE`, the `GH_RUNNER_*` labels | UI |
-| GitHub **Secrets** | credentials: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`, `PYPI_TOKEN`, `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `GH_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | UI, encrypted, scoped |
+| GitHub **Secrets** | credentials: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`, `PYPI_TOKEN`, `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `GH_APP_PRIVATE_KEY`, `CI_TOOLS_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | UI, encrypted, scoped |
 
 Rule: CI logic or routing goes in `config/`, platform infra in Vars, a credential in Secrets.
+
+`GH_APP_PRIVATE_KEY` is the release bot, with write on every repo, so only the release tail holds it. Plan and Quality run the repo's dependencies, so their image-mirror and diagram-checker tokens come from `CI_TOOLS_APP_PRIVATE_KEY` (`hyperi-ci-tools`: actions write and contents read on hyperi-ci and hyperi-ai).
 
 ## Release routing and containers
 

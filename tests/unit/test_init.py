@@ -121,7 +121,11 @@ class TestRenderTemplates:
     ) -> None:
         workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
         reusable = yaml.safe_load((workflows / workflow_file).read_text("utf-8"))
-        declared = set(reusable[True]["workflow_call"]["secrets"])
+        declared = {
+            name
+            for name, spec in reusable[True]["workflow_call"]["secrets"].items()
+            if not str((spec or {}).get("description", "")).startswith("Unused.")
+        }
         caller = yaml.safe_load(_render_workflow("my-project", workflow_file))
         passed = caller["jobs"]["ci"]["secrets"]
         assert set(passed) == declared
