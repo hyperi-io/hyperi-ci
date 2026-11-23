@@ -31,6 +31,14 @@ diagram_check:
   path: tools/diagram_check.py
   ref: main
 
+# OpenBao, reached from ARC runners only: its cert is from the devex CA the ARC
+# images carry. A job logs in with its GitHub OIDC token, requested for
+# `audience`, through the jwt auth mount at `jwt_mount`.
+openbao:
+  addr: https://bao.devex.hyperi.io:8200
+  jwt_mount: github-actions
+  audience: https://bao.devex.hyperi.io
+
 # Cloudflare R2 binary repository. Credentials stay in the environment
 # (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY).
 r2:

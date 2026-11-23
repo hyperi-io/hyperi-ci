@@ -34,7 +34,7 @@ def test_native_deps_reruns_update_with_retry_option(
     monkeypatch.setattr(native_deps, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(native_deps.time, "sleep", slept.append)
 
-    assert native_deps._apt_install(["curl"]) == 0
+    assert native_deps.apt_install(["curl"]) == 0
     assert [c[3] for c in calls] == ["update", "update", "install"]
     assert all(c[:3] == ["apt-get", "-o", "Acquire::Retries=5"] for c in calls)
     assert slept == [15]

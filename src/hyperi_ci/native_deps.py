@@ -666,7 +666,7 @@ def _ensure_ubuntu_archive(apt_get: list[str]) -> None:
         )
 
 
-def _apt_install(packages: list[str]) -> int:
+def apt_install(packages: list[str]) -> int:
     """Run apt-get update then install packages. Returns exit code."""
     apt_get = [*sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
     _apt_update(apt_get)
@@ -1030,7 +1030,7 @@ def install_native_deps(
                 seen.add(pkg)
 
     logger.info(f"Installing {category} packages: {all_packages}")
-    rc = _apt_install(all_packages)
+    rc = apt_install(all_packages)
     if rc != 0:
         logger.error(f"apt-get install failed (exit {rc})")
         return rc

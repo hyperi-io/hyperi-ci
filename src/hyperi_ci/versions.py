@@ -64,6 +64,19 @@ def tool_version(name: str) -> str:
     return version
 
 
+def tool_field(name: str, key: str) -> str:
+    """Return ``tools.<name>.<key>``, such as apk-tools-static's ``alpine`` branch.
+
+    Raises:
+        KeyError: No such tool, or no non-empty string at ``key``.
+
+    """
+    value = _tool(name).get(key)
+    if not isinstance(value, str) or not value:
+        raise KeyError(f"`tools.{name}.{key}` is missing from {VERSIONS_FILE.name}")
+    return value
+
+
 def tool_npm(name: str) -> str:
     """Return the npm package ``name`` is published as.
 
