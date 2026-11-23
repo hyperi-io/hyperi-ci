@@ -506,6 +506,14 @@ def _attempt(
 
     fresh = _unchanged_on_tip(repo=repo, root=root, tip=tip, names=stamped)
     names = fixed + fresh
+    # VERSION and the stamped files carry one version, and a repo can test that they agree.
+    if len(fresh) < len(stamped):
+        warn(
+            f"release-commit: leaving {VERSION} and every release.stamp_paths file "
+            f"as {branch} has them, so they keep one version. The next release "
+            f"from {branch} stamps them together"
+        )
+        names = [name for name in fixed if name != VERSION]
     if entry and _changelog_with_entry(
         repo=repo, root=root, tip=tip, version=version, entry=entry
     ):
