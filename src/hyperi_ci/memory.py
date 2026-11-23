@@ -81,14 +81,25 @@ def cgroup_levels(root: Path, own_path: str) -> Iterator[Path]:
         directory = directory.parent
 
 
+def _v2_level_limits(directory: Path) -> Iterator[tuple[int, Path]]:
+    """Yield each of ``memory.max`` and ``memory.high`` set at one cgroup v2 level."""
+    for name in ("memory.max", "memory.high"):
+        path = directory / name
+        raw = _read_text(path)
+        if raw and raw != _V2_NO_LIMIT and raw.isdigit() and int(raw) > 0:
+            yield int(raw), path
+
+
 def cgroup_v2_limit(
     root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
 ) -> MemoryLimit | None:
-    """Tightest cgroup v2 ``memory.max`` applying to this process.
+    """Tightest cgroup v2 ``memory.max`` or ``memory.high`` applying to this process.
 
-    A limit on an ancestor binds as hard as one on the leaf, and a namespaced
-    container sees its own limit at the hierarchy root, so every level up to the
-    root is read.
+    Past ``memory.high`` the kernel throttles the cgroup and swaps its pages
+    out with the host's memory still free, so it bounds the budget as
+    ``memory.max`` does. A limit on an ancestor binds as hard as one on the
+    leaf, and a namespaced container sees its own limit at the hierarchy root,
+    so every level up to the root is read.
 
     Args:
         root: The unified hierarchy mount.
@@ -98,12 +109,11 @@ def cgroup_v2_limit(
         The smallest limit found, or None when no level sets one.
 
     """
-    found: list[MemoryLimit] = []
-    for directory in cgroup_levels(root, own_cgroup_path(proc_self_cgroup)):
-        path = directory / "memory.max"
-        raw = _read_text(path)
-        if raw and raw != _V2_NO_LIMIT and raw.isdigit() and int(raw) > 0:
-            found.append(MemoryLimit(int(raw), f"cgroup v2 {path}"))
+    found = [
+        MemoryLimit(limit, f"cgroup v2 {path}")
+        for directory in cgroup_levels(root, own_cgroup_path(proc_self_cgroup))
+        for limit, path in _v2_level_limits(directory)
+    ]
     return min(found, key=lambda m: m.limit_bytes) if found else None
 
 
@@ -184,7 +194,9 @@ def swap_used(meminfo: Path = MEMINFO) -> int | None:
 def cgroup_v2_headroom(
     root: Path = CGROUP_ROOT, proc_self_cgroup: Path = PROC_SELF_CGROUP
 ) -> MemoryLimit | None:
-    """Tightest ``memory.max`` minus ``memory.current`` over this cgroup's levels.
+    """Tightest cgroup v2 limit less ``memory.current``, over this cgroup's levels.
+
+    Each level's ``memory.max`` and ``memory.high`` are both limits here.
 
     Args:
         root: The unified hierarchy mount.
@@ -197,17 +209,12 @@ def cgroup_v2_headroom(
     """
     found: list[MemoryLimit] = []
     for directory in cgroup_levels(root, own_cgroup_path(proc_self_cgroup)):
-        limit = _read_text(directory / "memory.max")
         current = _read_text(directory / "memory.current")
-        if (
-            limit
-            and limit != _V2_NO_LIMIT
-            and limit.isdigit()
-            and current
-            and current.isdigit()
-        ):
-            headroom = max(0, int(limit) - int(current))
-            found.append(MemoryLimit(headroom, f"cgroup v2 headroom in {directory}"))
+        if not current or not current.isdigit():
+            continue
+        for limit, path in _v2_level_limits(directory):
+            headroom = max(0, limit - int(current))
+            found.append(MemoryLimit(headroom, f"cgroup v2 headroom under {path}"))
     return min(found, key=lambda m: m.limit_bytes) if found else None
 
 
@@ -361,7 +368,7 @@ def memory_limit(
     proc_self_cgroup: Path = PROC_SELF_CGROUP,
     meminfo: Path = MEMINFO,
 ) -> MemoryLimit | None:
-    """Memory this process can use before the kernel OOM-kills it.
+    """Memory this process can use before the kernel throttles or OOM-kills it.
 
     The cgroup limit catches a container limit and total RAM catches a host
     with none, so the budget is the smaller of the two.
