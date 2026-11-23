@@ -7,11 +7,10 @@
 #
 # hyperi-ci passes this to `alint check -c <this>` when a repo has no .alint.yml
 # of its own, so the repo-hygiene advisory works with ZERO per-project config.
-# Deliberately minimal and NOT bespoke: it just extends alint's own bundled
-# rulesets (the shared community baseline) - the same ones `alint init`
-# scaffolds - pre-including all four HyperI languages. Each language set is
-# fact-gated (a silent no-op when that ecosystem is absent), so one file adapts
-# to any repo.
+# It extends alint's own bundled rulesets (the shared community baseline) -
+# the same ones `alint init` scaffolds - pre-including all four HyperI
+# languages, and narrows one rule. Each language set is fact-gated (a silent
+# no-op when that ecosystem is absent), so one file adapts to any repo.
 #
 # Precedence: a repo's own .alint.yml (from `alint init`) overrides this
 # entirely. Turn the whole advisory off with `quality.alint: disabled` in
@@ -26,3 +25,10 @@ extends:
   - alint://bundled/rust@v1
   - alint://bundled/node@v1
   - alint://bundled/go@v1
+
+rules:
+  # A test fixture can be a byte-exact response body, so its last byte is data.
+  - id: oss-final-newline
+    paths:
+      include: ["**/*.md", "**/*.txt", "**/*.toml", "**/*.yml", "**/*.yaml"]
+      exclude: ["**/fixtures/**", "**/testdata/**"]

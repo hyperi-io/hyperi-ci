@@ -128,13 +128,53 @@ def test_repo_config_wins_no_dash_c(
 
 
 def test_ci_uses_github_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _stub_run(monkeypatch, rc=1)  # error-level findings...
+    out = "::notice title=oss-final-newline,file=a.txt::no newline\nsummary\n"
+    calls: list[list[str]] = []
+
+    def fake_run_cmd(cmd, **_kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, out, None)  # error-level findings...
+
+    echoed: list[str] = []
+    monkeypatch.setattr(repo_advisor, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(repo_advisor, "echo_chunk", echoed.append)
     _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
     # ...still returns 0: advisory, never gates the build.
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
     assert "github" in cmd
+    assert echoed == [
+        "::notice title=oss-final-newline,file=a.txt::"
+        "[oss-final-newline] a.txt: no newline\nsummary\n"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        pytest.param(
+            "::warning title=r1,file=src/a.txt::msg",
+            "::warning title=r1,file=src/a.txt::[r1] src/a.txt: msg",
+            id="rule-and-path",
+        ),
+        pytest.param(
+            "::notice title=oss-codeowners-exists::Consider CODEOWNERS.",
+            "::notice title=oss-codeowners-exists::[oss-codeowners-exists] Consider CODEOWNERS.",
+            id="repo-level-rule-only",
+        ),
+        pytest.param(
+            "::error file=a%2Cb%3A100%25.txt::msg",
+            "::error file=a%2Cb%3A100%25.txt::a,b:100%25.txt: msg",
+            id="escaped-path-re-escaped-as-data",
+        ),
+        pytest.param("::notice::bare", "::notice::bare", id="no-properties"),
+        pytest.param("plain summary line", "plain summary line", id="not-a-command"),
+        pytest.param("::group::alint", "::group::alint", id="other-command"),
+    ],
+)
+def test_with_location(line: str, expected: str) -> None:
+    assert repo_advisor._with_location(line) == expected
 
 
 def test_exec_failure_is_non_fatal(
@@ -409,3 +449,34 @@ def test_override_layer_suppresses_nested_go_mod_with_real_alint(
     # Exit 0/1 = ran (1 would mean error-level findings remain); >=2 = broken
     # config, which is exactly what this test exists to catch.
     assert result.returncode in (0, 1)
+
+
+@pytest.mark.skipif(shutil.which("alint") is None, reason="alint not installed")
+def test_default_config_skips_final_newline_in_fixtures_with_real_alint(
+    tmp_path: Path,
+) -> None:
+    """A byte-exact fixture may end without a newline. Other files may not."""
+    for rel in ("tests/fixtures/body.txt", "pkg/testdata/body.txt", "notes.md"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"no final newline")
+
+    result = subprocess.run(
+        [
+            "alint",
+            "check",
+            str(tmp_path),
+            "-c",
+            str(repo_advisor._DEFAULT_CONFIG),
+            "--compact",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    out = result.stdout + result.stderr
+    assert result.returncode in (0, 1), out
+    assert "notes.md" in out
+    assert "body.txt" not in out
