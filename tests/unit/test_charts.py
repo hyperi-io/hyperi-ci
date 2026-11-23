@@ -362,6 +362,53 @@ def fake_helm(
     return fake
 
 
+_TAG_NOT_FOUND = (
+    'Error: failed to perform "Tag" on destination: sha256:'
+    "d028f98dccf29c0801b75f49770df7fcf8027a561b80756f5babd532ba4239a5: not found"
+)
+
+
+class TestPushRetriesGhcrTagLag:
+    """GHCR can refuse the tag for a manifest it accepted a second earlier."""
+
+    @staticmethod
+    def _push(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, replies: list[tuple[int, str]]
+    ) -> tuple[str | None, int]:
+        calls: list[tuple[str, ...]] = []
+
+        def helm(*args: str, registry: str = "") -> tuple[int, str]:
+            calls.append(args)
+            return replies[min(len(calls), len(replies)) - 1]
+
+        monkeypatch.setattr(charts, "_helm", helm)
+        monkeypatch.setattr(charts.time, "sleep", lambda _s: None)
+        try:
+            return charts.push(tmp_path / "web.tgz", REGISTRY), len(calls)
+        except charts.ChartError:
+            return None, len(calls)
+
+    @pytest.mark.parametrize(
+        ("replies", "digest", "calls"),
+        [
+            ([(1, _TAG_NOT_FOUND), (0, f"Digest: {DIGEST}\n")], DIGEST, 2),
+            ([(1, _TAG_NOT_FOUND)], None, charts.URL_ATTEMPTS),
+            ([(1, "Error: denied")], None, 1),
+            ([(0, f"Digest: {DIGEST}\n")], DIGEST, 1),
+        ],
+        ids=["recovers", "never-readable", "other-error", "first-try"],
+    )
+    def test_only_the_tag_lag_is_retried(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        replies: list[tuple[int, str]],
+        digest: str | None,
+        calls: int,
+    ) -> None:
+        assert self._push(monkeypatch, tmp_path, replies) == (digest, calls)
+
+
 class TestPublish:
     def test_disabled_does_nothing(self, fake_helm: FakeHelm, tmp_path: Path) -> None:
         rc, results = charts.publish_charts(

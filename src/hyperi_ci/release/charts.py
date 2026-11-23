@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -30,8 +31,10 @@ from urllib.parse import urlencode, urlparse
 import yaml
 
 from hyperi_ci.common import (
+    URL_ATTEMPTS,
     URL_ERRORS,
     ReleaseVersionError,
+    backoff,
     error,
     info,
     resolve_release_version,
@@ -45,6 +48,11 @@ from hyperi_ci.native_tools import install_tool
 from hyperi_ci.repo_path import RepoPathError, confine
 
 DIGEST_RE = re.compile(r"^Digest:\s*(sha256:[0-9a-f]{64})\s*$", re.MULTILINE)
+
+# GHCR can refuse the tag for a manifest it accepted a second earlier.
+_TAG_NOT_FOUND_RE = re.compile(
+    r'failed to perform "Tag" on destination: sha256:[0-9a-f]{64}: not found'
+)
 
 NOTES_FILE = "hyperi-ci-chart-digests.md"
 
@@ -285,11 +293,26 @@ def anonymously_pullable(registry: str, name: str) -> bool:
 def push(tgz: Path, registry: str) -> str:
     """Push a packaged chart and return its digest.
 
+    A push GHCR rejects at the tag step because the manifest it just accepted
+    is not yet readable runs again after a backoff, up to ``URL_ATTEMPTS``
+    times. The same tgz pushes to the same digest, so a repeat is safe.
+
     Raises:
         ChartError: The push failed or reported no digest.
 
     """
-    rc, out = _helm("push", str(tgz), registry, registry=registry)
+    for attempt in range(1, URL_ATTEMPTS):
+        rc, out = _helm("push", str(tgz), registry, registry=registry)
+        if rc == 0 or not _TAG_NOT_FOUND_RE.search(out):
+            break
+        delay = backoff(attempt)
+        info(
+            f"  {tgz.name}: the registry has not made the pushed manifest readable "
+            f"yet, retrying in {delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
+        )
+        time.sleep(delay)
+    else:
+        rc, out = _helm("push", str(tgz), registry, registry=registry)
     match = DIGEST_RE.search(out)
     if rc != 0 or match is None:
         raise ChartError(f"helm push {tgz.name} failed:\n{out}")
