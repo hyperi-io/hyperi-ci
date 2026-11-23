@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.15.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.9...v2.15.10) (2026-11-23)
+
+### Bug Fixes
+
+* **alint:** log paths, skip fixture newline checks ([a4122cc](https://github.com/hyperi-io/hyperi-ci/commit/a4122cce509e3dfe1c37b8e8f7480ca249bde720))
+* **types:** annotate context managers as Generator ([cdb4f3a](https://github.com/hyperi-io/hyperi-ci/commit/cdb4f3a5f7cc808731c27d42748f7e62861f7843))
+
 ## [2.15.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.8...v2.15.9) (2026-11-23)
 
 ### Bug Fixes
