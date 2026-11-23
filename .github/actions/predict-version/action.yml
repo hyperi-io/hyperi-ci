@@ -56,6 +56,10 @@ inputs:
     description: "The project's directory inside the repo, read for .hyperi-ci.yaml and the language manifests. Empty (default) is the repo root."
     required: false
     default: ""
+  windows-runner:
+    description: "Runner label for the Rust Windows leg, such as a self-hosted one. Empty keeps windows-2025."
+    required: false
+    default: ""
   python-version:
     description: "Fallback Python version. The project's own declaration wins over it -- a pegged .python-version, else the requires-python floor."
     required: false
@@ -606,6 +610,8 @@ runs:
       shell: bash
       env:
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        WINDOWS_RUNNER: ${{ inputs.windows-runner }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
       run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rust_targets.py"
 
     - name: Resolve the runner mode

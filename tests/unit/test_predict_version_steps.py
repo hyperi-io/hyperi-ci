@@ -63,7 +63,11 @@ _UV_CACHE = (
 )
 
 #: The composite's own input default, which versions.yaml keeps in step.
-_INPUTS = {"inputs.pyyaml-version": tool_version("pyyaml")}
+_INPUTS = {
+    "inputs.pyyaml-version": tool_version("pyyaml"),
+    "inputs.windows-runner": "",
+    "github.event.repository.private": "false",
+}
 
 #: The interpreter the reader step hands every config-reading step.
 _READER = "steps.reader.outputs.python"
