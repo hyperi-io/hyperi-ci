@@ -274,6 +274,7 @@ class TestCargoLaunchesKeepTheirShape:
             "_ensure_llvm_profdata_available",
             "_ensure_llvm_bolt_available",
             "_install_bolt_output",
+            "_fresh_profiles",
         ):
             monkeypatch.setattr(pgo, name, lambda *_a, **_k: True)
         monkeypatch.setattr(pgo, "_run_workload", lambda *_a, **_k: 0)

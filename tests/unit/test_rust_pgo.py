@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,7 @@ from hyperi_ci.languages.rust.pgo import (
     _ensure_cargo_pgo_installed,
     _ensure_ld_lld_available,
     _ensure_llvm_bolt_available,
+    _fresh_profiles,
     _install_bolt_output,
     _instrumented_binary_path,
     _release_dir,
@@ -49,6 +51,8 @@ def isolated_tool_home(tmp_path, monkeypatch):
         "hyperi_ci.languages.rust.pgo.Path.home", lambda: tmp_path / "home"
     )
     monkeypatch.setattr(pgo, "_BOLT_LINKER_DIR", tmp_path / "bolt-linker")
+    # A stubbed workload stands in for one whose binary wrote its profile.
+    monkeypatch.setattr(pgo, "_fresh_profiles", lambda *_a: True)
     monkeypatch.setenv("PATH", os.environ["PATH"])
     monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
     monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
@@ -2580,3 +2584,63 @@ class TestDirectBolt:
     def test_the_pipeline_builds_unstripped_for_packaging_to_strip(self) -> None:
         # lld refuses --strip-all beside --emit-relocs, so build.py strips after BOLT.
         assert pgo._bolt_profile_env() == {"CARGO_PROFILE_RELEASE_STRIP": "none"}
+
+
+class TestTheProfilePhaseNeedsAProfile:
+    """An instrumented binary killed before exit writes no .profraw.
+
+    The workload can still exit 0, and the failure then surfaced a job later
+    in cargo-pgo's "No profile files were found".
+    """
+
+    @staticmethod
+    def _profraw(directory, *, size: int = 64, age: float = 0.0):
+        directory.mkdir(parents=True, exist_ok=True)
+        profile = directory / "default_123.profraw"
+        profile.write_bytes(b"x" * size)
+        stamp = time.time() - age
+        os.utime(profile, (stamp, stamp))
+        return profile
+
+    def test_a_missing_directory_holds_none(self, tmp_path) -> None:
+        assert _fresh_profiles(tmp_path / "pgo-profiles", time.time()) is False
+
+    @pytest.mark.parametrize(
+        ("size", "age", "fresh"),
+        [(64, 0.0, True), (0, 0.0, False), (64, 600.0, False)],
+        ids=["fresh", "empty", "left-from-an-earlier-run"],
+    )
+    def test_only_a_fresh_non_empty_profile_counts(
+        self, tmp_path, size: int, age: float, fresh: bool
+    ) -> None:
+        since = time.time() - 60
+        self._profraw(tmp_path / "pgo-profiles" / "nested", size=size, age=age)
+        assert _fresh_profiles(tmp_path / "pgo-profiles", since) is fresh
+
+    @pytest.mark.parametrize("writes", [False, True], ids=["killed", "exited"])
+    def test_the_build_stops_before_optimise_without_one(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, writes: bool
+    ) -> None:
+        monkeypatch.setattr(pgo, "_fresh_profiles", _fresh_profiles)
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+
+        def workload(*_a, **_k) -> int:
+            if writes:
+                self._profraw(tmp_path / "target" / "pgo-profiles")
+            return 0
+
+        with (
+            patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=True),
+            patch.object(pgo, "_run_cargo_pgo", return_value=0) as cargo,
+            patch.object(pgo, "_run_workload", side_effect=workload),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(),
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+        optimised = any(c.args[0][0] == "optimize" for c in cargo.call_args_list)
+        assert (rc, optimised) == ((0, True) if writes else (1, False))
