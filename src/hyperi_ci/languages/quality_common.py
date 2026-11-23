@@ -19,7 +19,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
@@ -175,7 +175,7 @@ def stricter(mode: str, than: str) -> bool:
 
 
 @contextlib.contextmanager
-def mode_ceiling(mode: str) -> Iterator[None]:
+def mode_ceiling(mode: str) -> Generator[None]:
     """Cap every mode :func:`resolve_tool_mode` returns inside the block at ``mode``.
 
     An umbrella gate at ``warn`` runs its tools with this, so a tool configured

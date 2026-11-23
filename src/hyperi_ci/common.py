@@ -29,7 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -411,7 +411,7 @@ def append_step_summary(markdown: str) -> None:
 
 
 @contextmanager
-def group(title: str) -> Iterator[None]:
+def group(title: str) -> Generator[None]:
     """Collapsible group in GH Actions logs. No-op elsewhere."""
     # Flush: stdout is a pipe under CI, so an unflushed marker lands after a
     # child's output.
@@ -523,7 +523,7 @@ def normalise_tristate(raw: object, *, key: str) -> str:
 
 
 @contextmanager
-def scratch_dir(path: Path) -> Iterator[Path]:
+def scratch_dir(path: Path) -> Generator[Path]:
     """Yield ``path`` as a directory, removed with everything in it afterwards."""
     path.mkdir(parents=True, exist_ok=True)
     try:

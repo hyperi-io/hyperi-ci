@@ -13,7 +13,7 @@ import json
 import re
 import threading
 import urllib.error
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
@@ -89,7 +89,7 @@ Route = Callable[[str], tuple]
 
 
 @contextmanager
-def _github(route: Route) -> Iterator[tuple[str, list[str]]]:
+def _github(route: Route) -> Generator[tuple[str, list[str]]]:
     """Serve ``route(path) -> (status, body)`` on localhost as a stand-in API."""
     seen: list[str] = []
 

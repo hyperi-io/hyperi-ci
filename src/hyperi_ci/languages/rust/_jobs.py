@@ -18,7 +18,7 @@ last is detected and nothing is set, since cargo ranks our env var above it.
 import os
 import shutil
 import tomllib
-from collections.abc import Iterator, Mapping, MutableMapping
+from collections.abc import Generator, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -194,7 +194,7 @@ def capped_cargo_jobs(
     cwd: Path | None = None,
     limit: MemoryLimit | None = None,
     cpus: int | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Set ``CARGO_BUILD_JOBS`` for the duration of a Rust stage.
 
     On a free runner swap is added first, so memory short of the build costs

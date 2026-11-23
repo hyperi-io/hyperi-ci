@@ -15,7 +15,7 @@ import json
 import os
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -152,7 +152,7 @@ UNOPTIMIZED_RELEASE_BANNER = (
 
 
 @contextmanager
-def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
+def _release_notes_flags(version: str, config: CIConfig) -> Generator[list[str]]:
     """Yield gh flags carrying the release body.
 
     The body is the unoptimised-build banner, the matching CHANGELOG.md entry
@@ -414,7 +414,7 @@ _AWS_CONFIG_CLASSIC = "[default]\ns3 =\n    preferred_transfer_client = classic\
 
 
 @contextmanager
-def _classic_s3_config() -> Iterator[str]:
+def _classic_s3_config() -> Generator[str]:
     """Yield an AWS config file path that pins `aws s3` to the classic client."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "config"

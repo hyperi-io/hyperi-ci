@@ -12,7 +12,7 @@ with a grant (:mod:`hyperi_ci.admission`) sizes to the grant and takes no lock.
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -28,7 +28,7 @@ HELD_ENV = "HYPERCI_CHECK_LOCK_HELD"
 
 
 @contextmanager
-def check_lock(path: Path | None = None) -> Iterator[None]:
+def check_lock(path: Path | None = None) -> Generator[None]:
     """Hold the host-wide check lock, waiting while another check holds it.
 
     A CI runner runs one job, so CI skips the lock. So does a platform with no

@@ -18,7 +18,7 @@ detected and nothing is set.
 
 import os
 import tomllib
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Generator, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -103,7 +103,7 @@ def capped_nextest_threads(
     environ: MutableMapping[str, str] | None = None,
     *,
     cwd: Path | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Set ``NEXTEST_TEST_THREADS`` for the duration of a nextest run.
 
     Args:
