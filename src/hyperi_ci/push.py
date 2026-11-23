@@ -788,8 +788,24 @@ def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
     brought in onto the branch's upstream as a new copy.
     """
     rebase_cmd = ["git", "pull", "--rebase=merges"]
+    fetch_cmd = ["git", "fetch", "--quiet"]
     if branch:
         rebase_cmd.extend(["origin", branch])
+        fetch_cmd.extend(["origin", branch])
+
+    ref = f"origin/{branch}" if branch else "@{u}"
+    run_cmd(fetch_cmd, check=False, cwd=cwd)
+    if _rewrites(ref, cwd=cwd):
+        error(
+            f"HEAD rewrites {ref}: every commit only {ref} has is in HEAD as a "
+            "rebased or amended copy."
+        )
+        error("A pull would drop those copies as already upstream and push nothing.")
+        info(
+            "On a feature branch, push it with `git push --force-with-lease`, "
+            "or merge origin/main instead of rebasing onto it."
+        )
+        return 1
 
     try:
         run_cmd(rebase_cmd, cwd=cwd)
@@ -797,6 +813,20 @@ def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
         error("Rebase failed -- resolve conflicts and try again")
         return 1
     return 0
+
+
+def _rewrites(ref: str, *, cwd: str | None) -> bool:
+    """Return True when every commit only ``ref`` has is patch-equal to one in HEAD."""
+    result = run_cmd(
+        ["git", "rev-list", "--cherry-mark", "--right-only", f"HEAD...{ref}"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        return False
+    marks = [line[:1] for line in result.stdout.split()]
+    return bool(marks) and all(mark == "=" for mark in marks)
 
 
 def _rebase_and_push(*, cwd: str | None = None) -> int:

@@ -1145,33 +1145,68 @@ class TestBumpGateWiring:
         mock_pull.assert_not_called()
 
 
-def test_pull_rebase_keeps_a_merge_from_main(tmp_path: Path) -> None:
-    """A branch that merged main pushes as it is, not as copies of main's commits."""
-    from hyperi_ci.push import _pull_rebase
+def git(*args: str, cwd: Path) -> str:
+    """Run git with a fixed identity and return its stripped stdout."""
+    done = subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return done.stdout.strip()
 
-    def git(*args: str, cwd: Path) -> str:
-        done = subprocess.run(
-            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-        return done.stdout.strip()
+
+def commit(work: Path, name: str) -> None:
+    """Commit a one-line file called ``name``."""
+    (work / name).write_text(name, encoding="utf-8")
+    git("add", name, cwd=work)
+    git("commit", "-q", "-m", f"fix: {name}", cwd=work)
+
+
+def test_pull_rebase_refuses_a_branch_rebased_onto_main(tmp_path: Path) -> None:
+    """A rebased branch is refused, not reset to its stale remote copy."""
+    from hyperi_ci.push import _pull_rebase, _rewrites
 
     origin, work = tmp_path / "origin.git", tmp_path / "work"
     git("init", "-q", "--bare", "-b", "main", str(origin), cwd=tmp_path)
     git("clone", "-q", str(origin), str(work), cwd=tmp_path)
-    for name in ("a", "b"):
-        (work / name).write_text(name, encoding="utf-8")
-        git("add", name, cwd=work)
-        git("commit", "-q", "-m", f"fix: {name}", cwd=work)
+    commit(work, "a")
+    git("push", "-q", "origin", "main", cwd=work)
+    git("switch", "-q", "-c", "feature", cwd=work)
+    commit(work, "c")
+    git("push", "-q", "-u", "origin", "feature", cwd=work)
+    git("switch", "-q", "main", cwd=work)
+    commit(work, "b")
+    git("push", "-q", "origin", "main", cwd=work)
+    git("switch", "-q", "feature", cwd=work)
+    git("rebase", "-q", "main", cwd=work)
+    rebased = git("rev-parse", "HEAD", cwd=work)
+
+    assert _pull_rebase(cwd=str(work)) == 1
+    assert git("rev-parse", "HEAD", cwd=work) == rebased
+
+    other = tmp_path / "other"
+    git("clone", "-q", "-b", "feature", str(origin), str(other), cwd=tmp_path)
+    commit(other, "d")
+    git("push", "-q", "origin", "feature", cwd=other)
+    git("fetch", "-q", cwd=work)
+    assert not _rewrites("@{u}", cwd=str(work))
+
+
+def test_pull_rebase_keeps_a_merge_from_main(tmp_path: Path) -> None:
+    """A branch that merged main pushes as it is, not as copies of main's commits."""
+    from hyperi_ci.push import _pull_rebase
+
+    origin, work = tmp_path / "origin.git", tmp_path / "work"
+    git("init", "-q", "--bare", "-b", "main", str(origin), cwd=tmp_path)
+    git("clone", "-q", str(origin), str(work), cwd=tmp_path)
+    commit(work, "a")
+    commit(work, "b")
     git("push", "-q", "origin", "main", cwd=work)
     git("switch", "-q", "-c", "feature", "HEAD~1", cwd=work)
-    (work / "c").write_text("c", encoding="utf-8")
-    git("add", "c", cwd=work)
-    git("commit", "-q", "-m", "fix: c", cwd=work)
+    commit(work, "c")
     git("push", "-q", "-u", "origin", "feature", cwd=work)
     git("merge", "-q", "--no-edit", "main", cwd=work)
     merged = git("rev-parse", "HEAD", cwd=work)
