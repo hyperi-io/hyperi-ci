@@ -77,6 +77,11 @@ def target_dir(cwd: Path) -> Path:
     return path if path.is_absolute() else cwd / path
 
 
+def profiles_dir(cwd: Path) -> Path:
+    """Return where the instrumented binary writes its ``.profraw`` files."""
+    return target_dir(cwd) / _PROFILES
+
+
 def stash_dir(cwd: Path, target: str) -> Path:
     """Return the directory one target's phases hand over through."""
     return cwd / STASH_ROOT / target
@@ -89,7 +94,7 @@ def stash(
     root = stash_dir(cwd, target)
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True)
-    profiles = target_dir(cwd) / _PROFILES
+    profiles = profiles_dir(cwd)
     if profiles.is_dir():
         shutil.copytree(profiles, root / _PROFILES)
     release = target_dir(cwd) / target / "release"
@@ -130,7 +135,7 @@ def restore(cwd: Path, target: str) -> PhaseState:
     root = stash_dir(cwd, target)
     profiles = root / _PROFILES
     if profiles.is_dir():
-        shutil.copytree(profiles, target_dir(cwd) / _PROFILES, dirs_exist_ok=True)
+        shutil.copytree(profiles, profiles_dir(cwd), dirs_exist_ok=True)
     binaries = root / _BINARIES
     if binaries.is_dir():
         release = target_dir(cwd) / target / "release"

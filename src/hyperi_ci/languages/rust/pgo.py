@@ -12,6 +12,7 @@ a missing BOLT toolchain keeps the PGO-only binary, but a failed workload is
 a hard error: bad profile data is worse than no PGO.
 """
 
+import contextlib
 import hashlib
 import os
 import re
@@ -20,6 +21,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -373,6 +375,7 @@ def _pgo_profile(p: _Pipeline) -> int:
             error("PGO workload setup failed -- aborting before profiling")
             return rc
 
+    started = time.time()
     rc = _run_workload(
         p.profile.pgo_workload_cmd or "",
         p.profile.pgo_duration_secs,
@@ -383,7 +386,34 @@ def _pgo_profile(p: _Pipeline) -> int:
     if rc != 0:
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
+    if not _fresh_profiles(build_phase.profiles_dir(p.cwd), started):
+        error(
+            f"PGO workload `{p.profile.pgo_workload_cmd}` exited 0 but the "
+            f"instrumented {p.binary_name} wrote no .profraw under "
+            f"{build_phase.profiles_dir(p.cwd)}. It writes the profile only when "
+            "it exits normally, so a SIGKILL or a crash leaves none: the "
+            "workload's output above shows how the app ended."
+        )
+        return 1
     return 0
+
+
+def _fresh_profiles(profiles: Path, since: float) -> bool:
+    """Report whether ``profiles`` holds a non-empty ``.profraw`` newer than ``since``.
+
+    A kept target directory can hold profiles from an earlier run, so only
+    files modified after the workload started count, give or take
+    ``_MTIME_SLACK_SECS`` for a filesystem that stores mtime coarsely.
+    """
+    for profile in profiles.rglob("*.profraw"):
+        with contextlib.suppress(OSError):
+            stats = profile.stat()
+            if stats.st_size > 0 and stats.st_mtime >= since - _MTIME_SLACK_SECS:
+                return True
+    return False
+
+
+_MTIME_SLACK_SECS = 2
 
 
 def _pgo_optimize(p: _Pipeline) -> int:

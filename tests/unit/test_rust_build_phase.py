@@ -32,6 +32,8 @@ MOLD_KEY = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(pgo.Path, "home", lambda: tmp_path / "home")
     monkeypatch.setattr(pgo, "_BOLT_LINKER_DIR", tmp_path / "bolt-linker")
+    # A stubbed workload stands in for one whose binary wrote its profile.
+    monkeypatch.setattr(pgo, "_fresh_profiles", lambda *_a: True)
     monkeypatch.setenv("PATH", os.environ["PATH"])
     monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
     monkeypatch.delenv(PHASE_ENV, raising=False)

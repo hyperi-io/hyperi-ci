@@ -107,7 +107,9 @@ Use testcontainers, `docker run` or synthetic local data. Start Kafka or the dat
 
 ## Profile quality
 
-A good profile runs 60s or more and writes at least 1 MB of `.profraw` in total. Less means the workload missed the hot path. hyperi-ci checks neither, so only a corrupt profile fails, when cargo-pgo cannot merge it. Issue #133 covers failing a half-optimised release instead.
+A good profile runs 60s or more and writes at least 1 MB of `.profraw` in total. Less means the workload missed the hot path. hyperi-ci checks neither. It fails the profile phase only when no non-empty `.profraw` was written during the workload, and cargo-pgo fails a corrupt one when it merges. Issue #133 covers failing a half-optimised release instead.
+
+The binary writes its profile when it exits normally. Stop it with SIGTERM and wait for it to exit, because a SIGKILL leaves no profile. Run any setup call to the instrumented binary with `LLVM_PROFILE_FILE=/dev/null`, or its profile passes that check for a run that wrote none.
 
 ## Anti-patterns
 
