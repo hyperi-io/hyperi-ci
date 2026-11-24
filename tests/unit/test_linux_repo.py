@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 import gzip
+import hashlib
 import io
 import tarfile
 from pathlib import Path
@@ -14,9 +15,11 @@ import pytest
 
 from hyperi_ci.linux_repo import (
     Package,
+    RepoError,
     Target,
     apk_signature_segment,
     apt_suite,
+    check_sums,
     parse_apkindex,
     prune,
     publish,
@@ -89,7 +92,9 @@ def test_signature_segment_is_one_member_with_no_end_of_archive() -> None:
     with tarfile.open(fileobj=io.BytesIO(segment + b"\0" * 1024)) as tar:
         (member,) = tar.getmembers()
         assert member.name == ".SIGN.RSA.app.rsa.pub"
-        assert tar.extractfile(member).read() == signature
+        extracted = tar.extractfile(member)
+        assert extracted is not None
+        assert extracted.read() == signature
 
 
 def test_signature_segment_pads_a_short_signature() -> None:
@@ -117,6 +122,41 @@ ENC_SUB = "ssb:u:255:18:CCCC:1::::::e:::+:::cv25519::\nfpr:::::::::ENCFPR:\n"
 )
 def test_signing_key_skips_a_stripped_primary(listing: str, chosen: str | None) -> None:
     assert signing_key(listing) == chosen
+
+
+_TARBALL = b"agent tarball"
+_DIGEST = hashlib.sha256(_TARBALL).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("listing", "checked", "fault"),
+    [
+        (f"{_DIGEST}  agent.tar.gz\n", 1, None),
+        (f"{_DIGEST} *agent.tar.gz\n\n{_DIGEST}  sub/agent.tar.gz\n", 2, None),
+        (f"{'0' * 64}  agent.tar.gz\n", 0, "does not match"),
+        (f"{_DIGEST}  gone.tar.gz\n", 0, "does not hold"),
+        (f"{_DIGEST}  ../agent.tar.gz\n", 0, "outside its directory"),
+        (f"{_DIGEST}agent.tar.gz\n", 0, "line 1 is not"),
+        (f"{_DIGEST.upper()}  agent.tar.gz\n", 0, "line 1 is not"),
+        ("\n", 0, "lists no files"),
+    ],
+)
+def test_check_sums(
+    tmp_path: Path, listing: str, checked: int, fault: str | None
+) -> None:
+    root = tmp_path / "artifact"
+    (root / "sub").mkdir(parents=True)
+    for path in (root / "agent.tar.gz", root / "sub" / "agent.tar.gz"):
+        path.write_bytes(_TARBALL)
+    (tmp_path / "agent.tar.gz").write_bytes(_TARBALL)
+    sums = root / "SHA256SUMS"
+    sums.write_text(listing, encoding="utf-8")
+
+    if fault is None:
+        assert check_sums(sums) == checked
+    else:
+        with pytest.raises(RepoError, match=fault):
+            check_sums(sums)
 
 
 def test_publish_with_no_packages_fails(tmp_path: Path) -> None:

@@ -76,3 +76,12 @@ jobs:
           KEEP: ${{ inputs.keep }}
           PROJECT: ${{ inputs.project || github.event.repository.name }}
         run: ${{ env.HYPERCI_INSTALL }} linux-repo publish packages --channel "$CHANNEL" --keep "$KEEP" --project "$PROJECT"
+
+      # The caller publishes SHA256SUMS.asc beside the SHA256SUMS its artifact holds.
+      - name: Upload the SHA256SUMS signature
+        if: hashFiles('packages/SHA256SUMS') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact }}-sums-sig
+          path: packages/SHA256SUMS.asc
+          if-no-files-found: error
