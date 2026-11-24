@@ -14,6 +14,7 @@ from hyperi_ci.build_targets import (
     ci_targets,
     declared_targets,
     os_legs,
+    os_test_runners,
     read_rust_targets,
     unbuilt_targets,
 )
@@ -101,6 +102,71 @@ def test_os_legs_cover_windows_and_macos_only(
     expected = [{"target": t, "runner": r, "os_arch": o} for t, r, o in legs]
     assert os_legs(targets) == expected
     assert unbuilt_targets(targets) == unbuilt
+
+
+@pytest.mark.parametrize(
+    ("override", "runner"),
+    [("", "windows-2025"), ("windows-devex", "windows-devex"), (" ", "windows-2025")],
+)
+def test_windows_runner_override_moves_only_the_windows_leg(
+    override: str, runner: str
+) -> None:
+    legs = os_legs([_WINDOWS, _MAC_ARM], override.strip())
+    assert [leg["runner"] for leg in legs] == [runner, "macos-26"]
+
+
+_LEGS = os_legs([_WINDOWS, _MAC_ARM, _MAC_INTEL], "windows-devex")
+
+
+@pytest.mark.parametrize(
+    ("private", "event", "ref", "runners"),
+    [
+        (True, "pull_request", "refs/pull/7/merge", ["windows-devex"]),
+        (True, "push", "refs/heads/feature", ["windows-devex"]),
+        (
+            True,
+            "push",
+            "refs/heads/main",
+            ["windows-devex", "macos-26", "macos-26-intel"],
+        ),
+        (
+            True,
+            "merge_group",
+            "refs/heads/gh-readonly-queue/main/x",
+            ["windows-devex", "macos-26", "macos-26-intel"],
+        ),
+        (
+            True,
+            "schedule",
+            "refs/heads/main",
+            ["windows-devex", "macos-26", "macos-26-intel"],
+        ),
+        (
+            True,
+            "workflow_dispatch",
+            "refs/heads/feature",
+            ["windows-devex", "macos-26", "macos-26-intel"],
+        ),
+        (
+            False,
+            "pull_request",
+            "refs/pull/7/merge",
+            ["windows-devex", "macos-26", "macos-26-intel"],
+        ),
+    ],
+)
+def test_hosted_os_test_legs_skip_per_commit_runs_on_a_private_repo(
+    private: bool, event: str, ref: str, runners: list[str]
+) -> None:
+    assert os_test_runners(_LEGS, private=private, event=event, ref=ref) == runners
+
+
+@pytest.mark.parametrize(
+    "label", ["windows-latest", "windows-2025", "macos-latest", "macos-15"]
+)
+def test_every_hosted_label_skips_a_private_pull_request(label: str) -> None:
+    legs = [{"target": _WINDOWS, "runner": label, "os_arch": "x"}]
+    assert os_test_runners(legs, private=True, event="pull_request", ref="") == []
 
 
 class TestReadRustTargets:

@@ -259,6 +259,7 @@ jobs:
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
           runner-mode: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) }}
           project-dir: ${{ inputs.project-dir }}
+          windows-runner: ${{ vars.GH_RUNNER_WINDOWS }}
 
       - name: Install uv (preflight)
         if: steps.predict.outputs.will-release == 'true'

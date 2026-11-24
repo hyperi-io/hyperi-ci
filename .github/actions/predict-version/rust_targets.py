@@ -31,8 +31,9 @@ from pathlib import Path
 _PACKAGE = Path(__file__).resolve().parents[3] / "src" / "hyperi_ci"
 
 
-def _write_outputs(targets: list[str], legs: list[dict[str, str]]) -> None:
-    runners = list(dict.fromkeys(leg["runner"] for leg in legs))
+def _write_outputs(
+    targets: list[str], legs: list[dict[str, str]], runners: list[str]
+) -> None:
     lines = (
         f"rust-targets={' '.join(targets)}\n"
         f"os-build-matrix={json.dumps({'include': legs})}\n"
@@ -62,7 +63,7 @@ def run() -> int:
     )
     if not (workspace / "Cargo.toml").is_file():
         # Only rust-ci.yml reads this, so another language gets no warning.
-        _write_outputs([], [])
+        _write_outputs([], [], [])
         return 0
     try:
         _load_package()
@@ -70,21 +71,34 @@ def run() -> int:
             TARGET_OS_ARCH,
             os_legs,
             read_rust_targets,
+            os_test_runners,
             unbuilt_targets,
         )
 
         targets, problem = read_rust_targets(workspace)
-        legs = os_legs(targets)
+        legs = os_legs(targets, os.environ.get("WINDOWS_RUNNER", "").strip())
+        runners = os_test_runners(
+            legs,
+            private=os.environ.get("REPO_PRIVATE") == "true",
+            event=os.environ.get("GITHUB_EVENT_NAME", ""),
+            ref=os.environ.get("GITHUB_REF", ""),
+        )
         unbuilt = unbuilt_targets(targets)
         built = " ".join(TARGET_OS_ARCH)
     except Exception as exc:
-        _write_outputs([], [])
+        _write_outputs([], [], [])
         print(
             f"::warning title=rust targets::could not read build.rust.targets ({exc}) -- every target builds"
         )
         return 0
 
-    _write_outputs(targets, legs)
+    _write_outputs(targets, legs, runners)
+    skipped = sorted({leg["runner"] for leg in legs} - set(runners))
+    if skipped:
+        print(
+            f"::notice title=OS test legs::{' '.join(skipped)} run on main, the merge "
+            "queue, schedules and dispatches on a private repo, not per commit"
+        )
     if problem:
         print(f"::warning title=rust targets::{problem} -- every target builds")
     elif targets:

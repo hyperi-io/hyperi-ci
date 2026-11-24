@@ -21,6 +21,7 @@ installed.
 # predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -42,20 +43,27 @@ TARGET_OS_ARCH = {
     "aarch64-apple-darwin": ("darwin", "arm64"),
 }
 
-#: The GitHub-hosted runner for each target outside Linux. No self-hosted
-#: runner serves them, so the runner mode does not choose these.
+#: The GitHub-hosted runner for each target outside Linux. The runner mode
+#: does not choose these, and only Windows takes a self-hosted override.
 HOSTED_RUNNERS = {
     "x86_64-pc-windows-msvc": "windows-2025",
     "x86_64-apple-darwin": "macos-26-intel",
     "aarch64-apple-darwin": "macos-26",
 }
 
+WINDOWS_TARGET = "x86_64-pc-windows-msvc"
 
-def os_legs(targets: Sequence[str]) -> list[dict[str, str]]:
+# GitHub-hosted Windows and macOS labels, billed per minute on a private repo.
+_HOSTED_LABEL = re.compile(r"^(windows|macos)-(latest|\d+)")
+
+
+def os_legs(targets: Sequence[str], windows_runner: str = "") -> list[dict[str, str]]:
     """Return one build leg per listed target outside Linux, in listed order.
 
     Args:
         targets: The declared ``build.rust.targets``.
+        windows_runner: Runner label for the Windows leg, such as a self-hosted
+            one. Empty keeps the GitHub-hosted default.
 
     Returns:
         Matrix entries carrying ``target``, ``runner`` and ``os_arch``.
@@ -64,12 +72,42 @@ def os_legs(targets: Sequence[str]) -> list[dict[str, str]]:
     legs: list[dict[str, str]] = []
     for target in dict.fromkeys(targets):
         runner = HOSTED_RUNNERS.get(target)
+        if runner and target == WINDOWS_TARGET and windows_runner:
+            runner = windows_runner
         if runner:
             os_name, arch = TARGET_OS_ARCH[target]
             legs.append(
                 {"target": target, "runner": runner, "os_arch": f"{os_name}-{arch}"}
             )
     return legs
+
+
+def os_test_runners(
+    legs: Sequence[dict[str, str]], *, private: bool, event: str, ref: str
+) -> list[str]:
+    """Return the runners the Windows and macOS Test legs use on this run.
+
+    On a private repo a GitHub-hosted leg skips pull requests and branch
+    pushes, which bill per commit, and runs on main, the merge queue,
+    schedules and dispatches. A self-hosted leg always runs.
+
+    Args:
+        legs: The OS build legs.
+        private: Whether the repository is private.
+        event: ``github.event_name``.
+        ref: ``github.ref``.
+
+    Returns:
+        Each runner once, in leg order.
+
+    """
+    per_commit = event == "pull_request" or (
+        event == "push" and ref != "refs/heads/main"
+    )
+    runners = dict.fromkeys(leg["runner"] for leg in legs)
+    if private and per_commit:
+        return [r for r in runners if not _HOSTED_LABEL.match(r)]
+    return list(runners)
 
 
 def unbuilt_targets(targets: Sequence[str]) -> list[str]:
