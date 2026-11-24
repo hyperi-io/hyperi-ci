@@ -13,12 +13,17 @@ each package and arch, and syncs the result to ``<project>/apt``,
 ``<project>/rpm/<channel>/<arch>`` and ``<project>/apk/<channel>/<arch>``.
 A .deb stays unsigned, because apt verifies InRelease, and an .apk too,
 because apk trusts a package whose checksum the signed APKINDEX holds.
+
+A ``SHA256SUMS`` at the top of the packages directory is checked against the
+files it names and signed to ``SHA256SUMS.asc`` beside it. The caller publishes
+both with its tarballs.
 """
 
 import functools
 import gzip
 import os
 import platform
+import re
 import shutil
 import tarfile
 import tempfile
@@ -44,6 +49,9 @@ _METADATA = {
     "rpm": ["*/repodata/*"],
     "apk": ["*/APKINDEX.tar.gz"],
 }
+
+SUMS = "SHA256SUMS"
+_SUMS_LINE = re.compile(r"([0-9a-f]{64}) [ *](.+)")
 
 type Compare = Callable[[str, str], int]
 
@@ -122,6 +130,39 @@ def prune(packages: list[Package], keep: int, compare: Compare) -> list[Package]
     for group in groups.values():
         stale.extend(sorted(group, key=order, reverse=True)[keep:])
     return stale
+
+
+def check_sums(sums: Path) -> int:
+    """Check each ``sha256sum`` line of ``sums`` against the file it names.
+
+    Returns:
+        The number of files checked.
+
+    Raises:
+        RepoError: The listing is empty or malformed, names a path outside its
+            directory, or a file is missing or does not match.
+
+    """
+    root = sums.parent.resolve()
+    checked = 0
+    for number, line in enumerate(sums.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        match = _SUMS_LINE.fullmatch(line)
+        if not match:
+            raise RepoError(f"{SUMS} line {number} is not '<sha256>  <file>'")
+        digest, name = match.groups()
+        path = (root / name).resolve()
+        if not path.is_relative_to(root):
+            raise RepoError(f"{SUMS} names {name}, outside its directory")
+        if not path.is_file():
+            raise RepoError(f"{SUMS} names {name}, which the artifact does not hold")
+        if sha256_file(path) != digest:
+            raise RepoError(f"{name} does not match its {SUMS} entry")
+        checked += 1
+    if not checked:
+        raise RepoError(f"{SUMS} lists no files")
+    return checked
 
 
 def apk_signature_segment(signature: bytes, key_name: str) -> bytes:
@@ -455,6 +496,15 @@ def publish(packages_dir: Path, target: Target) -> int:
     if not any(found.values()):
         error(f"no .deb, .rpm or .apk under {packages_dir}")
         return 1
+    sums: Path | None = packages_dir / SUMS
+    if sums.is_file():
+        try:
+            info(f"{SUMS}: {check_sums(sums)} file(s) match")
+        except RepoError as exc:
+            error(str(exc))
+            return 1
+    else:
+        sums = None
     access_key = os.environ.get("R2_ACCESS_KEY_ID")
     secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
@@ -479,7 +529,7 @@ def publish(packages_dir: Path, target: Target) -> int:
                 endpoint=org.r2_endpoint,
                 prefix=f"s3://{org.r2_bucket}/{target.project}",
             )
-            _publish(Path(tmp), r2, found, target)
+            _publish(Path(tmp), r2, found, target, sums)
     except (RepoError, OpenBaoError) as exc:
         error(str(exc))
         return 1
@@ -495,10 +545,19 @@ def _read_key(target: Target, secret: str, field: str, out: Path) -> Path:
     return read_to_file(org, role=target.role, path=path, field=field, out=out)
 
 
-def _publish(work: Path, r2: _R2, found: dict[str, list[Path]], target: Target) -> None:
-    if found["deb"] or found["rpm"]:
+def _publish(
+    work: Path,
+    r2: _R2,
+    found: dict[str, list[Path]],
+    target: Target,
+    sums: Path | None,
+) -> None:
+    if found["deb"] or found["rpm"] or sums:
         gpg_key = _read_key(target, "gpg", "private", work / "gpg.key")
         with gpg_signer(gpg_key) as signer:
+            if sums:
+                signer.detach(sums, sums.with_name(f"{SUMS}.asc"))
+                info(f"{SUMS}: signed to {SUMS}.asc")
             if found["deb"]:
                 info(f"apt: {len(found['deb'])} new package(s)")
                 r2.download("apt", work / "apt")

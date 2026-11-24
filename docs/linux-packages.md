@@ -40,6 +40,8 @@ Two publishes for one repository and channel queue rather than race, because eac
 
 The GPG key signs each .rpm, apt's `InRelease` and `Release.gpg`, and `repomd.xml.asc`. The RSA key signs each `APKINDEX.tar.gz`. A .deb or .apk carries no signature of its own: apt and apk check it against the signed index.
 
+When the artifact has a `SHA256SUMS` at its top level, in `sha256sum` format, every file it names must be in the artifact with a matching hash, or the publish fails before anything uploads. The GPG key then signs it to a detached, armoured `SHA256SUMS.asc`. The workflow uploads that file as the artifact `<artifact>-sums-sig`, and the caller publishes it beside `SHA256SUMS`. An installer checks a tarball with `gpgv` against `hyperi-packages.asc`, then `sha256sum -c`.
+
 ## Layout
 
 | Format | Path under `downloads.hyperi.io/<project>/` |
