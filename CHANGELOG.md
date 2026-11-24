@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.10...v2.16.0) (2026-11-24)
+
+### Features
+
+* **linux-repo:** publish signed apt, dnf and apk repositories on R2 ([efbe54b](https://github.com/hyperi-io/hyperi-ci/commit/efbe54bc84b2f0c7e5d2211e8ea975e8bab3bb4b))
+
 ## [2.15.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.9...v2.15.10) (2026-11-23)
 
 ### Bug Fixes
