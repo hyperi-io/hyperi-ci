@@ -178,16 +178,37 @@ class TestTheDoctrineSkipIsAllowed:
         )
         assert verdict.ok
 
-    def test_it_says_the_skip_was_deliberate(self) -> None:
-        """The reason must survive being read by someone who did not run it."""
+    @pytest.mark.parametrize(
+        ("branch_push", "needles", "absent"),
+        [
+            pytest.param(False, ["doctrine", "not missed"], "pull_request", id="main"),
+            pytest.param(
+                True,
+                ["pull_request run checks this head", "merge conflict"],
+                "ships nothing",
+                id="branch-push",
+            ),
+        ],
+    )
+    def test_it_says_why_the_checks_skipped(
+        self, branch_push: bool, needles: list[str], absent: str
+    ) -> None:
+        """The reason must survive being read by someone who did not run it.
+
+        A conflicting PR gets no pull_request run, so the branch push's
+        skipped checks are all its head shows.
+        """
         verdict = evaluate(
             run_checks=False,
             run_build=False,
             plan="success",
             checks={"quality": "skipped"},
+            branch_push=branch_push,
         )
-        assert "doctrine" in verdict.reason
-        assert "not missed" in verdict.reason
+        assert verdict.ok
+        for needle in needles:
+            assert needle in verdict.reason
+        assert absent not in verdict.reason
 
 
 class TestTheHappyPath:

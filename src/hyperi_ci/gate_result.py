@@ -114,6 +114,7 @@ def evaluate(
     checks: dict[str, str],
     build: dict[str, str] | None = None,
     tier: TierContext | None = None,
+    branch_push: bool = False,
 ) -> GateVerdict:
     """Decide whether a run may report success.
 
@@ -130,6 +131,8 @@ def evaluate(
         build: Job name to result, for the jobs ``run_build`` governs.
         tier: The test tier the plan resolved. None reads it from the Gate
               job's environment (:meth:`TierContext.from_env`).
+        branch_push: A push to a branch other than main, whose head the
+              pull_request run checks instead.
 
     Returns:
         The verdict, whose reason is written to be read in a check summary.
@@ -203,6 +206,16 @@ def evaluate(
         )
 
     ran = sorted(n for n, result in every.items() if result == SUCCESS)
+    if not run_checks and not run_build and branch_push:
+        return GateVerdict(
+            ok=True,
+            reason=(
+                "A branch push checks nothing: the pull_request run checks this "
+                "head. If the PR has no pull_request run for this head, the PR "
+                "has a merge conflict and GitHub runs nothing until it is "
+                "resolved."
+            ),
+        )
     if not run_checks and not run_build:
         return GateVerdict(
             ok=True,
