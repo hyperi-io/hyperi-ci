@@ -2676,6 +2676,8 @@ def gate_check_cmd() -> None:
         plan=os.environ.get("HYPERCI_GATE_PLAN", ""),
         checks=_results("quality", "test"),
         build=_results("build", "build_os"),
+        branch_push=os.environ.get("GITHUB_EVENT_NAME") == "push"
+        and os.environ.get("GITHUB_REF", "") != "refs/heads/main",
     )
     if verdict.ok:
         success(verdict.reason)
