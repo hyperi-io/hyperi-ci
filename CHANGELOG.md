@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.0...v2.16.1) (2026-11-24)
+
+### Bug Fixes
+
+* **gate:** name the PR run when Gate skips a branch push ([529107c](https://github.com/hyperi-io/hyperi-ci/commit/529107cf3f80ec682fd27b387aeea5d60e75cb92)), closes [scalo-rs#558](https://github.com/hyperi-io/scalo-rs/issues/558)
+* **linux-repo:** add linux-repo.yml to publish package repos ([2498443](https://github.com/hyperi-io/hyperi-ci/commit/24984439db4f2ee5be2a6519db242b345f91a0ca))
+* **native-deps:** install protoc's include tree from the pinned zip ([b25f3d8](https://github.com/hyperi-io/hyperi-ci/commit/b25f3d8c055edddcfbd45ea3d7e41ed2c0f6a96c))
+* **rust:** limit hosted macOS and Windows tests on private repos ([9bfc883](https://github.com/hyperi-io/hyperi-ci/commit/9bfc883895a89b417c7eb41742a5aa58a6da9175))
+* **security:** keep the release bot key out of Plan and Quality ([d9a2018](https://github.com/hyperi-io/hyperi-ci/commit/d9a2018b0c9129d6c45a988859b375f348abb22f))
+* **security:** sign a release's SHA256SUMS in linux-repo ([739d2da](https://github.com/hyperi-io/hyperi-ci/commit/739d2dad1785615c34cc35ff99ed6ff03d8a95e2))
+
 ## [2.16.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.15.10...v2.16.0) (2026-11-24)
 
 ### Features
