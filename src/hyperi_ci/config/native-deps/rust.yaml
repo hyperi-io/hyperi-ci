@@ -171,7 +171,7 @@
     - protobuf
   choco_packages:
     - protoc
-  release_fallback: protoc
+  release_zip: protoc
 
 # --- OpenSSL (libssl) ---
 # openssl-sys links dynamically by default via pkg-config.

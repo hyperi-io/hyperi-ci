@@ -697,7 +697,7 @@ def _zip(*members: str, data: bytes = b"protoc-binary") -> bytes:
 
 
 class TestOsRelease:
-    """The Windows and macOS release zip install-native-deps falls back to."""
+    """The Windows and macOS release zip install-native-deps tries before brew or choco."""
 
     @staticmethod
     def _host(monkeypatch: pytest.MonkeyPatch, system: str, machine: str) -> None:
@@ -738,11 +738,16 @@ class TestOsRelease:
         asset: str,
     ) -> None:
         self._host(monkeypatch, system, machine)
-        urls = self._serve(monkeypatch, _zip(member, "include/x.proto"))
+        urls = self._serve(
+            monkeypatch, _zip(member, "include/google/protobuf/timestamp.proto")
+        )
         binary = native_tools.install_os_release("protoc", tmp_path)
         assert binary == tmp_path / Path(member).name
         assert binary.read_bytes() == b"protoc-binary"
         assert binary.stat().st_mode & stat.S_IXUSR
+        # protoc finds the well-known types in include/ beside itself.
+        assert (tmp_path / "include/google/protobuf/timestamp.proto").is_file()
+        assert native_tools.has_os_release("protoc")
         bare = tool_version("protoc").removeprefix("v")
         assert urls == [
             "https://github.com/protocolbuffers/protobuf/releases/download/"
@@ -754,6 +759,7 @@ class TestOsRelease:
     ) -> None:
         self._host(monkeypatch, "Linux", "x86_64")
         monkeypatch.setattr(native_tools, "download_to_file", _never)
+        assert not native_tools.has_os_release("protoc")
         assert native_tools.install_os_release("protoc", tmp_path) is None
 
     def test_a_digest_mismatch_installs_nothing(
@@ -764,13 +770,23 @@ class TestOsRelease:
         assert native_tools.install_os_release("protoc", tmp_path) is None
         assert list(tmp_path.iterdir()) == []
 
-    def test_a_zip_without_the_binary_leaves_nothing_behind(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    @pytest.mark.parametrize(
+        "members",
+        [
+            pytest.param(("include/x.proto",), id="no-binary"),
+            pytest.param(("bin/protoc", "readme.txt"), id="no-include"),
+            pytest.param(("bin/protoc", "include/../../escape.proto"), id="traversal"),
+        ],
+    )
+    def test_a_zip_missing_a_part_installs_no_binary(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, members: tuple[str, ...]
     ) -> None:
         self._host(monkeypatch, "Darwin", "arm64")
-        self._serve(monkeypatch, _zip("include/x.proto"))
-        assert native_tools.install_os_release("protoc", tmp_path) is None
-        assert list(tmp_path.iterdir()) == []
+        self._serve(monkeypatch, _zip(*members))
+        bin_dir = tmp_path / "bin"
+        assert native_tools.install_os_release("protoc", bin_dir) is None
+        assert not (bin_dir / "protoc").exists()
+        assert not (tmp_path / "escape.proto").exists()
 
     @pytest.mark.parametrize(
         "key", sorted(set(native_tools._OS_RELEASE_TOOLS["protoc"].assets.values()))

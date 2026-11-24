@@ -1205,7 +1205,7 @@ class TestExpandTemplateVarsOsCodename:
 
 
 class TestOsNativeDeps:
-    """macOS and Windows legs install protoc through brew or choco."""
+    """macOS and Windows legs install protoc from its pinned zip, else brew or choco."""
 
     @staticmethod
     def _run(
@@ -1214,19 +1214,21 @@ class TestOsNativeDeps:
         system: str,
         on_path: set[str],
         *,
+        machine: str = "x86_64",
         lock: str = 'name = "prost-build"\n',
         exit_codes: tuple[int, ...] = (0,),
         installed_by: int = 1,
-        release_ok: bool = False,
+        release_ok: bool = True,
     ) -> tuple[int, list[list[str]], list[str]]:
         """Run the install, protoc reaching PATH on call ``installed_by`` (0: never).
 
         Each call exits with the next of ``exit_codes``, the last repeating. The
-        release fallback puts protoc on PATH when ``release_ok``.
+        release zip puts protoc on PATH when ``release_ok``.
         """
         (tmp_path / "Cargo.lock").write_text(lock, encoding="utf-8")
         on_path = set(on_path)
         monkeypatch.setattr(native_deps.platform, "system", lambda: system)
+        monkeypatch.setattr(native_deps.platform, "machine", lambda: machine)
         monkeypatch.setattr(
             native_deps.shutil, "which", lambda name: name if name in on_path else None
         )
@@ -1258,42 +1260,76 @@ class TestOsNativeDeps:
     _CHOCO = ["choco", "install", "-y", "--no-progress", "protoc"]
 
     @pytest.mark.parametrize(
-        ("system", "on_path", "exit_codes", "installed_by", "release_ok", "expected"),
+        (
+            "system",
+            "machine",
+            "on_path",
+            "exit_codes",
+            "installed_by",
+            "release_ok",
+            "expected",
+        ),
         [
-            ("Darwin", {"brew"}, (0,), 1, False, (0, [_BREW], [])),
-            ("Windows", {"choco"}, (0,), 1, False, (0, [_CHOCO], [])),
+            # The pinned zip first: no package manager runs.
+            ("Darwin", "arm64", {"brew"}, (0,), 1, True, (0, [], ["protoc"])),
+            ("Windows", "AMD64", {"choco"}, (0,), 1, True, (0, [], ["protoc"])),
             # Already there: nothing to install.
-            ("Darwin", {"brew", "protoc"}, (0,), 1, False, (0, [], [])),
-            # No package manager: the release zip, else a failure.
-            ("Windows", set(), (0,), 1, False, (1, [], ["protoc"])),
-            ("Windows", set(), (0,), 1, True, (0, [], ["protoc"])),
-            # The installer fails every retry and so does the release zip.
-            ("Darwin", {"brew"}, (3,), 0, False, (1, [_BREW] * 4, ["protoc"])),
+            ("Darwin", "arm64", {"brew", "protoc"}, (0,), 1, True, (0, [], [])),
+            # No zip for Windows on arm64: choco alone.
+            ("Windows", "ARM64", {"choco"}, (0,), 1, True, (0, [_CHOCO], [])),
+            # The zip fails: the package manager, else a failure.
+            ("Windows", "AMD64", {"choco"}, (0,), 1, False, (0, [_CHOCO], ["protoc"])),
+            ("Windows", "AMD64", set(), (0,), 1, False, (1, [], ["protoc"])),
+            ("Darwin", "arm64", {"brew"}, (3,), 0, False, (3, [_BREW] * 4, ["protoc"])),
             # choco exits 0 having installed nothing while its feed is down.
-            ("Windows", {"choco"}, (0,), 0, False, (1, [_CHOCO] * 4, ["protoc"])),
-            ("Windows", {"choco"}, (0,), 0, True, (0, [_CHOCO] * 4, ["protoc"])),
+            (
+                "Windows",
+                "AMD64",
+                {"choco"},
+                (0,),
+                0,
+                False,
+                (1, [_CHOCO] * 4, ["protoc"]),
+            ),
             # The feed comes back on the second attempt.
-            ("Windows", {"choco"}, (0,), 2, False, (0, [_CHOCO] * 2, [])),
-            ("Windows", {"choco"}, (1, 0), 2, False, (0, [_CHOCO] * 2, [])),
+            (
+                "Windows",
+                "AMD64",
+                {"choco"},
+                (0,),
+                2,
+                False,
+                (0, [_CHOCO] * 2, ["protoc"]),
+            ),
+            (
+                "Windows",
+                "AMD64",
+                {"choco"},
+                (1, 0),
+                2,
+                False,
+                (0, [_CHOCO] * 2, ["protoc"]),
+            ),
         ],
         ids=[
-            "mac",
-            "windows",
+            "mac-zip",
+            "windows-zip",
             "present",
-            "no-installer",
-            "no-installer-release",
-            "install-fails",
-            "exit-0-installs-nothing",
-            "exit-0-installs-nothing-release",
-            "feed-recovers",
-            "exit-1-then-recovers",
+            "windows-arm64-no-zip",
+            "zip-fails-choco",
+            "zip-fails-no-installer",
+            "zip-fails-install-fails",
+            "zip-fails-exit-0-installs-nothing",
+            "zip-fails-feed-recovers",
+            "zip-fails-exit-1-then-recovers",
         ],
     )
-    def test_the_installer_runs_until_the_binary_is_on_path(
+    def test_the_zip_then_the_installer_until_the_binary_is_on_path(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         system: str,
+        machine: str,
         on_path: set[str],
         exit_codes: tuple[int, ...],
         installed_by: int,
@@ -1305,6 +1341,7 @@ class TestOsNativeDeps:
             tmp_path,
             system,
             on_path,
+            machine=machine,
             exit_codes=exit_codes,
             installed_by=installed_by,
             release_ok=release_ok,
@@ -1319,10 +1356,10 @@ class TestOsNativeDeps:
         )
         assert got == (0, [], [])
 
-    def test_the_protobuf_group_names_its_release_fallback(self) -> None:
+    def test_the_protobuf_group_names_its_release_zip(self) -> None:
         groups = native_deps._load_dep_groups("rust", category="native-deps")
         protobuf = next(g for g in groups if g.binary_check == "protoc")
-        assert protobuf.release_fallback == "protoc"
+        assert protobuf.release_zip == "protoc"
 
 
 class TestAllModeBypass:

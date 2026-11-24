@@ -82,14 +82,14 @@ One optional field: `bake: false` (below).
 
 Off Linux, `install-native-deps` installs a matched entry's `brew_packages` on macOS or `choco_packages` on Windows, and skips the entry when its `binary_check` is already on PATH. The install runs up to 4 times, with backoff, until it exits 0 and every `binary_check` is on PATH, because choco exits 0 having installed nothing when its feed is down.
 
-`release_fallback` names a pinned release zip (`_OS_RELEASE_TOOLS` in `native_tools.py`, versions.yaml `tools.<name>`). When the binary is still missing, or there is no brew or choco, the zip is checked against its digest, unpacked, and its directory goes on `$GITHUB_PATH` for the later steps.
+`release_zip` names a pinned release zip (`_OS_RELEASE_TOOLS` in `native_tools.py`, versions.yaml `tools.<name>`). Where the host has one, it installs before brew or choco is tried: the zip is checked against its digest, the binary and its `tree` (protoc's `include/`, which holds the well-known types) are unpacked, and the directory goes on `$GITHUB_PATH` for the later steps. brew or choco installs the entry only when the host has no zip or the zip fails.
 
 ```yaml
 - name: protobuf / gRPC
   binary_check: protoc
   brew_packages: [protobuf]
   choco_packages: [protoc]
-  release_fallback: protoc
+  release_zip: protoc
 ```
 
 ## The `bake: false` flag - non-coinstallable toolsets

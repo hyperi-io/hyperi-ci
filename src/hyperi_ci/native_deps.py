@@ -51,7 +51,7 @@ from hyperi_ci.llvm_version import (
     default_llvm_major,
     designated_llvm_version,
 )
-from hyperi_ci.native_tools import install_os_release, install_root
+from hyperi_ci.native_tools import has_os_release, install_os_release, install_root
 from hyperi_ci.versions import tool_version
 
 _LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
@@ -122,8 +122,8 @@ class DepGroup:
     brew_packages: list[str] = field(default_factory=list)
     choco_packages: list[str] = field(default_factory=list)
     binary_check: str = ""
-    # The pinned release zip installed when brew or choco leaves binary_check missing.
-    release_fallback: str = ""
+    # The pinned release zip installed in place of brew or choco, where the host has one.
+    release_zip: str = ""
 
 
 def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
@@ -175,7 +175,7 @@ def _dep_group_from_entry(entry: dict) -> DepGroup:
         brew_packages=list(entry.get("brew_packages", [])),
         choco_packages=list(entry.get("choco_packages", [])),
         binary_check=entry.get("binary_check", ""),
-        release_fallback=entry.get("release_fallback", ""),
+        release_zip=entry.get("release_zip", ""),
         apt_repos=[
             AptRepo(
                 key_url=r["key_url"],
@@ -845,11 +845,12 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
     """Install the matched groups' brew or choco packages on a macOS or Windows runner.
 
     A group is skipped when its binary_check is already on PATH, and a group
-    with no packages for this OS is skipped silently. The install runs up to
-    ``URL_ATTEMPTS`` times until it exits 0 and every binary_check is on PATH,
-    because choco exits 0 having installed nothing when its feed is down.
-    A binary still missing after that, or with no installer on PATH, comes
-    from its group's pinned ``release_fallback`` zip when it has one.
+    with no packages for this OS is skipped silently. A group whose pinned
+    ``release_zip`` has a zip for this host installs from it, and brew or
+    choco install the rest, plus any group whose zip failed. That install
+    runs up to ``URL_ATTEMPTS`` times until it exits 0 and every binary_check
+    is on PATH, because choco exits 0 having installed nothing when its feed
+    is down.
 
     Args:
         language: Language identifier for the native-deps table.
@@ -865,10 +866,7 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
     except LLVMVersionError as exc:
         logger.error(str(exc))
         return 1
-    packages: list[str] = []
-    binaries: list[str] = []
-    fallbacks: dict[str, str] = {}
-    unchecked = False
+    pending: list[DepGroup] = []
     for group in dep_groups:
         wanted = _os_packages(group, system)
         if not wanted or not _group_matches(group, cwd):
@@ -876,30 +874,26 @@ def _install_os_native_deps(language: str, cwd: Path, system: str) -> int:
         if group.binary_check and shutil.which(group.binary_check):
             logger.info(f"[{group.name}] already installed ({group.binary_check})")
             continue
-        packages.extend(p for p in wanted if p not in packages)
-        if not group.binary_check:
-            unchecked = True
-            continue
-        binaries.append(group.binary_check)
-        if group.release_fallback:
-            fallbacks[group.binary_check] = group.release_fallback
-    if not packages:
-        logger.info(f"No native-deps to install for {language} on {system}")
+        zipped = group.binary_check and group.release_zip
+        if zipped and has_os_release(group.release_zip):
+            if _install_release_zip(group.binary_check, group.release_zip):
+                continue
+            info(
+                f"  [{group.name}] the release zip failed, trying {system}'s installer"
+            )
+        pending.append(group)
+    if not pending:
+        logger.info(f"No further native-deps to install for {language} on {system}")
         return 0
+    packages: list[str] = []
+    for group in pending:
+        packages.extend(p for p in _os_packages(group, system) if p not in packages)
+    binaries = [group.binary_check for group in pending if group.binary_check]
     installer = _OS_INSTALLERS[system][0]
-    if shutil.which(installer):
-        rc = _run_os_installer(system, packages, binaries)
-    else:
+    if not shutil.which(installer):
         logger.error(f"{installer} is not on PATH, so {packages} cannot be installed")
-        rc = 1
-    missing = [binary for binary in binaries if not shutil.which(binary)]
-    if rc == 0 and not missing:
-        return 0
-    # With a group that has no binary_check, a failed installer may have left
-    # it out, and no release zip can tell.
-    if missing and set(missing) <= fallbacks.keys() and (rc == 0 or not unchecked):
-        return 0 if _install_release_fallbacks(missing, fallbacks) else 1
-    return rc or 1
+        return 1
+    return _run_os_installer(system, packages, binaries)
 
 
 def _run_os_installer(system: str, packages: list[str], binaries: list[str]) -> int:
@@ -932,23 +926,21 @@ def _run_os_installer(system: str, packages: list[str], binaries: list[str]) -> 
     return 1
 
 
-def _install_release_fallbacks(missing: list[str], fallbacks: dict[str, str]) -> bool:
-    """Install each missing binary from its pinned release zip and put it on PATH.
+def _install_release_zip(binary: str, tool: str) -> bool:
+    """Install ``binary`` from ``tool``'s pinned release zip and put it on PATH.
 
     Returns:
-        True when every binary in ``missing`` is on PATH afterwards.
+        True when ``binary`` is on PATH afterwards.
     """
-    for binary in missing:
-        tool = fallbacks[binary]
-        info(f"  {binary}: installing the pinned {tool} {tool_version(tool)} release")
-        installed = install_os_release(tool, install_root() / tool / tool_version(tool))
-        if installed is None:
-            return False
-        prepend_path(installed.parent)
-    still = [binary for binary in missing if not shutil.which(binary)]
-    if still:
-        logger.error(f"{still} still not on PATH after the release install")
-    return not still
+    info(f"  {binary}: installing the pinned {tool} {tool_version(tool)} release")
+    installed = install_os_release(tool, install_root() / tool / tool_version(tool))
+    if installed is None:
+        return False
+    prepend_path(installed.parent)
+    if shutil.which(binary):
+        return True
+    logger.error(f"{binary} still not on PATH after the release install")
+    return False
 
 
 def install_native_deps(

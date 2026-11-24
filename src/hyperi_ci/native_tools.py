@@ -467,12 +467,15 @@ class OsReleaseTool:
     ``url`` is a format string over ``{version}``, ``{bare}`` and ``{asset}``.
     ``assets`` maps ``(platform.system(), arch)`` to the asset's platform
     spelling, which is also its digest key in versions.yaml. ``member`` is the
-    binary's path in the zip, without the ``.exe`` Windows adds.
+    binary's path in the zip, without the ``.exe`` Windows adds. ``tree`` is a
+    directory of the zip unpacked beside the binary, which protoc needs to find
+    the well-known types.
     """
 
     url: str
     assets: dict[tuple[str, str], str]
     member: str
+    tree: str = ""
 
 
 _OS_RELEASE_TOOLS: dict[str, OsReleaseTool] = {
@@ -487,8 +490,43 @@ _OS_RELEASE_TOOLS: dict[str, OsReleaseTool] = {
             ("Darwin", "amd64"): "osx-x86_64",
         },
         member="bin/protoc",
+        tree="include",
     ),
 }
+
+
+def _os_release_asset(name: str) -> str | None:
+    tool = _OS_RELEASE_TOOLS[name]
+    return tool.assets.get((platform.system(), machine_arch() or ""))
+
+
+def has_os_release(name: str) -> bool:
+    """Report whether ``name`` has a pinned release zip for this host."""
+    return _os_release_asset(name) is not None
+
+
+def _unpack_tree(archive: zipfile.ZipFile, tree: str, dest: Path) -> int:
+    """Unpack every file under ``tree/`` in ``archive`` to ``dest/tree``.
+
+    Returns:
+        The number of files written.
+
+    Raises:
+        KeyError: A member's path leaves ``dest``.
+
+    """
+    root = dest.resolve()
+    written = 0
+    for member in archive.namelist():
+        if not member.startswith(f"{tree}/") or member.endswith("/"):
+            continue
+        target = (root / member).resolve()
+        if not target.is_relative_to(root / tree):
+            raise KeyError(f"{member} leaves {tree}/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(archive.read(member))
+        written += 1
+    return written
 
 
 def install_os_release(name: str, bin_dir: Path) -> Path | None:
@@ -496,17 +534,17 @@ def install_os_release(name: str, bin_dir: Path) -> Path | None:
 
     Args:
         name: A key of the Windows and macOS release table.
-        bin_dir: The directory to write the binary into.
+        bin_dir: The directory to write the binary, and its ``tree``, into.
 
     Returns:
         The binary's path, or None after logging why there is none: no zip
         for this host, a failed download, a digest mismatch, or a zip without
-        the binary.
+        the binary or its ``tree``.
 
     """
     tool = _OS_RELEASE_TOOLS[name]
     system = platform.system()
-    key = tool.assets.get((system, machine_arch() or ""))
+    key = _os_release_asset(name)
     if key is None:
         error(f"  {name}: no pinned release zip for {system} {platform.machine()}")
         return None
@@ -524,6 +562,8 @@ def install_os_release(name: str, bin_dir: Path) -> Path | None:
             bin_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(asset) as archive:
                 partial.write_bytes(archive.read(member))
+                if tool.tree and not _unpack_tree(archive, tool.tree, bin_dir):
+                    raise KeyError(f"no {tool.tree}/ in the zip")
             partial.chmod(0o755)
             os.replace(partial, binary)
         except (OSError, KeyError, zipfile.BadZipFile) as exc:
