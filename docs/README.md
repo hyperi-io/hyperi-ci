@@ -82,6 +82,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [container-builds.md](container-builds.md) - the release-tail's container
   job: Dockerfile-only builds, build-arg placeholders, when a container failure
   blocks the release
+- [linux-packages.md](linux-packages.md) - `linux-repo.yml`: signed apt, dnf
+  and apk repositories on R2, keys from OpenBao, client setup
 - [workflow-composites.md](workflow-composites.md) - what's shared vs
   duplicated across languages, and why our own workflow refs stay `@main`
 - [test-tiers.md](test-tiers.md) - the core and full test tiers, `--tier`, and
