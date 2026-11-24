@@ -39,6 +39,7 @@ on:
       - '!.github/workflows/ci.yml'
       - '!.github/workflows/fleet-sweep.yml'
       - '!.github/workflows/gate-audit.yml'
+      - '!.github/workflows/linux-repo.yml'
       - '!.github/workflows/mirror-images.yml'
       - '!.github/workflows/static-libs.yml'
       - '!.github/workflows/versions-audit.yml'
