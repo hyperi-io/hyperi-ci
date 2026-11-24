@@ -92,7 +92,9 @@ def test_signature_segment_is_one_member_with_no_end_of_archive() -> None:
     with tarfile.open(fileobj=io.BytesIO(segment + b"\0" * 1024)) as tar:
         (member,) = tar.getmembers()
         assert member.name == ".SIGN.RSA.app.rsa.pub"
-        assert tar.extractfile(member).read() == signature
+        extracted = tar.extractfile(member)
+        assert extracted is not None
+        assert extracted.read() == signature
 
 
 def test_signature_segment_pads_a_short_signature() -> None:

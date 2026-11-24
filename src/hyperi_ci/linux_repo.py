@@ -27,7 +27,7 @@ import re
 import shutil
 import tarfile
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,7 +235,7 @@ def signing_key(listing: str) -> str | None:
 
 
 @contextmanager
-def gpg_signer(private_key: Path) -> Iterator[Signer]:
+def gpg_signer(private_key: Path) -> Generator[Signer]:
     """Import ``private_key`` into a throwaway GNUPGHOME and yield its signer.
 
     Raises:
