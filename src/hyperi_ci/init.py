@@ -48,16 +48,17 @@ _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
 }
 
 # The caller passes exactly the secrets each reusable workflow declares in
-# `workflow_call`. test_init pins these to the workflow files.
+# `workflow_call`, less any whose description starts "Unused.". test_init pins
+# these to the workflow files.
 _SHARED_SECRETS = (
     "ALERT_BRIDGE_TOKEN",
-    "GITLEAKS_GH_ACTIONS_KEY",
     "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY",
     "DOCKERHUB_USERNAME",
     "DOCKERHUB_TOKEN",
     "CONTAINER_MGT_APP_PRIVATE_KEY",
     "GH_APP_PRIVATE_KEY",
+    "CI_TOOLS_APP_PRIVATE_KEY",
 )
 _LANGUAGE_SECRETS: dict[str, tuple[str, ...]] = {
     "python-ci.yml": ("PYPI_TOKEN",),

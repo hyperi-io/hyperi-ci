@@ -103,6 +103,7 @@ on:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:
         required: false
+        description: "Unused. Declared so a caller that still passes it starts."
       R2_ACCESS_KEY_ID:
         required: false
       R2_SECRET_ACCESS_KEY:
@@ -115,6 +116,9 @@ on:
         required: false
       GH_APP_PRIVATE_KEY:
         required: false
+      CI_TOOLS_APP_PRIVATE_KEY:
+        required: false
+        description: "The hyperi-ci-tools App key (actions write and contents read on hyperi-ci and hyperi-ai), for the image mirror and diagram checker tokens."
     outputs:
       will-release:
         description: "'true' when this run releases: the release tail tags v<next-version> at the commit it built. A caller job chaining on the release also needs this workflow's job to succeed."
@@ -246,12 +250,12 @@ jobs:
         # actions:write on hyperi-ci alone, to run mirror-images.yml. A fork PR
         # has no secrets, so it skips this and `mirror ensure` only warns.
         id: mirror-token
-        if: steps.predict.outputs.run-checks == 'true' && github.event.pull_request.head.repo.fork != true
+        if: steps.predict.outputs.run-checks == 'true' && github.event.pull_request.head.repo.fork != true && vars.CI_TOOLS_APP_CLIENT_ID != ''
         continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.CI_TOOLS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_TOOLS_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: hyperi-ci
           permission-actions: write
@@ -359,12 +363,12 @@ jobs:
         # contents:read on hyperi-ai alone. A fork PR has no secrets, so it
         # skips this and diagram-check skips with a note.
         id: diagram-token
-        if: github.event.pull_request.head.repo.fork != true
+        if: github.event.pull_request.head.repo.fork != true && vars.CI_TOOLS_APP_CLIENT_ID != ''
         continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.CI_TOOLS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_TOOLS_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: hyperi-ai
           permission-contents: read
@@ -400,7 +404,6 @@ jobs:
 
       - name: Run quality checks
         env:
-          GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
           HYPERCI_DIAGRAM_CHECK: ${{ steps.diagram.outputs.path }}
         run: ${{ env.HYPERCI_INSTALL }} run quality
 

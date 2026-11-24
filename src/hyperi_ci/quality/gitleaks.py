@@ -391,13 +391,8 @@ def run(config: CIConfig) -> int:
     if not rule_less and _report_canary(cfg, mode) != 0:
         return 1
 
-    env = dict(os.environ)
-    gitleaks_key = os.environ.get("GITLEAKS_GH_ACTIONS_KEY")
-    if gitleaks_key:
-        env["GITLEAKS_LICENSE"] = gitleaks_key
-
     info("  gitleaks: scanning for secrets...")
-    scan = subprocess.run(cmd, env=env)
+    scan = subprocess.run(cmd)
 
     if scan.returncode == 0:
         success("  gitleaks: no secrets detected")
