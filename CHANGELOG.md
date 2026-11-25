@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.1...v2.16.2) (2026-11-25)
+
+### Bug Fixes
+
+* **rust:** add per-OS features and clippy-only mode ([9b486dd](https://github.com/hyperi-io/hyperi-ci/commit/9b486dd4de42eda7daa03015e3c293a9e28811b1))
+
 ## [2.16.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.0...v2.16.1) (2026-11-24)
 
 ### Bug Fixes
