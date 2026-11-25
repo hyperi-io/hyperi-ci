@@ -156,12 +156,17 @@ class TestNonLinuxLegLintsFirst:
     """Quality lints on Linux, so a Windows or macOS Test leg runs clippy itself."""
 
     @pytest.mark.parametrize(
-        ("flag", "clippy_passes", "linted", "rc"),
+        ("flag", "mode", "clippy_passes", "linted", "rc"),
         [
-            pytest.param("true", False, True, 1, id="os-leg-clippy-fails"),
-            pytest.param("true", True, True, 1, id="os-leg-clippy-passes"),
-            pytest.param("", False, False, 1, id="linux-leg-no-lint"),
-            pytest.param(None, False, False, 1, id="unset-no-lint"),
+            pytest.param("true", None, False, True, 1, id="os-leg-clippy-fails"),
+            pytest.param("true", None, True, True, 1, id="os-leg-clippy-passes"),
+            pytest.param("", None, False, False, 1, id="linux-leg-no-lint"),
+            pytest.param(None, None, False, False, 1, id="unset-no-lint"),
+            # rc 0 shows no test ran: nextest: true with no nextest would fail.
+            pytest.param("true", "clippy", True, True, 0, id="clippy-mode-no-tests"),
+            pytest.param("true", "clippy", False, True, 1, id="clippy-mode-fails"),
+            pytest.param(None, "clippy", True, True, 0, id="clippy-mode-lints-alone"),
+            pytest.param("true", "test", True, True, 1, id="test-mode-runs-tests"),
         ],
     )
     @pytest.mark.usefixtures("_no_nextest")
@@ -169,6 +174,7 @@ class TestNonLinuxLegLintsFirst:
         self,
         monkeypatch: pytest.MonkeyPatch,
         flag: str | None,
+        mode: str | None,
         clippy_passes: bool,
         linted: bool,
         rc: int,
@@ -184,8 +190,9 @@ class TestNonLinuxLegLintsFirst:
         else:
             monkeypatch.setenv(CLIPPY_IN_TEST_ENV, flag)
         monkeypatch.setattr(f"{MODULE}.run_clippy", _clippy)
+        extra_env = {"RUST_TEST_MODE": mode} if mode else None
         # nextest: true with no nextest fails right after the lint, so no test runs.
-        assert run(_make_config(nextest=True)) == rc
+        assert run(_make_config(nextest=True), extra_env=extra_env) == rc
         assert calls == (["clippy"] if linted else [])
 
 

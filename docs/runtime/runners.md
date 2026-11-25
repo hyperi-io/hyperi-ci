@@ -152,7 +152,7 @@ The arm64-only row is the parity check (`run-arm64-check`). A merge that WILL sh
 
 ### Windows and macOS
 
-A Rust project ships Windows or macOS binaries by listing the target in `build.rust.targets`. Nothing builds them otherwise, and a Linux leg still builds beside them. Each runs on a GitHub-hosted runner whatever the runner mode, because no self-hosted runner serves them. The table lives in `src/hyperi_ci/build_targets.py`.
+A Rust project ships Windows or macOS binaries by listing the target in `build.rust.targets`. Nothing builds them otherwise, and a Linux leg still builds beside them. Each runs on a GitHub-hosted runner whatever the runner mode. The Windows leg alone moves to the label in the `GH_RUNNER_WINDOWS` variable, such as the self-hosted `windows-devex`. The table lives in `src/hyperi_ci/build_targets.py`.
 
 | Target | Runner | Shipped as |
 |---|---|---|
@@ -162,7 +162,15 @@ A Rust project ships Windows or macOS binaries by listing the target in `build.r
 
 - The `build-os` job builds them plain on every run, GA releases included. PGO and BOLT run on Linux only.
 - jemalloc does not build for msvc, so a Windows leg takes `mimalloc` when the repo declares that feature, else the system allocator ([languages/rust.md](../languages/rust.md)).
-- The Test job adds one leg per runner. That leg runs clippy before the tests, because the Linux Quality job never compiles `cfg(windows)` or `cfg(target_os = "macos")` code.
+- The Test job adds one leg per runner. That leg runs clippy before the tests, because the Linux Quality job never compiles `cfg(windows)` or `cfg(target_os = "macos")` code. On a private repo a GitHub-hosted leg skips PRs and branch pushes.
+- `test.rust.<windows|macos>` sets that leg's `features`, beating `test.rust.features`. `mode: clippy` lints and runs no tests. `build.rust.<windows|macos>.features` does the same for `build-os`.
+
+  ```yaml
+  test:
+    rust:
+      windows: {features: [config, http], mode: clippy}
+  ```
+
 - The binaries reach the GitHub Release and R2 beside the Linux ones, never a container image.
 - Signing and installers (Authenticode, MSI, notarisation) stay in the consumer repo, through `release.assets` or its own step.
 - GitHub bills a private repo's Windows and macOS minutes at a higher rate than Linux.

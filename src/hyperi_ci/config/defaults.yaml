@@ -378,6 +378,15 @@ test:
     # NEXTEST_TEST_THREADS. A nextest config `test-threads`,
     # NEXTEST_TEST_THREADS or HYPERCI_TEST_WORKERS beats the computed count.
     thread_mem_mb: 2048
+    # Read only on that host, so on the Windows and macOS Test legs that
+    # build.rust.targets adds. `features` (same form as test.rust.features)
+    # beats test.rust.features there. `mode: clippy` lints and runs no tests,
+    # for a crate whose suite needs Linux services. build.rust.<os>.features
+    # does the same for the OS build legs.
+    windows:
+      mode: test
+    macos:
+      mode: test
 
 # Build
 build:

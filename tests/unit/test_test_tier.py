@@ -223,8 +223,79 @@ class TestTheTierReachesTheHandler:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         seen = self._capture(monkeypatch)
+        # A macOS or Windows host adds RUST_TEST_MODE.
+        monkeypatch.setattr(dispatch.sys, "platform", "linux")
         assert dispatch.stage_test("rust", CIConfig(_raw={})) == 0
         assert seen[0] == {"TEST_TIER": "core", "RUST_FEATURES": "all"}
+
+    @pytest.mark.parametrize(
+        ("platform", "raw", "rc", "features", "mode"),
+        [
+            pytest.param(
+                "linux",
+                {"windows": {"features": ["x"]}},
+                0,
+                "all",
+                None,
+                id="linux-ignores-os-section",
+            ),
+            pytest.param("win32", {}, 0, "all", "test", id="windows-defaults"),
+            pytest.param(
+                "win32",
+                {
+                    "features": "a|b",
+                    "windows": {"features": ["x", "y"], "mode": "clippy"},
+                },
+                0,
+                "x|y",
+                "clippy",
+                id="windows-section-wins",
+            ),
+            pytest.param(
+                "darwin",
+                {"features": "a", "windows": {"features": "x"}},
+                0,
+                "a",
+                "test",
+                id="macos-skips-windows-section",
+            ),
+            pytest.param(
+                "darwin",
+                {"macos": {"mode": "check"}},
+                1,
+                None,
+                None,
+                id="bad-mode-fails",
+            ),
+        ],
+    )
+    def test_os_section_reaches_the_rust_handler(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        platform: str,
+        raw: dict[str, object],
+        rc: int,
+        features: str | None,
+        mode: str | None,
+    ) -> None:
+        seen = self._capture(monkeypatch)
+        monkeypatch.setattr(dispatch.sys, "platform", platform)
+        config = CIConfig(_raw={"test": {"rust": raw}})
+        assert dispatch.stage_test("rust", config) == rc
+        if rc:
+            assert seen == []
+            return
+        assert seen[0]["RUST_FEATURES"] == features
+        assert seen[0].get("RUST_TEST_MODE") == mode
+
+    def test_build_reads_its_own_os_section(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(dispatch.sys, "platform", "win32")
+        config = CIConfig(
+            _raw={"build": {"rust": {"features": "a", "windows": {"features": "w"}}}}
+        )
+        assert dispatch._normalize_rust_features(config, "build") == "w"
 
     def test_check_tier_full_reaches_the_handler(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
