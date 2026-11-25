@@ -223,6 +223,8 @@ class TestTheTierReachesTheHandler:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         seen = self._capture(monkeypatch)
+        # A macOS or Windows host adds RUST_TEST_MODE.
+        monkeypatch.setattr(dispatch.sys, "platform", "linux")
         assert dispatch.stage_test("rust", CIConfig(_raw={})) == 0
         assert seen[0] == {"TEST_TIER": "core", "RUST_FEATURES": "all"}
 
