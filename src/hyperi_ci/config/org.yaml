@@ -24,13 +24,6 @@ mirror:
   workflow: mirror-images.yml
   renovate_config: https://raw.githubusercontent.com/hyperi-io/renovate-config/HEAD/default.json
 
-# hyperi-ai's diagram checker, fetched at run time from this branch with a token
-# that can read the private repo. Never copied here, because hyperi-ci is public.
-diagram_check:
-  repo: hyperi-ai
-  path: tools/diagram_check.py
-  ref: main
-
 # OpenBao, reached from ARC runners only: its cert is from the devex CA the ARC
 # images carry. A job logs in with its GitHub OIDC token, requested for
 # `audience`, through the jwt auth mount at `jwt_mount`.

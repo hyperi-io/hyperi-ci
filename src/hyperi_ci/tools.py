@@ -75,6 +75,11 @@ _REGISTRY: dict[str, ToolInfo] = {
         ),
         url="https://semgrep.dev/docs/getting-started/",
     ),
+    "merrow": ToolInfo(
+        purpose="mermaid diagrams against the HyperI diagram standard",
+        install=("uvx merrow --help", "uv tool install merrow"),
+        url="https://github.com/hyperi-io/merrow",
+    ),
     "hadolint": ToolInfo(
         purpose="Dockerfile linting gate (lints the shell inside RUN via ShellCheck)",
         # Linux CI auto-installs the pinned release, so this is for local dev.

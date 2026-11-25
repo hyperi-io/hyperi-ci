@@ -398,24 +398,6 @@ def lint_compose_cmd(
     raise typer.Exit(_lint_iac(directory, sarif, lint_iac.COMPOSE_DIMENSIONS))
 
 
-@app.command(name="fetch-diagram-check")
-def fetch_diagram_check_cmd(
-    dest: Annotated[
-        Path, typer.Option("--dest", help="Directory to write the checker into")
-    ],
-) -> None:
-    """Download hyperi-ai's diagram checker from the org config's branch.
-
-    It needs a GH_TOKEN that can read hyperi-ai.
-
-    lint-docs runs it when HYPERCI_DIAGRAM_CHECK names the downloaded file.
-    """
-    from hyperi_ci.config import load_org_config
-    from hyperi_ci.quality.diagram_check import fetch
-
-    raise typer.Exit(0 if fetch(load_org_config(), dest) else 1)
-
-
 @app.command(name="lint-docs")
 def lint_docs_cmd(
     directory: Annotated[
@@ -429,7 +411,7 @@ def lint_docs_cmd(
     Runs six checks: doc-paths (a doc naming a file the repo no longer has),
     doc-links (lychee over internal links and anchors, offline), mermaid-parse
     (every fenced block against mermaid's own grammar), diagram-check (the
-    HyperI diagram standard, when fetch-diagram-check has run), markdownlint
+    HyperI diagram standard, through merrow), markdownlint
     (mechanical syntax) and the docs-untouched nudge.
 
     All six start at ``warn`` and gate only where a repo has promoted them, so

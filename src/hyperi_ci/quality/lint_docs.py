@@ -12,7 +12,7 @@ docs-only repo. The checks, in cost order:
 1. doc-paths - path-existence drift, pure Python.
 2. doc-links - lychee over internal links and anchors, offline.
 3. mermaid-parse - mermaid's own grammar over every fenced block.
-4. diagram-check - hyperi-ai's checker for the diagram standard, when fetched.
+4. diagram-check - merrow's lint for the diagram standard.
 5. markdownlint - markdown syntax.
 6. docs-touched - the source-changed, docs-did-not nudge, which never gates.
 
