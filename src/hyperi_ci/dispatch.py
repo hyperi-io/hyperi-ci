@@ -12,6 +12,7 @@ Detects the language, loads config and routes to the language handler via
 
 import importlib
 import os
+import sys
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -151,18 +152,32 @@ _FEATURE_KEYS = {
 }
 
 
+#: The ``<stage>.rust.<os>`` section read on each host outside Linux.
+_OS_SECTIONS = {"win32": "windows", "darwin": "macos"}
+
+#: ``test.rust.<os>.mode`` values: ``clippy`` lints and runs no tests.
+_OS_TEST_MODES = ("test", "clippy")
+
+
+def _os_section() -> str | None:
+    """Return ``windows`` or ``macos`` on those hosts, None elsewhere."""
+    return _OS_SECTIONS.get(sys.platform)
+
+
 def _normalize_rust_features(config: CIConfig, stage: str) -> str:
     """Return Rust features as a string: stage-specific -> fallback -> "all".
 
-    Arrays become pipe-separated strings.
+    On Windows or macOS each section's ``rust.<os>.features`` beats its
+    ``rust.features``. Arrays become pipe-separated strings.
     """
+    os_name = _os_section()
+    paths: list[str] = []
+    for key in _FEATURE_KEYS.get(stage, ()):
+        if os_name:
+            paths.append(f"{key}.rust.{os_name}.features")
+        paths.append(f"{key}.rust.features")
     features: Any = next(
-        (
-            f
-            for key in _FEATURE_KEYS.get(stage, ())
-            if (f := config.get(f"{key}.rust.features")) is not None
-        ),
-        "all",
+        (f for path in paths if (f := config.get(path)) is not None), "all"
     )
     if isinstance(features, list):
         features = "|".join(str(f) for f in features)
@@ -404,6 +419,13 @@ def stage_test(language: str, config: CIConfig) -> int:
         features = _normalize_rust_features(config, "test")
         extra_env["RUST_FEATURES"] = features
         info(f"Rust features config: {features}")
+        if os_name := _os_section():
+            key = f"test.rust.{os_name}.mode"
+            mode = str(config.get(key) or "test")
+            if mode not in _OS_TEST_MODES:
+                error(f"{key} must be one of {', '.join(_OS_TEST_MODES)}, not {mode!r}")
+                return 1
+            extra_env["RUST_TEST_MODE"] = mode
 
     if native_tools.prepare(config) != 0:
         return 1

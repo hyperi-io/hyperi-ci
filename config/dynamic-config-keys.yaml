@@ -56,6 +56,10 @@ keys:
   quality.rust.features: src/hyperi_ci/dispatch.py
   test.rust.features: src/hyperi_ci/dispatch.py
 
+  # stage_test() builds `test.rust.<os>.mode` on a Windows or macOS host.
+  test.rust.windows.mode: src/hyperi_ci/dispatch.py
+  test.rust.macos.mode: src/hyperi_ci/dispatch.py
+
   # The Python directory split reads each `test.tiers.<dir>` mapping by name.
   test.tiers.unit.enabled: src/hyperi_ci/languages/python/test.py
   test.tiers.unit.fail_fast: src/hyperi_ci/languages/python/test.py

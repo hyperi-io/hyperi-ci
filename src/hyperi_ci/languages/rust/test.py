@@ -534,7 +534,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Args:
         config: Merged CI configuration.
-        extra_env: ``RUST_FEATURES`` and ``TEST_TIER`` from the stage.
+        extra_env: ``RUST_FEATURES``, ``TEST_TIER`` and, on Windows or macOS,
+            ``RUST_TEST_MODE`` from the stage.
 
     Returns:
         Exit code (0 = success).
@@ -542,10 +543,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """
     # rust-ci.yml sets it on a Windows or macOS Test leg: Quality runs on Linux,
     # where cfg(windows) and cfg(target_os = "macos") code never compiles.
-    if env_true(CLIPPY_IN_TEST_ENV):
+    clippy_only = (extra_env or {}).get("RUST_TEST_MODE") == "clippy"
+    if env_true(CLIPPY_IN_TEST_ENV) or clippy_only:
         info("Linting this OS's code before the tests (Quality runs on Linux)...")
         if not run_clippy(config, extra_env):
             return 1
+    if clippy_only:
+        success("test.rust.<os>.mode is clippy: linted, no tests run on this OS")
+        return 0
 
     info("Running Rust tests...")
     runner = _resolve_runner(config)
