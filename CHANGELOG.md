@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.2...v2.16.3) (2026-11-25)
+
+### Bug Fixes
+
+* **mirror:** skip compose images a service builds ([9ce7daf](https://github.com/hyperi-io/hyperi-ci/commit/9ce7dafd03b44d818fdee0831b7cb4d23e8c49ae))
+
 ## [2.16.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.1...v2.16.2) (2026-11-25)
 
 ### Bug Fixes
