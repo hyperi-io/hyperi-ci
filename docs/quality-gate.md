@@ -69,6 +69,9 @@ A tool may also fail the stage with **zero findings** when it cannot do its job,
 
 `quality.rust.semver_checks` is the exception. When cargo-semver-checks reaches no verdict (exit 101, typically a failed rustdoc build), the release fails in CI even at `warn`, because the public API was never compared. Locally it warns. A `100` break still follows the mode. To release without the check, set `semver_checks: {mode: disabled, reason: "..."}`. It is not a security gate, so the reason is not enforced, but it prints on every run.
 
+A `100` break the owner has reviewed is accepted for one release by a `quality.ignore` entry with `tool: cargo-semver-checks` and the release version as its `id`. That release logs `accepted for <version>: <reason>` and passes in either mode, and the next release reports a break again.
+
+
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
 `src/hyperi_ci/config/defaults.yaml`.
