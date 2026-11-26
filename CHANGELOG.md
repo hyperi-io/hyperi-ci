@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.7...v2.17.0) (2026-11-26)
+
+### Features
+
+* **rust:** test, build and publish maturin Python bindings ([414a018](https://github.com/hyperi-io/hyperi-ci/commit/414a01858714a9aa37166c0fc337ae7711093545))
+
 ## [2.16.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.6...v2.16.7) (2026-11-26)
 
 ### Bug Fixes
