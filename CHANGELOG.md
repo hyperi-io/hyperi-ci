@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.3...v2.16.4) (2026-11-26)
+
+### Bug Fixes
+
+* **rust:** publish every crate in a multi-crate workspace ([35348f8](https://github.com/hyperi-io/hyperi-ci/commit/35348f82abe71bafd1cc2a94721f3acc18087e70))
+
 ## [2.16.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.2...v2.16.3) (2026-11-25)
 
 ### Bug Fixes
