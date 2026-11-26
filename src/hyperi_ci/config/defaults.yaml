@@ -294,6 +294,9 @@ test:
     enabled: false
     abort_stall_percent: 50
     abort_after_samples: 4
+    # A stall counts only while under this share of the memory limit is
+    # available. 100 counts the stall alone.
+    abort_below_available_percent: 20
 
   full:
     # Whether a release must have run the full tier.

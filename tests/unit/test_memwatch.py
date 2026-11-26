@@ -74,6 +74,8 @@ class TestSettings:
             ("abort_stall_percent", True),
             ("abort_after_samples", 0),
             ("abort_after_samples", None),
+            ("abort_below_available_percent", 0),
+            ("abort_below_available_percent", 101),
         ],
     )
     def test_rejects_a_bad_threshold(
@@ -142,6 +144,9 @@ def _run(
     monkeypatch: pytest.MonkeyPatch,
     settings: WatchSettings,
     shares: list[float | None],
+    *,
+    available: int | None = 2 * 1024**3,
+    total: int | None = 16 * 1024**3,
 ) -> tuple[MemoryWatch, list[tuple[int, int]], list[str], list[str]]:
     proc = _proc(tmp_path, [(10, 1, "cargo", 1024), (11, 10, "nextest", 4 * 1024**2)])
     kills: list[tuple[int, int]] = []
@@ -153,8 +158,9 @@ def _run(
         settings,
         proc=proc,
         read_stall=_Feed(shares),
-        read_available=lambda: 2 * 1024**3,
+        read_available=lambda: available,
         read_swap=lambda: None,
+        read_total=lambda: total,
         kill=lambda pid, signum: kills.append((pid, signum)),
     )
     for n in range(len(shares)):
@@ -191,6 +197,37 @@ class TestWatch:
         assert len(errors) == 1
         assert f"{settings.abort_stall_percent}% or more" in errors[0]
         assert sorted(kills) == [(10, signal.SIGTERM), (11, signal.SIGTERM)]
+
+    @pytest.mark.parametrize(
+        ("settings", "available_gib", "total_gib", "aborts"),
+        [
+            pytest.param(WatchSettings(50, 2), 13.5, 16, False, id="plenty-free"),
+            pytest.param(WatchSettings(50, 2), 3, 16, True, id="under-20pct"),
+            pytest.param(WatchSettings(50, 2), 13.5, None, True, id="limit-unknown"),
+            pytest.param(WatchSettings(50, 2, 100), 13.5, 16, True, id="stall-alone"),
+        ],
+    )
+    def test_a_stall_counts_only_when_memory_is_short(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        settings: WatchSettings,
+        available_gib: float,
+        total_gib: int | None,
+        aborts: bool,
+    ) -> None:
+        """Reclaim or compaction stalls with RAM free; only thrash loses the runner."""
+        watch, kills, _said, errors = _run(
+            tmp_path,
+            monkeypatch,
+            settings,
+            [99, 99],
+            available=int(available_gib * 1024**3),
+            total=None if total_gib is None else total_gib * 1024**3,
+        )
+        assert watch.aborted is aborts
+        assert bool(kills) is aborts
+        assert len(errors) == int(aborts)
 
     def test_kills_what_is_left_a_heartbeat_later(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -235,6 +272,7 @@ class TestWatch:
             read_stall=_Feed([100]),
             read_available=lambda: None,
             read_swap=lambda: None,
+            read_total=lambda: None,
             kill=kill,
         )
         watch(_HEARTBEAT, 10)

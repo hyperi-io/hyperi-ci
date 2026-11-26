@@ -26,6 +26,7 @@ from hyperi_ci.memory import (
     GIB,
     available_memory,
     cgroup_v2_memory_stall,
+    memory_limit,
     swap_used,
 )
 
@@ -42,11 +43,15 @@ class WatchSettings:
         abort_stall_percent: Full-stall share of a heartbeat interval that
             counts toward stopping, 0 to never stop.
         abort_after_samples: Heartbeats in a row at or past it that stop the command.
+        abort_below_available_percent: A heartbeat counts only while available
+            memory is under this share of the memory limit, 100 to count on
+            the stall alone.
 
     """
 
     abort_stall_percent: int
     abort_after_samples: int
+    abort_below_available_percent: int = 20
 
     @classmethod
     def from_config(cls, config: CIConfig) -> "WatchSettings | None":
@@ -69,7 +74,8 @@ class WatchSettings:
             return None
         percent = _whole(config, "abort_stall_percent", 0, 100)
         samples = _whole(config, "abort_after_samples", 1, None)
-        return cls(percent, samples)
+        scarce = _whole(config, "abort_below_available_percent", 1, 100)
+        return cls(percent, samples, scarce)
 
 
 def _whole(config: CIConfig, name: str, low: int, high: int | None) -> int:
@@ -160,6 +166,11 @@ def _available() -> int | None:
     return None if found is None else found.limit_bytes
 
 
+def _total() -> int | None:
+    found = memory_limit()
+    return None if found is None else found.limit_bytes
+
+
 class MemoryWatch:
     """A ``stream_cmd`` heartbeat that logs memory and stops a stalled command.
 
@@ -176,6 +187,7 @@ class MemoryWatch:
         read_stall: Callable[[], float | None] = _cgroup_full_stall,
         read_available: Callable[[], int | None] = _available,
         read_swap: Callable[[], int | None] = swap_used,
+        read_total: Callable[[], int | None] = _total,
         kill: Callable[[int, int], None] = os.kill,
     ) -> None:
         """Take the stall baseline the first heartbeat measures from.
@@ -187,6 +199,7 @@ class MemoryWatch:
                 memory, cumulative, or None without PSI.
             read_available: Memory available, in bytes.
             read_swap: Swap in use, in bytes.
+            read_total: The memory limit available is measured against, in bytes.
             kill: Sends a signal to a pid.
 
         """
@@ -195,6 +208,7 @@ class MemoryWatch:
         self._read_stall = read_stall
         self._read_available = read_available
         self._read_swap = read_swap
+        self._read_total = read_total
         self._kill = kill
         self._last_elapsed = 0.0
         self._last_stall = read_stall()
@@ -218,23 +232,37 @@ class MemoryWatch:
         largest = sorted(procs, key=lambda p: p.rss, reverse=True)[:_TOP]
         top = ", ".join(f"{p.name} {_gib(p.rss)}" for p in largest)
         stall = "no PSI" if share is None else f"full stall {share:.0f}%"
+        available = self._read_available()
         info(
-            f"  memory watch {elapsed:.0f}s: {_gib(self._read_available())} available,"
+            f"  memory watch {elapsed:.0f}s: {_gib(available)} available,"
             f" swap {_gib(self._read_swap())} used, {stall}; largest: {top}"
         )
         limit = self._settings.abort_stall_percent
-        held = limit > 0 and share is not None and share >= limit
+        stalled = limit > 0 and share is not None and share >= limit
+        # A stall with memory to spare is reclaim or compaction, not the thrash
+        # that loses a runner, so it does not count toward the stop.
+        held = stalled and self._short_of_memory(available)
         self._run = self._run + 1 if held else 0
         if self._run < self._settings.abort_after_samples:
             return
+        scarce = self._settings.abort_below_available_percent
         error(
             f"memory watch: every task was stalled on memory for {limit}% or more"
-            f" of {self._run} heartbeats running, so the test command was stopped"
-            " before the runner is lost. Cut the tests' memory or concurrency, or"
-            f" raise {_KEY}.abort_stall_percent (0 never stops)."
+            f" of {self._run} heartbeats running, with under {scarce}% of memory"
+            " available, so the test command was stopped before the runner is"
+            " lost. Cut the tests' memory or concurrency, or raise"
+            f" {_KEY}.abort_stall_percent (0 never stops)."
         )
         self.aborted = True
         self._signal(pid, procs, signal.SIGTERM)
+
+    def _short_of_memory(self, available: int | None) -> bool:
+        """Say whether available memory is under the scarcity share, or unknown."""
+        total = self._read_total()
+        if available is None or not total:
+            return True
+        scarce = self._settings.abort_below_available_percent
+        return available * 100 < scarce * total
 
     def _stall_share(self, elapsed: float) -> float | None:
         now = self._read_stall()
