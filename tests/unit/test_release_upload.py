@@ -54,10 +54,17 @@ class _Result:
 class _Recorder:
     """Stands in for run_cmd, records argv and working directory, answers cargo metadata."""
 
-    def __init__(self, *, bins: list[str] | None = None, metadata_rc: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        bins: list[str] | None = None,
+        metadata_rc: int = 0,
+        members: list[str] | None = None,
+    ) -> None:
         self.calls: list[tuple[list[str], Path | None, dict[str, str] | None]] = []
         self.bins = bins or []
         self.metadata_rc = metadata_rc
+        self.members = members or []
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> _Result:
         cwd = kwargs.get("cwd")
@@ -67,7 +74,16 @@ class _Recorder:
                 return _Result(self.metadata_rc, stderr="error: failed to parse")
             targets = [{"name": "c", "kind": ["lib"]}]
             targets += [{"name": b, "kind": ["bin"]} for b in self.bins]
-            return _Result(stdout=json.dumps({"packages": [{"targets": targets}]}))
+            packages = [{"name": "c", "version": "1.2.3", "targets": targets}]
+            packages += [
+                {
+                    "name": m,
+                    "version": "1.2.3",
+                    "targets": [{"name": m, "kind": ["lib"]}],
+                }
+                for m in self.members
+            ]
+            return _Result(stdout=json.dumps({"packages": packages}))
         return _Result()
 
 
@@ -107,13 +123,15 @@ class TestRustUpload:
 
         assert [c[0][:2] for c in recorder.calls] == [
             ["cargo", "metadata"],
+            ["cargo", "metadata"],
             ["cargo", "publish"],
         ]
         for cmd, cwd, _env in recorder.calls:
             assert cmd[cmd.index("--manifest-path") + 1] == str(crate / "Cargo.toml")
             assert cwd is not None and not cwd.is_relative_to(crate)
             assert "fake-cargo-token" not in cmd
-        assert "--no-verify" in recorder.calls[1][0]
+        assert "--no-verify" in recorder.calls[-1][0]
+        assert "--workspace" not in recorder.calls[-1][0]
         assert 'version = "1.2.3"' in (crate / "Cargo.toml").read_text(encoding="utf-8")
 
     def test_a_forged_crate_fact_cannot_publish_a_binary_app(
@@ -156,8 +174,29 @@ class TestRustUpload:
         assert checked == [True]
         assert [c[0][:2] for c in recorder.calls] == [
             ["cargo", "metadata"],
+            ["cargo", "metadata"],
             ["cargo", "package"],
         ]
+        assert "--workspace" not in recorder.calls[-1][0]
+
+    def test_a_workspace_packs_and_publishes_every_crate(
+        self, crate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorder = _Recorder(members=["c-macros"])
+        monkeypatch.setattr(rust_release, "run_cmd", recorder)
+        monkeypatch.setattr(rust_release.semver_checks, "run", lambda _c: 0)
+        monkeypatch.setattr(rust_release, "_on_crates_io", lambda _n, _v: False)
+
+        rc, _facts = rust_release.prepare(_rust_config(crate), tmp_path / "out")
+        assert rc == 0
+        assert recorder.calls[-1][0][:2] == ["cargo", "package"]
+        assert "--workspace" in recorder.calls[-1][0]
+
+        monkeypatch.setenv(
+            PREPARED_ENV, str(_write_prepared(tmp_path / "p", facts={"crate": True}))
+        )
+        assert rust_release.run(_rust_config(crate)) == 0
+        assert recorder.calls[-1][0][:3] == ["cargo", "publish", "--workspace"]
 
     def test_prepare_says_a_binary_app_has_no_crate(
         self, crate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
