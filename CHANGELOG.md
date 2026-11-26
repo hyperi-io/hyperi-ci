@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.6...v2.16.7) (2026-11-26)
+
+### Bug Fixes
+
+* **rust:** add a blocking mode to the rustdoc check ([6861ed3](https://github.com/hyperi-io/hyperi-ci/commit/6861ed33c080eb244e139368e35cd1c26888e143))
+
 ## [2.16.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.5...v2.16.6) (2026-11-26)
 
 ### Bug Fixes
