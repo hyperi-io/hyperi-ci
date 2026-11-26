@@ -227,7 +227,7 @@ class TestPythonUpload:
         recorder = _Recorder()
         monkeypatch.setattr(py_release, "run_cmd", recorder)
 
-        assert py_release._publish_pypi() == 0
+        assert py_release.publish_pypi() == 0
 
         ((cmd, _cwd, env),) = recorder.calls
         assert cmd == ["uv", "publish", "--no-config"]

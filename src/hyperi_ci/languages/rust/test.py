@@ -33,12 +33,14 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import bindings
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust._manifest import (
     is_root_package_workspace,
     split_feature_sets,
 )
 from hyperi_ci.languages.rust._threads import capped_nextest_threads
+from hyperi_ci.languages.rust.build import native_target
 from hyperi_ci.languages.rust.quality import run_clippy
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
@@ -582,7 +584,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     threads = capped_nextest_threads(config) if runner == "nextest" else nullcontext()
     with threads:
-        return _run_feature_sets(
+        rc = _run_feature_sets(
             feature_sets,
             rust_tier=rust_tier,
             coverage=bool(coverage),
@@ -592,6 +594,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             workspace=workspace,
             watch=watch,
         )
+    if rc != 0:
+        return rc
+    return bindings.test_bindings(config, Path.cwd(), native_target())
 
 
 def _run_feature_sets(

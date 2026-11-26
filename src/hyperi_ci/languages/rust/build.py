@@ -41,7 +41,7 @@ from hyperi_ci.languages._build_common import (
     generate_checksums,
     human_size,
 )
-from hyperi_ci.languages.rust import build_phase, runner_fit
+from hyperi_ci.languages.rust import bindings, build_phase, runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -63,7 +63,7 @@ from hyperi_ci.languages.rust.pgo import (
 from hyperi_ci.languages.rust.targets import cargo_metadata
 
 
-def _get_native_target() -> str:
+def native_target() -> str:
     """Return the native Rust target triple, from the machine arch on Linux too.
 
     An arm64 runner answering x86_64 would read its own target as another
@@ -760,9 +760,9 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
     if targets_str:
         targets = [t.strip() for t in targets_str.split(",") if t.strip()]
     else:
-        targets = [_get_native_target()]
+        targets = [native_target()]
 
-    host_targets = _host_targets(targets, _get_native_target())
+    host_targets = _host_targets(targets, native_target())
     if host_targets is None:
         return 1
     targets = host_targets
@@ -921,6 +921,10 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
             rc = _write_notices(config)
             if rc != 0:
                 return rc
+
+    rc = bindings.build_wheels(config, finished, Path.cwd())
+    if rc != 0:
+        return rc
 
     # A profile phase that built plain finished the build: the later phases skip.
     if phase == build_phase.PROFILE:

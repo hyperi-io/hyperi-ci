@@ -12,14 +12,18 @@ the command line is readable by any process on the runner.
 """
 
 import os
+from collections.abc import Sequence
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages._build_common import run_destinations
 
 
-def _publish_pypi() -> int:
+def publish_pypi(files: Sequence[str] = ()) -> int:
     """Publish to PyPI with PYPI_TOKEN, or OIDC trusted publishing when unset.
+
+    Args:
+        files: The distributions to upload. Empty uploads ``dist/*``.
 
     Returns:
         Exit code (0 = success).
@@ -27,7 +31,7 @@ def _publish_pypi() -> int:
     """
     token = os.environ.get("PYPI_TOKEN")
     result = run_cmd(
-        ["uv", "publish", "--no-config"],
+        ["uv", "publish", "--no-config", *files],
         env={"UV_PUBLISH_TOKEN": token} if token else None,
         capture=True,
         check=False,
@@ -64,5 +68,5 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     info(f"Publishing Python package to: {', '.join(destinations)}")
 
     return run_destinations(
-        destinations, {"pypi": ("Publish: PyPI", _publish_pypi)}, "Python"
+        destinations, {"pypi": ("Publish: PyPI", publish_pypi)}, "Python"
     )

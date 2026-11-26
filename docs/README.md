@@ -130,6 +130,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [languages/rust-tier2.md](languages/rust-tier2.md) - the Tier 2 (PGO + BOLT) `.hyperi-ci.yaml` opt-in, workload script contract, skip-optimize, opt-out
 - [languages/rust-llvm.md](languages/rust-llvm.md) - how the LLVM major for linking and BOLT is chosen, installed and pinned, and how to move to a new one
 - [languages/rust-static-libs.md](languages/rust-static-libs.md) - static librdkafka, OpenSSL, zstd and zlib: the build, the pkg-config link interface, the pins and the release tag
+- [languages/rust-python-bindings.md](languages/rust-python-bindings.md) - maturin (PyO3) bindings in a Rust repo: detection, binding tests, manylinux/musllinux/macOS/Windows wheels, the opt-in PyPI upload
 - [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers, release cost
 - [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons
 - [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism

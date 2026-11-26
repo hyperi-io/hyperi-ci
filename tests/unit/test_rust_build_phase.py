@@ -254,7 +254,7 @@ class TestBuildStage:
         monkeypatch.setenv(PHASE_ENV, phase)
         monkeypatch.setattr(build.shutil, "which", lambda _cmd: "/usr/bin/cargo")
         monkeypatch.setattr(build, "is_ci", lambda: False)
-        monkeypatch.setattr(build, "_get_native_target", lambda: TARGET)
+        monkeypatch.setattr(build, "native_target", lambda: TARGET)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: list(binaries))
         monkeypatch.setattr(build, "_detect_cargo_features", lambda: set())
         monkeypatch.setattr(build, "_resolve_build_channel", lambda: "release")

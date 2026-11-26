@@ -165,7 +165,7 @@ class TestTier2Summary:
         logged: list[OptimizationOutcome] = []
         monkeypatch.setattr(build.shutil, "which", lambda _cmd: "/usr/bin/cargo")
         monkeypatch.setattr(build, "is_ci", lambda: False)
-        monkeypatch.setattr(build, "_get_native_target", lambda: native)
+        monkeypatch.setattr(build, "native_target", lambda: native)
         monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
         monkeypatch.setattr(build, "_detect_cargo_features", lambda: {"jemalloc"})
         monkeypatch.setattr(build, "_resolve_build_channel", lambda: "release")
@@ -540,7 +540,7 @@ class TestBoltOptimizeArgsNeverShips:
 class TestNativeTargetFollowsTheMachine:
     """An arm64 Linux runner must not read its own target as another arch's.
 
-    `_get_native_target` decides which targets `_host_targets` keeps, and in CI
+    `native_target` decides which targets `_host_targets` keeps, and in CI
     a target it reads as foreign fails the build.
     """
 
@@ -567,7 +567,7 @@ class TestNativeTargetFollowsTheMachine:
 
         monkeypatch.setattr(build.sys, "platform", platform_name)
         monkeypatch.setattr(platform_module, "machine", lambda: machine)
-        assert build._get_native_target() == expected
+        assert build.native_target() == expected
 
     def test_an_arm64_host_builds_its_own_target_natively(
         self, monkeypatch: pytest.MonkeyPatch
@@ -577,7 +577,7 @@ class TestNativeTargetFollowsTheMachine:
 
         monkeypatch.setattr(build.sys, "platform", "linux")
         monkeypatch.setattr(platform_module, "machine", lambda: "aarch64")
-        assert build._get_native_target() == "aarch64-unknown-linux-gnu"
+        assert build.native_target() == "aarch64-unknown-linux-gnu"
 
 
 class TestPackagingPerOs:
