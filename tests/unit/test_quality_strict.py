@@ -89,6 +89,7 @@ _NOT_SECURITY = frozenset(
         "clippy",
         "feature_matrix_tests",
         "semver_checks",
+        "rustdoc",
     }
 )
 # Arguably security, and not yet decided: checkov is an IaC security scanner.

@@ -509,10 +509,12 @@ class TestRustdocCountsEveryCrate:
         )
         monkeypatch.setattr(
             f"{QUALITY}.run_cmd",
-            lambda *_a, **_k: type("Result", (), {"stdout": "", "stderr": stderr})(),
+            lambda *_a, **_k: type(
+                "Result", (), {"returncode": 0, "stdout": "", "stderr": stderr}
+            )(),
         )
         monkeypatch.setattr(f"{QUALITY}.warn", said.append)
-        rust_quality._run_rustdoc_hint(_quality_config(), workspace=True)
+        rust_quality._run_rustdoc(_quality_config(), workspace=True)
         assert len(said) == 1
         assert "2 doc warning(s)" in said[0]
 

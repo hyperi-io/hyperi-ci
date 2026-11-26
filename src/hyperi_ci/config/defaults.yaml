@@ -251,11 +251,13 @@ quality:
     # --tests`). Finds a #[cfg(test)] module that needs a feature but has no gate.
     # Ships `warn` per the ratchet, and goes blocking once the fleet is clean.
     feature_matrix_tests: warn
-    # Rustdoc compliance hint -- single concise warning if doc warnings are
-    # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
-    # gate). Set enabled=false to silence entirely. References:
+    # `cargo doc --no-deps --lib --all-features` with the intra-doc link and
+    # codeblock lints at warn. `warn` per the ratchet, `blocking` once a repo
+    # reads clean. A failed cargo doc reports its first error. References:
     # https://doc.rust-lang.org/rustdoc/ +
     # https://rust-lang.github.io/api-guidelines/documentation.html
+    rustdoc: warn
+    # `enabled: false` turns the rustdoc gate off, as `rustdoc: disabled` does.
     rustdoc_hint:
       enabled: true
     test_ignore:

@@ -67,6 +67,8 @@ everywhere.
 
 A tool may also fail the stage with **zero findings** when it cannot do its job, because a `blocking` scanner that is not scanning is not a pass. That covers gitleaks with a rule-less or canary-blinded config (below). The mode still governs severity, so `warn` downgrades it to a warning.
 
+`quality.rust.rustdoc` runs `cargo doc --no-deps --lib --all-features` with the intra-doc link and codeblock lints at warn. It ships `warn`, and `blocking` fails the stage on any doc warning or a failed `cargo doc`. A link to an item behind a feature that is off shows only in a single-feature build, which this check does not run.
+
 `quality.rust.semver_checks` is the exception. When cargo-semver-checks reaches no verdict (exit 101, typically a failed rustdoc build), the release fails in CI even at `warn`, because the public API was never compared. Locally it warns. A `100` break still follows the mode. To release without the check, set `semver_checks: {mode: disabled, reason: "..."}`. It is not a security gate, so the reason is not enforced, but it prints on every run.
 
 A `100` break the owner has reviewed is accepted for one release by a `quality.ignore` entry with `tool: cargo-semver-checks` and the release version as its `id`. That release logs `accepted for <version>: <reason>` and passes in either mode, and the next release reports a break again.

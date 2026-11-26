@@ -18,7 +18,7 @@ from hyperi_ci.languages.rust.quality import (
     _run_feature_matrix,
     _run_feature_matrix_tests,
     _run_matrix_pass,
-    _run_rustdoc_hint,
+    _run_rustdoc,
 )
 
 _TARGETS_RUN_CMD = "hyperi_ci.languages.rust.targets.run_cmd"
@@ -347,7 +347,7 @@ class TestFeatureMatrixLeavesTheTreeAlone:
 
 @pytest.mark.usefixtures("_force_lib_target")
 class TestRustdocHint:
-    """Non-blocking rustdoc hint emits a single concise warning."""
+    """The rustdoc gate reports by mode, and a failed cargo doc is never silent."""
 
     def test_disabled_via_config_skips_entirely(
         self, monkeypatch: pytest.MonkeyPatch
@@ -362,13 +362,14 @@ class TestRustdocHint:
 
         raw = {"quality": {"rust": {"rustdoc_hint": {"enabled": False}}}}
         config = CIConfig(_raw=raw)
-        _run_rustdoc_hint(config)  # should not raise
+        assert _run_rustdoc(config)
         assert called == []
 
     def test_zero_warnings_emits_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         warnings_emitted: list[str] = []
 
         class FakeResult:
+            returncode = 0
             stdout = "Documenting scalo v2.5.1\nFinished\n"
             stderr = ""
 
@@ -384,7 +385,7 @@ class TestRustdocHint:
         )
 
         config = _make_config(None)
-        _run_rustdoc_hint(config)
+        assert _run_rustdoc(config)
         assert warnings_emitted == []
 
     def test_warnings_emit_single_concise_message_with_urls(
@@ -393,6 +394,7 @@ class TestRustdocHint:
         warnings_emitted: list[str] = []
 
         class FakeResult:
+            returncode = 0
             stdout = ""
             stderr = (
                 "warning: unresolved link to `Foo`\n"
@@ -414,7 +416,7 @@ class TestRustdocHint:
         )
 
         config = _make_config(None)
-        _run_rustdoc_hint(config)
+        assert _run_rustdoc(config)
 
         # Exactly one summary line -- not spam
         assert len(warnings_emitted) == 1
@@ -424,6 +426,62 @@ class TestRustdocHint:
         # References the standards URLs
         assert "doc.rust-lang.org/rustdoc" in msg
         assert "api-guidelines" in msg
+
+
+@pytest.mark.usefixtures("_force_lib_target")
+@pytest.mark.parametrize(
+    ("mode", "returncode", "stderr", "passes", "said"),
+    [
+        pytest.param(
+            "warn",
+            101,
+            "error: cannot enable both `a` and `b`\n",
+            True,
+            "cargo doc failed (exit 101): error: cannot enable both",
+            id="failed-warn",
+        ),
+        pytest.param(
+            "blocking",
+            101,
+            "error: cannot enable both `a` and `b`\n",
+            False,
+            "cargo doc failed (exit 101)",
+            id="failed-blocking",
+        ),
+        pytest.param(
+            "blocking",
+            0,
+            "warning: unresolved link to `Foo`\n",
+            False,
+            "1 doc warning",
+            id="warnings-blocking",
+        ),
+        pytest.param("blocking", 0, "", True, "no doc warnings", id="clean"),
+    ],
+)
+def test_the_gate_reports_by_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    returncode: int,
+    stderr: str,
+    passes: bool,
+    said: str,
+) -> None:
+    lines: list[str] = []
+
+    result = subprocess.CompletedProcess([], returncode, stdout="", stderr=stderr)
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+    )
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.quality.run_cmd", lambda *a, **kw: result
+    )
+    for name in ("warn", "error", "success"):
+        monkeypatch.setattr(f"hyperi_ci.languages.rust.quality.{name}", lines.append)
+    config = CIConfig(_raw={"quality": {"rust": {"rustdoc": mode}}})
+    assert _run_rustdoc(config) is passes
+    assert len(lines) == 1
+    assert said in lines[0]
 
 
 class TestHasLibTarget:
