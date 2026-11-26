@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.5...v2.16.6) (2026-11-26)
+
+### Bug Fixes
+
+* **memwatch:** stop a stalled test only when memory is short ([55dae84](https://github.com/hyperi-io/hyperi-ci/commit/55dae84462e6dba593a8c548f07116af47390e21))
+
 ## [2.16.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.4...v2.16.5) (2026-11-26)
 
 ### Bug Fixes
