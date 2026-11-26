@@ -271,7 +271,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     had_failure |= not _run_feature_matrix_tests(config, workspace=workspace)
 
-    _run_rustdoc_hint(config, workspace=workspace)
+    had_failure |= not _run_rustdoc(config, workspace=workspace)
 
     # Rustflags this repo declares but cannot ship (issue #178).
     if cargo_flags.run(config) != 0:
@@ -759,25 +759,31 @@ def _run_matrix_pass(
     return True
 
 
-def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
-    """Run cargo doc and warn once with the doc-warning count; never fails.
+def _run_rustdoc(config: CIConfig, *, workspace: bool = False) -> bool:
+    """Run cargo doc on every feature and report doc warnings by the gate's mode.
 
-    ``quality.rust.rustdoc_hint.enabled: false`` silences it.
+    ``quality.rust.rustdoc`` sets the mode, ``warn`` by default.
+    ``quality.rust.rustdoc_hint.enabled: false`` turns it off as ``disabled``
+    does. A cargo doc that fails is reported with its first error.
 
     Args:
         config: Merged CI configuration.
         workspace: Pass ``--workspace``, for a root-package workspace.
 
+    Returns:
+        False only when a blocking gate found a warning or a failed build.
+
     """
-    if not config.setting("quality.rust.rustdoc_hint.enabled"):
-        return
+    mode = resolve_tool_mode("rustdoc", config, language="rust", default="warn")
+    if mode == "disabled" or not config.setting("quality.rust.rustdoc_hint.enabled"):
+        return True
 
     if not shutil.which("cargo"):
-        return  # cargo not on PATH -- quality stage already noted this
+        return True  # cargo not on PATH -- quality stage already noted this
 
     # A bin-only crate has no public rustdoc surface.
     if not _has_lib_target():
-        return
+        return True
 
     result = run_cmd(
         [
@@ -804,11 +810,23 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
     # warnings" summary line, which is not a finding of its own.
     warning_count = max(0, warning_count - combined.count("lib doc) generated"))
 
-    if warning_count == 0:
-        return
-
-    warn(
-        f"  rustdoc: {warning_count} doc warning(s) -- see "
-        "https://doc.rust-lang.org/rustdoc/ + "
-        "https://rust-lang.github.io/api-guidelines/documentation.html"
-    )
+    if result.returncode != 0:
+        first = next(
+            (line for line in combined.splitlines() if line.startswith("error")),
+            "no error line",
+        )
+        message = f"  rustdoc: cargo doc failed (exit {result.returncode}): {first}"
+    elif warning_count:
+        message = (
+            f"  rustdoc: {warning_count} doc warning(s) -- see "
+            "https://doc.rust-lang.org/rustdoc/ + "
+            "https://rust-lang.github.io/api-guidelines/documentation.html"
+        )
+    else:
+        success("  rustdoc: no doc warnings")
+        return True
+    if mode == "blocking":
+        error(message)
+        return False
+    warn(message)
+    return True
