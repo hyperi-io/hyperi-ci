@@ -456,6 +456,15 @@ build:
     # still needs librdkafka, libssl, libcrypto, libsasl2 or libcurl.
     # static_libs: false
 
+  # maturin (PyO3) bindings in a Rust repo: a directory one level down whose
+  # pyproject.toml builds with maturin. Test runs their tests/, each build leg
+  # adds wheels to dist/wheels/, and the release uploads them to PyPI only with
+  # publish: true (docs/languages/rust-python-bindings.md).
+  python_bindings:
+    enabled: true
+    paths: []
+    publish: false
+
   golang:
     targets:
       - linux/amd64

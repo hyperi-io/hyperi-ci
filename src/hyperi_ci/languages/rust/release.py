@@ -43,7 +43,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages._build_common import run_destinations
-from hyperi_ci.languages.rust import semver_checks
+from hyperi_ci.languages.rust import bindings, semver_checks
 from hyperi_ci.languages.rust.build import binary_targets, stamp_manifest
 
 CRATE_FACT = "crate"
@@ -289,7 +289,7 @@ def _publish_crates_io(root: Path) -> int:
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
-    """Upload a library crate to its registries.
+    """Upload a library crate to its registries, then any opted-in Python wheels.
 
     With ``HYPERCI_RELEASE_PREPARED`` set this only classifies, stamps and
     publishes. Without it the checks run here first, beside the token.
@@ -307,6 +307,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         return 1
 
     root = Path.cwd()
+    rc = _publish_crate(config, root, prepared)
+    if rc != 0:
+        return rc
+    return bindings.publish(config, root, resolve_release_version() or "")
+
+
+def _publish_crate(
+    config: CIConfig, root: Path, prepared: release_prepare.Prepared | None
+) -> int:
+    """Upload the crate when it is a library with a registry destination."""
     try:
         publishes = _publishes_crate(config, root)
     except CargoMetadataError as exc:

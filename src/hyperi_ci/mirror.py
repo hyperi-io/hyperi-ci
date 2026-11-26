@@ -242,6 +242,7 @@ def load_patterns(org: OrgConfig, *, attempts: int = 3) -> list[AnnotationPatter
     for attempt in range(1, attempts + 1):
         try:
             url = org.mirror_renovate_config
+            # nosemgrep: dynamic-urllib-use-detected -- the https URL comes from the packaged org.yaml
             with urllib.request.urlopen(url, timeout=20) as resp:  # noqa: S310
                 return renovate_patterns(json.load(resp))
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -267,6 +268,7 @@ def is_mirrored(pin: Pin, prefix: str) -> bool:
     """
     registry, _, path = prefix.partition("/")
     repository = f"{path}/{pin.name}"
+    # nosemgrep: httpsconnection-detected -- 3.14 verifies the certificate by default
     conn = http.client.HTTPSConnection(registry, timeout=20)
     try:
         conn.request("GET", f"/token?scope=repository:{repository}:pull")
