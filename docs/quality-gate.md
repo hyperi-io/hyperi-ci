@@ -73,7 +73,6 @@ A tool may also fail the stage with **zero findings** when it cannot do its job,
 
 A `100` break the owner has reviewed is accepted for one release by a `quality.ignore` entry with `tool: cargo-semver-checks` and the release version as its `id`. That release logs `accepted for <version>: <reason>` and passes in either mode, and the next release reports a break again.
 
-
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
 `src/hyperi_ci/config/defaults.yaml`.

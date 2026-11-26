@@ -415,6 +415,11 @@ tools:
   ty:
     version: "0.0.95"
     pypi: ty
+  # Builds a Rust repo's PyO3 bindings. The zig extra brings the ziglang it
+  # supports, for manylinux and musllinux wheels.
+  maturin:
+    version: "1.16.0"
+    pypi: maturin
   checkov:
     version: "3.4.0"
     pypi: checkov
