@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from hyperi_ci import static_libs
@@ -432,7 +433,9 @@ def binary_targets(meta: dict) -> list[str]:
 def stamp_manifest(version: str, root: Path) -> None:
     """Stamp `version` into Cargo.toml's [package] and [workspace.package].
 
-    Dependency pins are untouched. A member Cargo.toml that pins its own
+    A ``[workspace.dependencies]`` entry with a ``path`` to a crate this stamp
+    versions gets the version too, keeping its ``=``, ``^`` or ``~``. Other
+    dependency pins are untouched. A member Cargo.toml that pins its own
     version is not stamped.
     """
     from hyperi_ci.stamp import replace_toml_table_version
@@ -443,8 +446,66 @@ def stamp_manifest(version: str, root: Path) -> None:
     text = cargo.read_text(encoding="utf-8")
     for table in ("package", "workspace.package"):
         text = replace_toml_table_version(text, table, version)
+    text = _stamp_member_deps(text, root, version)
     cargo.write_text(text, encoding="utf-8", newline="\n")
     info(f"Stamped Cargo.toml: {version}")
+
+
+_SINGLE_REQUIREMENT = re.compile(r"(?P<op>[=^~]?)\s*\d[\w.+-]*")
+
+
+def _takes_stamped_version(crate_dir: Path, root: Path) -> bool:
+    """Say whether the crate in ``crate_dir`` gets its version from this stamp."""
+    if crate_dir.resolve() == root.resolve():
+        return True
+    try:
+        data = tomllib.loads((crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return data.get("package", {}).get("version") == {"workspace": True}
+
+
+def _stamp_member_deps(text: str, root: Path, version: str) -> str:
+    """Rewrite the version of each ``[workspace.dependencies]`` entry on a member.
+
+    Raises:
+        ValueError: An entry still holds another version after the rewrite.
+
+    """
+    from hyperi_ci.stamp import replace_toml_table_version
+
+    try:
+        deps = tomllib.loads(text).get("workspace", {}).get("dependencies", {})
+    except tomllib.TOMLDecodeError:
+        return text
+    for name, spec in deps.items():
+        if not isinstance(spec, dict) or "path" not in spec or "version" not in spec:
+            continue
+        # A range such as `>=0.1, <0.3` is the repo's own choice and stays.
+        single = _SINGLE_REQUIREMENT.fullmatch(str(spec["version"]).strip())
+        if not single or not _takes_stamped_version(root / spec["path"], root):
+            continue
+        wanted = f"{single['op']}{version}"
+        table = f"workspace.dependencies.{name}"
+        text = replace_toml_table_version(text, table, wanted)
+        inline = re.compile(
+            rf"(?m)^[ \t]*([\"']?){re.escape(name)}\1[ \t]*=[ \t]*\{{[^\n]*\}}"
+        )
+        text = inline.sub(
+            lambda m: re.sub(
+                r"""(version[ \t]*=[ \t]*)(["'])[^"'\n]*\2""",
+                rf"\g<1>\g<2>{wanted}\g<2>",
+                m[0],
+                count=1,
+            ),
+            text,
+        )
+        found = tomllib.loads(text)["workspace"]["dependencies"][name]["version"]
+        if found != wanted:
+            raise ValueError(
+                f"[workspace.dependencies] {name} is still {found!r} after stamping {wanted!r}"
+            )
+    return text
 
 
 def _target_to_os_arch(target: str) -> str:

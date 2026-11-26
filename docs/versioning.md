@@ -28,6 +28,8 @@ Everything else that carries a version number is an **output**:
 
 A hatch dynamic version read from a file (`path = "src/<pkg>/__init__.py"`) gets the version written where hatch's `pattern` finds it, or hatchling's default `__version__ = "..."` pattern. If the file is missing or the pattern finds nothing, `stamp-version` fails rather than let the build ship a wheel with the old version. The same goes for a hatch version source it does not know. `source = "vcs"` is left to hatch-vcs, which reads git, and `source = "code"` is left to the build, which evaluates it (hyperi-ci's own reads `VERSION`).
 
+A Cargo workspace takes one version. `stamp-version` writes `[package]` and `[workspace.package]`, plus each `[workspace.dependencies]` entry whose `path` names a crate with `version.workspace = true`, keeping its `=`, `^` or `~`. A range such as `>=0.1, <0.3` is left alone. Where two or more crates go to crates.io, the release runs `cargo publish --workspace`, in dependency order, and skips any crate already published at that version.
+
 Reading an output as an input caused issue #85. `VERSION` froze at `2.3.10` in May 2026 across 14 repos, and every code path that fell back to it computed from a value dozens of releases stale.
 
 ## What resolves a version, and when
