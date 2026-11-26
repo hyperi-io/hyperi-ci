@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.16.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.4...v2.16.5) (2026-11-26)
+
+### Bug Fixes
+
+* **semver-checks:** accept a reviewed break for one release ([34daafe](https://github.com/hyperi-io/hyperi-ci/commit/34daafe83577157dfc2d6090d6b32a10d051ff6c))
+
 ## [2.16.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.3...v2.16.4) (2026-11-26)
 
 ### Bug Fixes
