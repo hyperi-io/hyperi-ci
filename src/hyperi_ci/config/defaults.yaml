@@ -251,11 +251,13 @@ quality:
     # --tests`). Finds a #[cfg(test)] module that needs a feature but has no gate.
     # Ships `warn` per the ratchet, and goes blocking once the fleet is clean.
     feature_matrix_tests: warn
-    # Rustdoc compliance hint -- single concise warning if doc warnings are
-    # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
-    # gate). Set enabled=false to silence entirely. References:
+    # `cargo doc --no-deps --lib --all-features` with the intra-doc link and
+    # codeblock lints at warn. `warn` per the ratchet, `blocking` once a repo
+    # reads clean. A failed cargo doc reports its first error. References:
     # https://doc.rust-lang.org/rustdoc/ +
     # https://rust-lang.github.io/api-guidelines/documentation.html
+    rustdoc: warn
+    # `enabled: false` turns the rustdoc gate off, as `rustdoc: disabled` does.
     rustdoc_hint:
       enabled: true
     test_ignore:
@@ -294,6 +296,9 @@ test:
     enabled: false
     abort_stall_percent: 50
     abort_after_samples: 4
+    # A stall counts only while under this share of the memory limit is
+    # available. 100 counts the stall alone.
+    abort_below_available_percent: 20
 
   full:
     # Whether a release must have run the full tier.
@@ -450,6 +455,15 @@ build:
     # rdkafka's `dynamic-linking` feature, and packaging fails a binary that
     # still needs librdkafka, libssl, libcrypto, libsasl2 or libcurl.
     # static_libs: false
+
+  # maturin (PyO3) bindings in a Rust repo: a directory one level down whose
+  # pyproject.toml builds with maturin. Test runs their tests/, each build leg
+  # adds wheels to dist/wheels/, and the release uploads them to PyPI only with
+  # publish: true (docs/languages/rust-python-bindings.md).
+  python_bindings:
+    enabled: true
+    paths: []
+    publish: false
 
   golang:
     targets:

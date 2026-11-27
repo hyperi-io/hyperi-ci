@@ -269,6 +269,12 @@ def stamp_version(
         stamp_manifest = getattr(importlib.import_module(module_name), func_name)
         try:
             stamp_manifest(version, root)
+            if language == "rust":
+                from hyperi_ci.languages.rust import bindings
+
+                bindings.stamp(
+                    load_config(project_dir=root, reload=True), root, version
+                )
         except StampError as exc:
             error(f"stamp-version: {exc}")
             return 1

@@ -29,7 +29,8 @@ a later finding on the same ID.
 Tool slugs in use:
 
 * Python:   ``pip-audit``, ``semgrep``, ``ruff``
-* Rust:     ``cargo-audit``
+* Rust:     ``cargo-audit``, ``cargo-semver-checks`` (``id`` is the release
+  version whose reviewed API break is accepted)
 * Go:       ``govulncheck``, ``golangci-lint``
 * Docs:     ``diagram-check`` (``id`` is a repo-relative page path)
 * TypeScript: ``pnpm-audit`` (``npm audit`` has no CLI ignore flag;

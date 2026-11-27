@@ -152,6 +152,18 @@ def test_parse_ref(ref: str, expected: Pin | None) -> None:
             id="compose-image-lines",
         ),
         pytest.param(
+            "tests/e2e/docker-compose.yml",
+            "services:\n"
+            "  server:\n"
+            "    build:\n"
+            "      context: ../..\n"
+            "    image: culvert:dev\n"
+            "  client:\n"
+            "    image: alpine:3.24.2\n",
+            {Pin("library/alpine", "3.24.2", "")},
+            id="compose-built-image-is-not-a-pull",
+        ),
+        pytest.param(
             "src/app.py",
             "# renovate: datasource=github-releases depName=apache/kafka\n"
             'VERSION = "4.3.1"\n'

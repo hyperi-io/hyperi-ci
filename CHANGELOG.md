@@ -3,6 +3,42 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.7...v2.17.0) (2026-11-26)
+
+### Features
+
+* **rust:** test, build and publish maturin Python bindings ([414a018](https://github.com/hyperi-io/hyperi-ci/commit/414a01858714a9aa37166c0fc337ae7711093545))
+
+## [2.16.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.6...v2.16.7) (2026-11-26)
+
+### Bug Fixes
+
+* **rust:** add a blocking mode to the rustdoc check ([6861ed3](https://github.com/hyperi-io/hyperi-ci/commit/6861ed33c080eb244e139368e35cd1c26888e143))
+
+## [2.16.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.5...v2.16.6) (2026-11-26)
+
+### Bug Fixes
+
+* **memwatch:** stop a stalled test only when memory is short ([55dae84](https://github.com/hyperi-io/hyperi-ci/commit/55dae84462e6dba593a8c548f07116af47390e21))
+
+## [2.16.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.4...v2.16.5) (2026-11-26)
+
+### Bug Fixes
+
+* **semver-checks:** accept a reviewed break for one release ([34daafe](https://github.com/hyperi-io/hyperi-ci/commit/34daafe83577157dfc2d6090d6b32a10d051ff6c))
+
+## [2.16.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.3...v2.16.4) (2026-11-26)
+
+### Bug Fixes
+
+* **rust:** publish every crate in a multi-crate workspace ([35348f8](https://github.com/hyperi-io/hyperi-ci/commit/35348f82abe71bafd1cc2a94721f3acc18087e70))
+
+## [2.16.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.2...v2.16.3) (2026-11-25)
+
+### Bug Fixes
+
+* **mirror:** skip compose images a service builds ([9ce7daf](https://github.com/hyperi-io/hyperi-ci/commit/9ce7dafd03b44d818fdee0831b7cb4d23e8c49ae))
+
 ## [2.16.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.1...v2.16.2) (2026-11-25)
 
 ### Bug Fixes

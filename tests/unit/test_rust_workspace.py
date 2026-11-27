@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,11 @@ from hyperi_ci.languages.rust import test as rust_test
 from hyperi_ci.languages.rust._manifest import (
     feature_resolver,
     is_root_package_workspace,
+)
+from hyperi_ci.languages.rust.build import stamp_manifest
+from hyperi_ci.languages.rust.release import (
+    crates_io_packages,
+    workspace_publish_args,
 )
 from hyperi_ci.languages.rust.test import _build_test_cmd, _run_coverage
 from hyperi_ci.languages.tiering import SuiteTier
@@ -503,9 +509,112 @@ class TestRustdocCountsEveryCrate:
         )
         monkeypatch.setattr(
             f"{QUALITY}.run_cmd",
-            lambda *_a, **_k: type("Result", (), {"stdout": "", "stderr": stderr})(),
+            lambda *_a, **_k: type(
+                "Result", (), {"returncode": 0, "stdout": "", "stderr": stderr}
+            )(),
         )
         monkeypatch.setattr(f"{QUALITY}.warn", said.append)
-        rust_quality._run_rustdoc_hint(_quality_config(), workspace=True)
+        rust_quality._run_rustdoc(_quality_config(), workspace=True)
         assert len(said) == 1
         assert "2 doc warning(s)" in said[0]
+
+
+def _pkg(name: str, publish: list[str] | None = None) -> dict[str, Any]:
+    return {"name": name, "version": "0.2.0", "publish": publish}
+
+
+class TestWorkspacePublish:
+    def test_only_crates_io_bound_packages_count(self) -> None:
+        meta = {
+            "packages": [
+                _pkg("grippo"),
+                _pkg("grippo-macros", ["crates-io"]),
+                _pkg("bench", []),
+                _pkg("internal", ["hyperi"]),
+            ]
+        }
+        names = [p["name"] for p in crates_io_packages(meta)]
+        assert names == ["grippo", "grippo-macros"]
+
+    @pytest.mark.parametrize(
+        ("on_registry", "expected"),
+        [
+            pytest.param(set(), [], id="fresh-release"),
+            pytest.param({"grippo"}, ["--exclude", "grippo"], id="partial-rerun"),
+            pytest.param({"grippo", "grippo-macros"}, None, id="all-published"),
+        ],
+    )
+    def test_publish_args(
+        self, on_registry: set[str], expected: list[str] | None
+    ) -> None:
+        packages = [_pkg("grippo"), _pkg("grippo-macros")]
+        args = workspace_publish_args(packages, lambda name, _v: name in on_registry)
+        if expected is None:
+            assert args is None
+        else:
+            base = ["publish", "--workspace", "--allow-dirty", "--no-verify"]
+            assert args == base + expected
+
+
+WORKSPACE_DEPS = """\
+[package]
+name = "grippo"
+version.workspace = true
+
+[workspace]
+members = ["grippo-macros", "vendored"]
+
+[workspace.package]
+version = "0.1.0"
+
+[workspace.dependencies]
+grippo = {{ path = ".", version = "{req}" }}
+vendored = {{ path = "vendored", version = "3.1.0" }}
+serde = "1"
+"""
+
+
+class TestStampMemberDeps:
+    def _tree(self, tmp_path: Path, req: str) -> Path:
+        (tmp_path / "Cargo.toml").write_text(
+            WORKSPACE_DEPS.format(req=req), encoding="utf-8"
+        )
+        (tmp_path / "vendored").mkdir()
+        (tmp_path / "vendored" / "Cargo.toml").write_text(
+            '[package]\nname = "vendored"\nversion = "3.1.0"\n', encoding="utf-8"
+        )
+        return tmp_path
+
+    @pytest.mark.parametrize(
+        ("req", "expected"),
+        [
+            pytest.param("0.1.0", "0.2.0", id="plain"),
+            pytest.param("=0.1.0", "=0.2.0", id="exact-kept"),
+            pytest.param("~0.1", "~0.2.0", id="tilde-kept"),
+            pytest.param(">=0.1, <0.3", ">=0.1, <0.3", id="range-left-alone"),
+        ],
+    )
+    def test_inline_member_dep(self, tmp_path: Path, req: str, expected: str) -> None:
+        root = self._tree(tmp_path, req)
+        stamp_manifest("0.2.0", root)
+        data = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+        assert data["workspace"]["package"]["version"] == "0.2.0"
+        assert data["workspace"]["dependencies"]["grippo"]["version"] == expected
+        # Its own version, not the stamp's: never rewritten.
+        assert data["workspace"]["dependencies"]["vendored"]["version"] == "3.1.0"
+        assert data["workspace"]["dependencies"]["serde"] == "1"
+
+    def test_sub_table_member_dep(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            "[workspace]\nmembers = ['core']\n\n"
+            "[workspace.package]\nversion = '0.1.0'\n\n"
+            "[workspace.dependencies.core]\npath = 'core'\nversion = '0.1.0'\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "core").mkdir()
+        (tmp_path / "core" / "Cargo.toml").write_text(
+            "[package]\nname = 'core'\nversion.workspace = true\n", encoding="utf-8"
+        )
+        stamp_manifest("0.2.0", tmp_path)
+        data = tomllib.loads((tmp_path / "Cargo.toml").read_text(encoding="utf-8"))
+        assert data["workspace"]["dependencies"]["core"]["version"] == "0.2.0"

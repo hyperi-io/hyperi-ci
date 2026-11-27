@@ -289,3 +289,50 @@ class TestAFirstReleaseHasNothingToBreak:
 
     # The live path belongs to the fixture fleet: the tool resolves its
     # baseline from crates.io, so driving it here is a network wait.
+
+
+class TestAReviewedBreakIsAcceptedForOneRelease:
+    """A `quality.ignore` entry names the one release whose break was reviewed."""
+
+    @pytest.mark.parametrize(
+        ("mode", "releasing", "entry_id", "rc", "accepted"),
+        [
+            pytest.param("warn", "2.14.41", "2.14.41", 0, True, id="warn-match"),
+            pytest.param("blocking", "2.14.41", "v2.14.41", 0, True, id="blocking-v"),
+            pytest.param("blocking", "2.14.42", "2.14.41", 1, False, id="next-release"),
+            pytest.param("blocking", "", "2.14.41", 1, False, id="no-version"),
+        ],
+    )
+    def test_the_entry_covers_its_version_only(
+        self,
+        lib_crate: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        mode: str,
+        releasing: str,
+        entry_id: str,
+        rc: int,
+        accepted: bool,
+    ) -> None:
+        monkeypatch.chdir(lib_crate)
+        monkeypatch.setenv("HYPERCI_VERSION", releasing)
+        monkeypatch.setattr(
+            semver_checks, "resolve_release_version", lambda: releasing or None
+        )
+        said = _fake_tool(monkeypatch, 100, "semver requires new major version")
+        config = CIConfig(
+            _raw={
+                "quality": {
+                    "rust": {"semver_checks": mode},
+                    "ignore": [
+                        {
+                            "tool": "cargo-semver-checks",
+                            "id": entry_id,
+                            "reason": "API moved in lockstep with consumers",
+                        }
+                    ],
+                }
+            }
+        )
+        assert semver_checks.run(config, project_root=lib_crate) == rc
+        assert any("accepted for" in line for line in said) is accepted
+        assert any("major bump" in line for line in said) is not accepted

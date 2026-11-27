@@ -27,6 +27,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import yaml
+
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import OrgConfig
 
@@ -157,6 +159,24 @@ def _digest_after(text: str, start: int, *, lines: int = 6) -> str:
     return found[1] if found else ""
 
 
+def _built_images(text: str) -> set[str]:
+    """The ``image:`` of each compose service with ``build:``, which tags a local build."""
+    try:
+        docs = list(yaml.safe_load_all(text))
+    except yaml.YAMLError:
+        return set()
+    built = set()
+    for doc in docs:
+        services = doc.get("services") if isinstance(doc, dict) else None
+        if not isinstance(services, dict):
+            continue
+        for service in services.values():
+            if isinstance(service, dict) and "build" in service:
+                if isinstance(image := service.get("image"), str):
+                    built.add(image)
+    return built
+
+
 def extract(path: str, text: str, patterns: Sequence[AnnotationPattern]) -> set[Pin]:
     """Docker Hub pins in one file.
 
@@ -187,7 +207,8 @@ def extract(path: str, text: str, patterns: Sequence[AnnotationPattern]) -> set[
     if base.startswith(("Dockerfile", "Containerfile")) or base.endswith(".Dockerfile"):
         refs += [m["ref"] for m in _FROM.finditer(text)]
     if Path(path).suffix in {".yml", ".yaml"}:
-        refs += [m["ref"] for m in _IMAGE.finditer(text)]
+        built = _built_images(text)
+        refs += [m["ref"] for m in _IMAGE.finditer(text) if m["ref"] not in built]
     pins.update(pin for ref in refs if (pin := parse_ref(ref)))
     pinned = {(pin.name, pin.tag) for pin in pins if pin.digest}
     return {pin for pin in pins if pin.digest or (pin.name, pin.tag) not in pinned}
@@ -221,6 +242,7 @@ def load_patterns(org: OrgConfig, *, attempts: int = 3) -> list[AnnotationPatter
     for attempt in range(1, attempts + 1):
         try:
             url = org.mirror_renovate_config
+            # nosemgrep: dynamic-urllib-use-detected -- the https URL comes from the packaged org.yaml
             with urllib.request.urlopen(url, timeout=20) as resp:  # noqa: S310
                 return renovate_patterns(json.load(resp))
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -246,6 +268,7 @@ def is_mirrored(pin: Pin, prefix: str) -> bool:
     """
     registry, _, path = prefix.partition("/")
     repository = f"{path}/{pin.name}"
+    # nosemgrep: httpsconnection-detected -- 3.14 verifies the certificate by default
     conn = http.client.HTTPSConnection(registry, timeout=20)
     try:
         conn.request("GET", f"/token?scope=repository:{repository}:pull")

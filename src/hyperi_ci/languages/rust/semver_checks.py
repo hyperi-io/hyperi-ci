@@ -16,14 +16,29 @@ its own log line, so a skip never reads as "ran and found nothing".
 
 A run that reaches no verdict fails in CI whatever the mode, because nothing
 was compared. Locally it warns, and only ``disabled`` skips it everywhere.
+
+A break the owner has reviewed is accepted for one release by a
+``quality.ignore`` entry with ``tool: cargo-semver-checks`` and the release
+version as its ``id``. Any other version still reports the break.
 """
 
 import shutil
 from pathlib import Path
 
-from hyperi_ci.common import announce, error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import (
+    ReleaseVersionError,
+    announce,
+    error,
+    info,
+    is_ci,
+    resolve_release_version,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
+from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
 _TOOL = "cargo-semver-checks"
 
@@ -59,6 +74,18 @@ def _first_errors(lines: list[str]) -> list[str]:
         if len(found) == _FIRST_ERRORS:
             break
     return found
+
+
+def _accepted_break(config: CIConfig) -> IgnoreEntry | None:
+    """Return the ``quality.ignore`` entry that accepts a break in this release."""
+    try:
+        version = resolve_release_version()
+    except ReleaseVersionError:
+        return None
+    if not version:
+        return None
+    entries = for_tool(load_ignores(config._raw), _TOOL)
+    return next((e for e in entries if e.id.removeprefix("v") == version), None)
 
 
 def run(config: CIConfig, *, project_root: Path | None = None) -> int:
@@ -137,6 +164,10 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         info(f"    {line}")
 
     if result.returncode == _BREAKING:
+        accepted = _accepted_break(config)
+        if accepted:
+            info(f"  {_TOOL}: accepted for {accepted.id}: {accepted.reason}")
+            return 0
         message = (
             "the public API changed in a way semver says needs a major bump. "
             "Either restore compatibility, or release it as a major -- which "

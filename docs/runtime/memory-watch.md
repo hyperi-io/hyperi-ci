@@ -10,6 +10,7 @@ test:
     enabled: true
     abort_stall_percent: 50   # 0 logs and never stops
     abort_after_samples: 4
+    abort_below_available_percent: 20   # 100 counts the stall alone
 ```
 
 Every 30s it logs one line:
@@ -22,4 +23,6 @@ Available is the smaller of the host's `MemAvailable` and the cgroup's headroom 
 
 Full stall is the share of the interval every task in the cgroup was waiting on memory (PSI "full"), read from the cgroup's `memory.pressure`. A kernel without PSI logs `no PSI` and never stops.
 
-After `abort_after_samples` heartbeats in a row at or over `abort_stall_percent`, the watch SIGTERMs the test command and everything under it. A heartbeat later it SIGKILLs anything left, and the stage fails naming the setting. The defaults stop a run after 2 minutes with tasks stalled half the time, which a healthy run never reaches.
+A heartbeat counts toward a stop only while available memory is under `abort_below_available_percent` of the memory limit, the smaller of the cgroup limit and total RAM. Direct reclaim and compaction stall tasks with plenty free, and that is not the thrash that loses a runner. An unknown limit counts on the stall alone.
+
+After `abort_after_samples` heartbeats in a row that count, the watch SIGTERMs the test command and everything under it. A heartbeat later it SIGKILLs anything left, and the stage fails naming the setting. The defaults stop a run after 2 minutes with tasks stalled half the time, which a healthy run never reaches.
