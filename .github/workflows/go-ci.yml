@@ -252,7 +252,7 @@ jobs:
         id: mirror-token
         if: steps.predict.outputs.run-checks == 'true' && github.event.pull_request.head.repo.fork != true && vars.CI_TOOLS_APP_CLIENT_ID != ''
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ vars.CI_TOOLS_APP_CLIENT_ID }}
           private-key: ${{ secrets.CI_TOOLS_APP_PRIVATE_KEY }}
@@ -343,7 +343,7 @@ jobs:
 
       - name: Set up Go
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           # setup-go reads both paths from the workspace root, not the job's working-directory.
           go-version-file: ${{ inputs.project-dir && format('{0}/{1}', inputs.project-dir, inputs.go-version-file) || inputs.go-version-file }}
@@ -407,7 +407,7 @@ jobs:
 
       - name: Set up Go
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           # setup-go reads both paths from the workspace root, not the job's working-directory.
           go-version-file: ${{ inputs.project-dir && format('{0}/{1}', inputs.project-dir, inputs.go-version-file) || inputs.go-version-file }}
@@ -504,7 +504,7 @@ jobs:
 
       - name: Set up Go
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           # setup-go reads both paths from the workspace root, not the job's working-directory.
           go-version-file: ${{ inputs.project-dir && format('{0}/{1}', inputs.project-dir, inputs.go-version-file) || inputs.go-version-file }}

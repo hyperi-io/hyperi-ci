@@ -287,7 +287,7 @@ jobs:
         id: mirror-token
         if: steps.predict.outputs.run-checks == 'true' && github.event.pull_request.head.repo.fork != true && vars.CI_TOOLS_APP_CLIENT_ID != ''
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ vars.CI_TOOLS_APP_CLIENT_ID }}
           private-key: ${{ secrets.CI_TOOLS_APP_PRIVATE_KEY }}
@@ -418,7 +418,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
@@ -514,7 +514,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           # A Windows or macOS leg lints its own OS's code before the tests.
@@ -676,7 +676,7 @@ jobs:
       # Runs on ARC too, so every job compiles with the requested toolchain, not
       # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -775,7 +775,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -851,7 +851,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -943,7 +943,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
@@ -1042,7 +1042,7 @@ jobs:
 
       # The BOLT fallback recompiles with cargo-pgo, so it needs the toolchain.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
