@@ -1065,6 +1065,163 @@ class TestBuildEmitsTheContract:
         assert not (repo / "dist").exists()
 
 
+_PROFILE = {"min_bytes": 1, "avg_bytes": 2, "max_bytes": 3}
+_BENCH_CARGO = (
+    '[package]\nname = "dfe-loader"\n[[bin]]\nname = "dfe-loader"\npath = "src/main.rs"\n'
+    '[dependencies]\nscalo = { version = "2.14", features = ["deployment", "bench-memory"] }\n'
+)
+
+
+def _bench_app(tmp_path: Path, contract: dict, bench_rc: int = 0) -> Path:
+    """An app whose bench writes a profile and whose contract carries it as memory."""
+    app_path = tmp_path / "bench-app"
+    app_path.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "def opt(name):\n"
+        "    return args[args.index(name) + 1] if name in args else None\n"
+        "if args[0] == 'bench-memory':\n"
+        f"    if {bench_rc}:\n"
+        f"        sys.exit({bench_rc})\n"
+        f"    pathlib.Path(opt('--output')).write_text({json.dumps(json.dumps(_PROFILE))})\n"
+        "    sys.exit(0)\n"
+        f"contract = json.loads({json.dumps(json.dumps(contract))})\n"
+        "if opt('--memory-profile'):\n"
+        "    contract['memory'] = json.loads(pathlib.Path(opt('--memory-profile')).read_text())\n"
+        "out = pathlib.Path(opt('--output-dir'))\n"
+        "out.mkdir(parents=True)\n"
+        "(out / 'deployment-contract.json').write_text(json.dumps(contract))\n",
+        encoding="utf-8",
+    )
+    app_path.chmod(0o755)
+    return app_path
+
+
+def _fake_docker(tmp_path: Path, cgroup: str, run_rc: int) -> Path:
+    """A docker whose `info` reports ``cgroup`` and whose `run` logs argv and exits ``run_rc``."""
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys\n"
+        "if sys.argv[1] == 'info':\n"
+        f"    print({cgroup!r})\n"
+        "    sys.exit(0)\n"
+        f"pathlib.Path({str(tmp_path / 'docker-run.log')!r}).write_text(' '.join(sys.argv[1:]))\n"
+        f"sys.exit({run_rc})\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    return bin_dir
+
+
+class TestBenchMemory:
+    """A shipped app with scalo's bench-memory gets a measured memory block (#971)."""
+
+    @pytest.fixture
+    def bench_repo(self, repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        (repo / "Cargo.toml").write_text(_BENCH_CARGO, encoding="utf-8")
+        monkeypatch.setenv("HYPERCI_CHANNEL", "release")
+        monkeypatch.setattr(assemble, "_linux_arch", lambda: "amd64")
+        return repo
+
+    def _use(self, monkeypatch: pytest.MonkeyPatch, app_path: Path) -> None:
+        monkeypatch.setattr(
+            assemble, "producer_command", lambda root, binary=None: [str(app_path)]
+        )
+
+    @pytest.mark.parametrize(
+        ("channel", "arch", "bench_rc", "rc", "memory"),
+        [
+            ("release", "amd64", 0, 0, _PROFILE),
+            ("", "amd64", 0, 0, None),
+            ("release", "amd64", 3, 1, "none-emitted"),
+            ("release", "arm64", 0, 0, "none-emitted"),
+        ],
+        ids=["release-amd64", "validate-only", "bench-fails", "arm64-leg"],
+    )
+    def test_the_amd64_release_leg_measures(
+        self,
+        bench_repo: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        channel: str,
+        arch: str,
+        bench_rc: int,
+        rc: int,
+        memory: object,
+    ) -> None:
+        self._use(monkeypatch, _bench_app(tmp_path, _contract(), bench_rc))
+        monkeypatch.setenv("HYPERCI_CHANNEL", channel)
+        monkeypatch.setattr(assemble, "_linux_arch", lambda: arch)
+        config = _release_config(bench_repo, contract="emit", library="0.1.0")
+        assert assemble.emit_contract(config, bench_repo) == rc
+        emitted = [json.loads(p.read_bytes()) for p in _emitted(bench_repo)]
+        if memory == "none-emitted":
+            assert emitted == []
+        else:
+            assert [c.get("memory") for c in emitted] == [memory]
+
+    def test_an_app_without_the_feature_never_benches(
+        self, bench_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (bench_repo / "Cargo.toml").write_text(
+            _BENCH_CARGO.replace(', "bench-memory"', ""), encoding="utf-8"
+        )
+        self._use(monkeypatch, _bench_app(tmp_path, _contract(), bench_rc=3))
+        config = _release_config(bench_repo, contract="emit", library="0.1.0")
+        assert assemble.emit_contract(config, bench_repo) == 0
+        assert [
+            json.loads(p.read_bytes()).get("memory") for p in _emitted(bench_repo)
+        ] == [None]
+
+    @pytest.mark.parametrize(
+        ("cgroup", "run_rc", "ran_in_docker", "memory"),
+        [
+            ("2", 0, True, None),
+            ("2", 125, True, _PROFILE),
+            ("1", 0, False, _PROFILE),
+        ],
+        ids=["cgroup-v2", "docker-cannot-start", "cgroup-v1"],
+    )
+    def test_docker_on_cgroup_v2_runs_the_base_image(
+        self,
+        bench_repo: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cgroup: str,
+        run_rc: int,
+        ran_in_docker: bool,
+        memory: object,
+    ) -> None:
+        image = "debian:trixie-slim"
+        app_path = _bench_app(tmp_path, _contract(base_image=image))
+        self._use(monkeypatch, app_path)
+        bin_dir = _fake_docker(tmp_path, cgroup, run_rc)
+        monkeypatch.setenv(
+            "PATH", f"{bin_dir}:{Path(sys.executable).parent}:/usr/bin:/bin"
+        )
+        config = _release_config(bench_repo, contract="emit", library="0.1.0")
+        rc = assemble.emit_contract(config, bench_repo)
+        log = tmp_path / "docker-run.log"
+        assert log.is_file() is ran_in_docker
+        if ran_in_docker:
+            argv = log.read_text(encoding="utf-8").split()
+            assert argv[:4] == ["run", "--rm", "--cgroupns", "private"]
+            assert argv[argv.index(image) + 1 :][:2] == [str(app_path), "bench-memory"]
+        if memory is None:
+            # The fake docker ran nothing, so no profile was written.
+            assert rc == 1
+            assert _emitted(bench_repo) == []
+        else:
+            assert rc == 0
+            assert [
+                json.loads(p.read_bytes())["memory"] for p in _emitted(bench_repo)
+            ] == [memory]
+
+
 class TestReleaseContract:
     """Tag & Release reads what the Build legs left, and nothing it could be steered to."""
 

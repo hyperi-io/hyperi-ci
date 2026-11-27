@@ -38,7 +38,7 @@ from hyperi_ci.deployment.manifest import (
     resolve_workspace_members,
 )
 
-__all__ = ["Tier", "TierDecision", "resolve_tier"]
+__all__ = ["Tier", "TierDecision", "enables_bench_memory", "resolve_tier"]
 
 
 class Tier(StrEnum):
@@ -65,6 +65,9 @@ _PYTHON_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo",)
 # The scalo-rs cargo feature that compiles in contract emission. Without it
 # `generate-artefacts` exits 0 and writes no contract.
 _DEPLOYMENT_FEATURE = "deployment"
+# The scalo-rs feature that adds `<app> bench-memory`, which measures the
+# contract's `memory` block.
+_BENCH_MEMORY_FEATURE = "bench-memory"
 
 
 def resolve_tier(repo_root: Path) -> TierDecision:
@@ -144,15 +147,37 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
     """Return True when the marker crate's deployment feature is on.
 
     Without the feature scalo-rs compiles artefact emission out, so
-    ``generate-artefacts`` exits 0 and writes no contract. The repo root and
-    every workspace member are checked, a ``workspace = true`` entry taking
-    its features from the root's ``[workspace.dependencies]`` via
-    :func:`effective_dep_features`. One crate enabling it is enough, because
-    cargo unifies a feature across the workspace build. Undetermined is
+    ``generate-artefacts`` exits 0 and writes no contract. Undetermined is
     permissive: an unparseable manifest dispatches and fails loudly rather
     than skipping a real producer.
 
     Rust-only: scalo-py's ``deployment`` extra is a pydantic pin, not a code gate.
+    """
+    return _scalo_feature(repo_root, dep_name, _DEPLOYMENT_FEATURE) is not False
+
+
+def enables_bench_memory(repo_root: Path) -> bool:
+    """Return True for a Rust producer that lists scalo's ``bench-memory`` feature.
+
+    Only an explicit listing counts, not ``full``, and an unreadable manifest
+    counts as off: a release fails when an app with the feature has no
+    ``bench_pipeline``.
+    """
+    if resolve_tier(repo_root).tier is not Tier.RUST:
+        return False
+    dep = _marker_dep(repo_root / "Cargo.toml", _RUST_DEPLOYMENT_DEPS)
+    if dep is None:
+        return False
+    return _scalo_feature(repo_root, dep, _BENCH_MEMORY_FEATURE) is True
+
+
+def _scalo_feature(repo_root: Path, dep_name: str, feature: str) -> bool | None:
+    """Return whether a crate turns ``feature`` on for ``dep_name``, None if none says.
+
+    The repo root and every workspace member are checked, a ``workspace = true``
+    entry taking its features from the root's ``[workspace.dependencies]`` via
+    :func:`effective_dep_features`. One crate enabling it is enough, because
+    cargo unifies a feature across the workspace build.
     """
     manifests = [repo_root / "Cargo.toml"]
     root_text = _read_manifest(repo_root / "Cargo.toml")
@@ -171,10 +196,9 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
         if features is None:
             continue
         determined = True
-        if _DEPLOYMENT_FEATURE in features:
+        if feature in features:
             return True
-    # Features undetermined everywhere -> assume producer.
-    return not determined
+    return False if determined else None
 
 
 def _read_manifest(manifest: Path) -> str | None:

@@ -54,6 +54,7 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.deployment.detect import Tier, resolve_tier
 from hyperi_ci.deployment.manifest import python_entry_point, rust_binary_name
 from hyperi_ci.native_tools import _linux_arch
+from hyperi_ci.release import bench_memory
 from hyperi_ci.release.charts import ChartError, _ensure_helm, _helm, _login
 from hyperi_ci.repo_path import RepoPathError, confine
 
@@ -528,10 +529,17 @@ def _committed_contract(setting: str, root: Path) -> bytes:
     return _read_bytes(path, "contract")
 
 
-def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -> bytes:
+def load_contract(
+    setting: str,
+    root: Path,
+    scratch: Path,
+    binary: str | None,
+    memory_profile: Path | None = None,
+) -> bytes:
     """Return the bytes of the contract ``release.helm.contract`` names.
 
-    The setting is ``emit`` or the path of a committed contract.
+    The setting is ``emit`` or the path of a committed contract. A
+    ``memory_profile`` is passed to ``generate-artefacts --memory-profile``.
 
     Raises:
         ChartError: The producer failed, or the contract cannot be read.
@@ -540,8 +548,11 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
     if setting != "emit":
         return _committed_contract(setting, root)
     cmd = [*producer_command(root, binary), "generate-artefacts"]
+    if memory_profile is not None:
+        cmd += ["--memory-profile", str(memory_profile)]
     info(f"Emitting the contract: {' '.join(cmd)}")
     emitted = scratch / "emitted"
+    shutil.rmtree(emitted, ignore_errors=True)
     try:
         result = run_cmd(
             [*cmd, "--output-dir", str(emitted)],
@@ -582,7 +593,9 @@ def emit_contract(config: CIConfig, root: Path) -> int:
     Tag & Release holds the publish credentials and runs no repo code, so the
     app's ``generate-artefacts`` runs here, in the Build job, beside the binary
     it just built. Nothing happens unless ``release.helm.contract`` is ``emit``.
-    A contract an earlier build left is replaced.
+    A contract an earlier build left is replaced. On a run that ships an app
+    with scalo's ``bench-memory``, the linux amd64 leg alone emits, with the
+    memory profile it measured (:mod:`hyperi_ci.release.bench_memory`).
 
     Returns:
         0 when nothing is emitted or the contract was written, 1 on failure.
@@ -592,17 +605,28 @@ def emit_contract(config: CIConfig, root: Path) -> int:
         return 0
     if config.setting("release.helm.contract") != "emit":
         return 0
+    bench = bench_memory.wanted(root)
+    if bench and _linux_arch() != bench_memory.BENCH_ARCH:
+        info(
+            "bench-memory: the linux amd64 leg emits the contract, so this one does not"
+        )
+        return 0
     try:
         folder = _emitted_dir(root)
         with tempfile.TemporaryDirectory(prefix="hyperi-ci-emit-") as tmp:
-            raw = load_contract("emit", root, Path(tmp), None)
+            scratch = Path(tmp)
+            raw = load_contract("emit", root, scratch, None)
+            if bench:
+                command = producer_command(root)
+                profile = bench_memory.measure(command, raw, root, scratch)
+                raw = load_contract("emit", root, scratch, None, profile)
         _parse_json(raw, "the emitted contract")
         folder.mkdir(parents=True, exist_ok=True)
         for stale in folder.glob(EMITTED_GLOB):
             stale.unlink()
         name = EMITTED_NAME.format(digest=hashlib.sha256(raw).hexdigest())
         (folder / name).write_bytes(raw)
-    except (ChartError, OSError) as exc:
+    except (ChartError, bench_memory.BenchError, OSError) as exc:
         error(f"release.helm.contract is emit: {exc}")
         return 1
     success(f"Emitted the deployment contract to {EMITTED_DIR}/{name}")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.deployment.detect import Tier, resolve_tier
+from hyperi_ci.deployment.detect import Tier, enables_bench_memory, resolve_tier
 
 # Every Tier 1/2 fixture needs a POSITIVE producer signal alongside the
 # marker dep -- a binary target for Rust, a console script for Python.
@@ -482,6 +482,62 @@ class TestProducerSignal:
         )
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
+
+
+class TestBenchMemoryFeature:
+    """Only a producer that lists ``bench-memory`` runs the bench on release."""
+
+    @pytest.mark.parametrize(
+        ("cargo", "expected"),
+        [
+            (
+                _RUST_BIN + '[dependencies]\nscalo = { version = "2.14", '
+                'features = ["deployment", "bench-memory"] }\n',
+                True,
+            ),
+            (_RUST_BIN + _rust_dep(), False),
+            (
+                _RUST_BIN + '[dependencies]\nscalo = { version = "2.14", '
+                'features = ["deployment", "full"] }\n',
+                False,
+            ),
+            (_RUST_BIN + "[dependencies]\nscalo.workspace = true\n", False),
+            (
+                _RUST_BIN + '[dependencies]\nscalo = { version = "2.14", '
+                'features = ["cli-service", "bench-memory"] }\n',
+                False,
+            ),
+            (
+                '[lib]\n[dependencies]\nscalo = { version = "2.14", '
+                'features = ["deployment", "bench-memory"] }\n',
+                False,
+            ),
+            (
+                _RUST_BIN
+                + '[dependencies]\nscalo = { workspace = true, features = ["deployment"] }\n'
+                "[workspace]\nmembers = []\n"
+                '[workspace.dependencies]\nscalo = { version = "2.14", '
+                'features = ["bench-memory"] }\n',
+                True,
+            ),
+        ],
+        ids=[
+            "listed",
+            "not-listed",
+            "full-only",
+            "unreadable",
+            "no-deployment",
+            "no-binary",
+            "inherited",
+        ],
+    )
+    def test_the_feature_must_be_listed(
+        self, tmp_path: Path, cargo: str, expected: bool
+    ) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "demo-app"\n' + cargo, encoding="utf-8"
+        )
+        assert enables_bench_memory(tmp_path) is expected
 
 
 class TestTierEnum:
