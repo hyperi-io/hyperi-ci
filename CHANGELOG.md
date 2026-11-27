@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.1...v2.17.2) (2026-11-27)
+
+### Bug Fixes
+
+* **native-deps:** skip retries for sources we don't use ([be2246c](https://github.com/hyperi-io/hyperi-ci/commit/be2246c79d7d890abbe81eafa0d033dba6c29732))
+
 ## [2.17.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.0...v2.17.1) (2026-11-27)
 
 ### Bug Fixes
