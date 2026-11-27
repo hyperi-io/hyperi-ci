@@ -161,6 +161,8 @@ Any finding against the library's `schema/deployment-contract.v<schema_version>.
 
 A release's `publish-charts` pushes it too, pinned to the Container job's image, and fails before the tag if none was pushed. `emit` runs in each Build leg, which leaves `dist/chart-contract/deployment-contract.<sha256>.json`. Legs that emit different bytes fail the release.
 
+An app listing scalo's `bench-memory` feature gets the contract's `memory` block on a release. Only the linux amd64 leg emits: it runs `<app> bench-memory` on the release binary, in the contract's `base_image` where docker runs cgroup v2, and a failed bench fails the release.
+
 If the registry already holds this chart version pinned to another image, as after a full re-run, nothing is pushed and the step fails. Release a new version, or delete that chart version and re-run Tag & Release.
 
 ## 6. Release channels
