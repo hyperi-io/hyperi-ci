@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.0...v2.17.1) (2026-11-27)
+
+### Bug Fixes
+
+* **diagram-check:** run merrow diagram lint ([8272351](https://github.com/hyperi-io/hyperi-ci/commit/8272351a0a519af45e62f5408c326ea81570a2dc)), closes [#912](https://github.com/hyperi-io/hyperi-ci/issues/912)
+* **rust:** run bench-memory and pass the profile to generate-artefacts ([2d504ae](https://github.com/hyperi-io/hyperi-ci/commit/2d504ae3ef7c42daabeb3310a5130a9cd207ab99)), closes [#971](https://github.com/hyperi-io/hyperi-ci/issues/971)
+
 ## [2.17.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.16.7...v2.17.0) (2026-11-26)
 
 ### Features
