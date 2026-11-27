@@ -128,7 +128,7 @@ Three config homes, each with one job:
 
 Rule: CI logic or routing goes in `config/`, platform infra in Vars, a credential in Secrets.
 
-`GH_APP_PRIVATE_KEY` is the release bot, with write on every repo, so only the release tail holds it. Plan and Quality run the repo's dependencies, so their image-mirror and diagram-checker tokens come from `CI_TOOLS_APP_PRIVATE_KEY` (`hyperi-ci-tools`: actions write and contents read on hyperi-ci and hyperi-ai).
+`GH_APP_PRIVATE_KEY` is the release bot, with write on every repo, so only the release tail holds it. Plan runs the repo's dependencies, so its image-mirror token comes from `CI_TOOLS_APP_PRIVATE_KEY` (`hyperi-ci-tools`, which needs actions write on hyperi-ci).
 
 ## Release routing and containers
 
@@ -151,12 +151,12 @@ Multi-arch uses **native runners per arch** (amd64 on `ubuntu-latest` or ARC, ar
 
 ## Design principles and repo layout
 
-1. **No bash.** All logic is Python; `subprocess.run([...])` with list args.
-2. **One version oracle.** semantic-release dry-run in `plan` predicts the version every stage stamps. The real run tags **HEAD**, so the tag is always reachable.
-3. **uv for everything** - venv, sync, lock, tool install, build.
-4. **Cross-platform** - `pathlib`, `shutil.which`, `sys.platform`; Linux (CI) and macOS (dev).
-5. **Self-hosting** - hyperi-ci runs its own pipeline through its own workflow.
-6. **KISS** - a maintained third-party tool that is good enough beats bespoke CI code. Over-engineered CI kills small teams, so we reject custom machinery (see #31).
+1. No bash. All logic is Python, and `subprocess.run([...])` takes list args.
+2. One version oracle. semantic-release dry-run in `plan` predicts the version every stage stamps. The real run tags HEAD, so the tag is always reachable.
+3. uv for everything - venv, sync, lock, tool install, build.
+4. Cross-platform - `pathlib`, `shutil.which`, `sys.platform`, on Linux (CI) and macOS (dev).
+5. Self-hosting - hyperi-ci runs its own pipeline through its own workflow.
+6. KISS - a maintained third-party tool that is good enough beats bespoke CI code. Over-engineered CI kills small teams, so we reject custom machinery (see #31).
 
 ```text
 .github/

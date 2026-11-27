@@ -118,7 +118,7 @@ on:
         required: false
       CI_TOOLS_APP_PRIVATE_KEY:
         required: false
-        description: "The hyperi-ci-tools App key (actions write and contents read on hyperi-ci and hyperi-ai), for the image mirror and diagram checker tokens."
+        description: "The hyperi-ci-tools App key, for the image mirror token."
     outputs:
       will-release:
         description: "'true' when this run releases: the release tail tags v<next-version> at the commit it built. A caller job chaining on the release also needs this workflow's job to succeed."
@@ -336,30 +336,6 @@ jobs:
         # feed, which the CVE-only npm/pnpm/yarn audit does not.
         uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
 
-      - name: Mint a token to read the diagram checker
-        # contents:read on hyperi-ai alone. A fork PR has no secrets, so it
-        # skips this and diagram-check skips with a note.
-        id: diagram-token
-        if: github.event.pull_request.head.repo.fork != true && vars.CI_TOOLS_APP_CLIENT_ID != ''
-        continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.CI_TOOLS_APP_CLIENT_ID }}
-          private-key: ${{ secrets.CI_TOOLS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: hyperi-ai
-          permission-contents: read
-
-      - name: Fetch the diagram checker
-        # The checker is private hyperi-ai code, fetched here and never copied
-        # into hyperi-ci. Only this step sees the token.
-        id: diagram
-        if: steps.diagram-token.outputs.token != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.diagram-token.outputs.token }}
-        run: ${{ env.HYPERCI_INSTALL }} fetch-diagram-check --dest "$RUNNER_TEMP/hyperi-ai-tools"
-
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log, which a depth-1 checkout cuts to HEAD,
         # so deepen to cover the pushed range. The checkout keeps no credential, so
@@ -380,8 +356,6 @@ jobs:
           git fetch --deepen=200 origin
 
       - name: Run quality checks
-        env:
-          HYPERCI_DIAGRAM_CHECK: ${{ steps.diagram.outputs.path }}
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:

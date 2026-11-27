@@ -395,6 +395,10 @@ tools:
   pip-audit:
     version: 2.10.1
     pypi: pip-audit
+  # diagram-check runs `merrow diagram lint --no-render`, which needs no browser.
+  merrow:
+    version: "0.1.12"
+    pypi: merrow
   pip-licenses:
     version: 5.5.5
     pypi: pip-licenses

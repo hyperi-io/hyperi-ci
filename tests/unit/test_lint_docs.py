@@ -742,21 +742,26 @@ class TestAFindingsExitWithNothingParsedIsNotAPass:
 
 
 class TestDiagramCheck:
-    """hyperi-ai's checker, fetched at run time and never copied here."""
+    """merrow's diagram lint, run through uvx at the versions.yaml pin."""
 
-    # Captured from tools/diagram_check.py at 4292a6c4, `--no-render --json`.
+    # Captured from merrow 0.1.12, `diagram lint --no-render --json`, plus one
+    # line with no rule to hold the fallback.
     REAL_OUTPUT = json.dumps(
         {
             "how": "source only, not rendered",
+            "destination": "page",
             "page": [
-                "docs/page.md R7 figures are numbered [2]: number a page's figures from 1"
+                "docs/page.md [figure-numbers] R7 figures are numbered [2, 2]: "
+                "number a page's figures from 1"
             ],
             "diagrams": [
                 {
                     "name": "docs/page.md:3",
                     "problems": [
-                        "R2 `graph`: write `flowchart`",
-                        "R7 no `accTitle`",
+                        "[graph-keyword] R2 `graph`: write `flowchart`",
+                        "[acc-title] R7 no `accTitle`",
+                        "[html-entity] an HTML entity, which shows literally: "
+                        "write the character",
                         "a problem with no rule",
                     ],
                     "measured": None,
@@ -770,7 +775,7 @@ class TestDiagramCheck:
     def test_the_report_becomes_findings(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subdir: str
     ) -> None:
-        # `lint-docs docs` runs the checker in docs/, so it names page.md.
+        # `lint-docs docs` runs merrow in docs/, so it names page.md.
         output = self.REAL_OUTPUT
         if subdir:
             output = output.replace(f"{subdir}/", "")
@@ -780,44 +785,49 @@ class TestDiagramCheck:
             (
                 "docs/page.md",
                 None,
-                "R7",
-                "figures are numbered [2]: number a page's figures from 1",
+                "figure-numbers",
+                "R7 figures are numbered [2, 2]: number a page's figures from 1",
             ),
-            ("docs/page.md", 3, "R2", "`graph`: write `flowchart`"),
-            ("docs/page.md", 3, "R7", "no `accTitle`"),
+            ("docs/page.md", 3, "graph-keyword", "R2 `graph`: write `flowchart`"),
+            ("docs/page.md", 3, "acc-title", "R7 no `accTitle`"),
+            (
+                "docs/page.md",
+                3,
+                "html-entity",
+                "an HTML entity, which shows literally: write the character",
+            ),
             ("docs/page.md", 3, "diagram", "a problem with no rule"),
         ]
 
     def test_an_empty_report_has_no_findings(self, tmp_path: Path) -> None:
         assert diagram_check.parse('{"page": [], "diagrams": []}', tmp_path) == []
 
-    @pytest.mark.parametrize("script", [None, "missing.py"])
-    def test_it_skips_without_a_fetched_checker(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str | None
+    @pytest.mark.parametrize(
+        ("ci", "mode", "rc"),
+        [(True, "warn", 0), (False, "blocking", 0), (True, "blocking", 1)],
+    )
+    def test_no_uv_and_no_merrow_is_a_missing_tool(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        ci: bool,
+        mode: str,
+        rc: int,
     ) -> None:
         page = tmp_path / "page.md"
         page.write_text("```mermaid\nflowchart LR\n```\n", encoding="utf-8")
-        if script is None:
-            monkeypatch.delenv(diagram_check.SCRIPT_ENV, raising=False)
-        else:
-            monkeypatch.setenv(diagram_check.SCRIPT_ENV, str(tmp_path / script))
-        assert diagram_check.run([page], CIConfig(), root=tmp_path) == 0
+        monkeypatch.setattr(diagram_check.shutil, "which", lambda _name: None)
+        monkeypatch.setattr("hyperi_ci.tools.is_ci", lambda: ci)
+        config = CIConfig(_raw={"quality": {"diagram_check": mode}})
+        assert diagram_check.run([page], config, root=tmp_path) == rc
 
     def test_it_skips_pages_without_mermaid(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         page = tmp_path / "page.md"
         page.write_text("# No diagrams\n", encoding="utf-8")
-        monkeypatch.setenv(diagram_check.SCRIPT_ENV, "/no/such/script.py")
+        monkeypatch.setattr(diagram_check.shutil, "which", lambda _name: None)
         assert diagram_check.run([page], CIConfig(), root=tmp_path) == 0
-
-    @pytest.mark.skipif(shutil.which("gh") is None, reason="needs the gh CLI")
-    def test_an_unresolvable_ref_fetches_nothing(self, tmp_path: Path) -> None:
-        from hyperi_ci.config import OrgConfig
-
-        org = OrgConfig(diagram_check_ref="no-such-branch-zz9")
-        assert diagram_check.fetch(org, tmp_path) is None
-        assert not any(tmp_path.iterdir())
 
 
 @pytest.mark.parametrize(
@@ -845,7 +855,11 @@ def test_a_page_in_quality_ignore_is_not_checked(
         "print(json.dumps({'page': [], 'diagrams': []}))\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv(diagram_check.SCRIPT_ENV, str(script))
+    monkeypatch.setattr(
+        diagram_check,
+        "resolve_tool_cmd",
+        lambda *_a, **_k: [sys.executable, str(script)],
+    )
     config = CIConfig(
         _raw={
             "quality": {
