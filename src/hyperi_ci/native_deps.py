@@ -14,6 +14,7 @@ packages: apt on Linux, brew on macOS, choco on Windows.
 import io
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -22,8 +23,10 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import yaml
 from scalo import logger
@@ -39,9 +42,11 @@ from hyperi_ci.common import (
     backoff,
     curl_read,
     download_artefact,
+    echo_chunk,
     info,
     prepend_path,
     run_cmd,
+    stream_cmd,
     sudo_prefix,
     url_read,
     warn,
@@ -573,13 +578,41 @@ _UBUNTU_KEYRING = Path("/usr/share/keyrings/ubuntu-archive-keyring.gpg")
 _UBUNTU_SOURCES = Path("/etc/apt/sources.list.d/hyperi-ci-ubuntu.sources")
 
 
-def _apt_update(apt_get: list[str]) -> None:
+_FAILED_FETCH = re.compile(r"^E: Failed to fetch (\S+)", re.MULTILINE)
+_DISTRO_HOST_SUFFIXES = (".ubuntu.com", ".debian.org")
+
+
+def _unused_failures(output: str, used_urls: Sequence[str]) -> list[str]:
+    """Return the fetches apt-get update failed, or [] if one is a source we use.
+
+    hyperi-ci uses the distro archive and the repos in ``used_urls``.
+    """
+    failed = sorted(set(_FAILED_FETCH.findall(output)))
+    prefixes = tuple(url.rstrip("/") + "/" for url in used_urls)
+    for url in failed:
+        host = urlsplit(url).hostname or ""
+        if host.endswith(_DISTRO_HOST_SUFFIXES) or url.startswith(prefixes):
+            return []
+    return failed
+
+
+def _apt_update(apt_get: list[str], used_urls: Sequence[str] = ()) -> None:
     """Run apt-get update on the ``apt_retry`` schedule.
 
-    A mirror mid-sync fails the fetch outright (see that module).
+    A mirror mid-sync fails the fetch outright (see that module). A failure
+    confined to sources hyperi-ci installs nothing from, such as a runner
+    image's packages.microsoft.com entry, is logged once and not retried.
     """
     for attempt in range(1, APT_UPDATE_ATTEMPTS + 1):
-        if run_cmd([*apt_get, "update"], check=False).returncode == 0:
+        rc, output = stream_cmd([*apt_get, "update"], on_line=None, on_chunk=echo_chunk)
+        if rc == 0:
+            return
+        unused = _unused_failures(output, used_urls)
+        if unused:
+            info(
+                f"apt-get update could not fetch {', '.join(unused)}. hyperi-ci "
+                "installs nothing from there, so the install goes ahead."
+            )
             return
         if attempt == APT_UPDATE_ATTEMPTS:
             logger.warning("apt-get update failed -- continuing anyway")
@@ -666,10 +699,13 @@ def _ensure_ubuntu_archive(apt_get: list[str]) -> None:
         )
 
 
-def apt_install(packages: list[str]) -> int:
-    """Run apt-get update then install packages. Returns exit code."""
+def apt_install(packages: list[str], repo_urls: Sequence[str] = ()) -> int:
+    """Run apt-get update then install packages. Returns exit code.
+
+    ``repo_urls`` are the APT repos the packages come from besides the distro.
+    """
     apt_get = [*sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
-    _apt_update(apt_get)
+    _apt_update(apt_get, repo_urls)
     _ensure_ubuntu_archive(apt_get)
 
     install = run_cmd(
@@ -1022,7 +1058,8 @@ def install_native_deps(
                 seen.add(pkg)
 
     logger.info(f"Installing {category} packages: {all_packages}")
-    rc = apt_install(all_packages)
+    repo_urls = [repo.url for group in needed for repo in group.apt_repos]
+    rc = apt_install(all_packages, repo_urls)
     if rc != 0:
         logger.error(f"apt-get install failed (exit {rc})")
         return rc

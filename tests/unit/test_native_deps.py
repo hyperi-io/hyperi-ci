@@ -12,7 +12,7 @@ import socket
 import subprocess
 import threading
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from unittest.mock import patch
 
@@ -715,7 +715,7 @@ class TestDepGroupLoading:
         monkeypatch.setattr(native_deps.logger, "error", errors.append)
         installed: list[str] = []
         monkeypatch.setattr(
-            native_deps, "apt_install", lambda pkgs: installed.extend(pkgs) or 0
+            native_deps, "apt_install", lambda pkgs, _urls: installed.extend(pkgs) or 0
         )
 
         assert native_deps.install_native_deps("rust", project_dir=tmp_path) == 1
@@ -781,7 +781,7 @@ class TestDepGroupLoading:
         monkeypatch.setattr(native_deps, "_install_language_tools", lambda _l: 0)
         installed: list[str] = []
         monkeypatch.setattr(
-            native_deps, "apt_install", lambda pkgs: installed.extend(pkgs) or 0
+            native_deps, "apt_install", lambda pkgs, _urls: installed.extend(pkgs) or 0
         )
         assert native_deps.install_native_deps("rust", project_dir=project) == 0
         return installed
@@ -1096,7 +1096,7 @@ class TestBakeFlag:
 
         installed: list[str] = []
 
-        def fake_apt_install(packages: list[str]) -> int:
+        def fake_apt_install(packages: list[str], _urls: Sequence[str]) -> int:
             installed.extend(packages)
             return 0
 
@@ -1138,7 +1138,7 @@ class TestBakeFlag:
 
         installed: list[str] = []
 
-        def fake_apt_install(packages: list[str]) -> int:
+        def fake_apt_install(packages: list[str], _urls: Sequence[str]) -> int:
             installed.extend(packages)
             return 0
 
@@ -1377,7 +1377,7 @@ class TestAllModeBypass:
         # Record which groups reach the install step
         installed_packages: list[str] = []
 
-        def fake_apt_install(packages: list[str]) -> int:
+        def fake_apt_install(packages: list[str], _urls: Sequence[str]) -> int:
             installed_packages.extend(packages)
             return 0
 
@@ -1407,7 +1407,7 @@ class TestAllModeBypass:
         monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
         installed_packages: list[str] = []
 
-        def fake_apt_install(packages: list[str]) -> int:
+        def fake_apt_install(packages: list[str], _urls: Sequence[str]) -> int:
             installed_packages.extend(packages)
             return 0
 
