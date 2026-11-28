@@ -428,12 +428,14 @@ build:
     # CARGO_TARGET_<TRIPLE>_RUSTFLAGS after the runner's own flags. maturin
     # wheels stay baseline. A cargo config setting another target-cpu for the
     # triple keeps it. An app needs scalo::require_cpu_floor!() in main, or an
-    # older CPU dies on SIGILL instead of a clear exit.
+    # older CPU dies on SIGILL instead of a clear exit. `check` runs each
+    # packaged floor binary under qemu-x86_64: blocking, warn or disabled.
     # docs/languages/rust.md#cpu-floor
     cpu_floor:
       enabled: false
       rustflags: ["-C", "target-cpu=x86-64-v3", "-C", "target-feature=+pclmulqdq"]
       targets: [x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl]
+      check: blocking
     # Advice in runner-fit.json on which runner profile holds the Build. It
     # never changes a runner. `profiles` run cheapest first: the ARC sets for
     # x64 and GitHub's arm64 runner, the only arm64 runner. A free-mode run has

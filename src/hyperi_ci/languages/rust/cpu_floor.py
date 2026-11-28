@@ -11,20 +11,35 @@ value. Cargo places that env value after the repo's ``[target.<triple>]``
 rustflags, so the floor's ``target-cpu`` would beat the repo's: a cargo config
 naming a different ``target-cpu`` keeps it and that triple gets no floor.
 maturin wheels build without it, because no manylinux tag can say x86-64-v3.
+Each packaged floor binary is then run under qemu on a CPU either side of it.
 """
 
 import os
 import shlex
+import shutil
+import signal
+import subprocess
+import sys
 import tomllib
 from collections.abc import Generator, MutableMapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from hyperi_ci.common import info, warn
+from hyperi_ci.ci_env import is_ci
+from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.languages.rust._jobs import cargo_config_files
+from hyperi_ci.native_deps import apt_install
 
 _KEY = "build.rust.cpu_floor"
+_CHECK_MODES = ("blocking", "warn", "disabled")
+
+# Every scalo::require_cpu_floor!() refusal prints this line, which scalo keeps stable.
+_REFUSAL = "This build needs an x86-64-v3 CPU with PCLMULQDQ:"
+_QEMU = "qemu-x86_64"
+_BELOW_FLOOR = "Westmere"
+_AT_FLOOR = "Haswell"
+_QEMU_TIMEOUT = 60
 
 # Process-wide while a stage runs: the PGO, BOLT and wheel steps read them.
 _ACTIVE: dict[str, str] = {}
@@ -213,3 +228,115 @@ def suspended(environ: MutableMapping[str, str] | None = None) -> Generator[None
     finally:
         for target, value in saved.items():
             _restore(target_env, target, value)
+
+
+def applies(target: str) -> bool:
+    """Return True when the running stage builds ``target`` at the floor."""
+    return target in _ACTIVE
+
+
+def check_mode(config: CIConfig) -> str:
+    """Return ``build.rust.cpu_floor.check``: blocking, warn or disabled."""
+    key = f"{_KEY}.check"
+    value = config.setting(key)
+    if value in _CHECK_MODES:
+        return value
+    shipped = shipped_default(key)
+    warn(f"  {key}: {value!r} is not one of {', '.join(_CHECK_MODES)}, using {shipped}")
+    return shipped
+
+
+def _qemu() -> str | None:
+    """Return the qemu-x86_64 path, installing qemu-user from apt in CI."""
+    found = shutil.which(_QEMU)
+    if found or not is_ci() or sys.platform != "linux":
+        return found
+    info("    cpu floor: installing qemu-user")
+    if apt_install(["qemu-user"]) != 0:
+        return None
+    return shutil.which(_QEMU)
+
+
+def _emulate(
+    qemu: str, cpu: str, binary: Path
+) -> subprocess.CompletedProcess[str] | None:
+    """Run ``binary --version`` on an emulated ``cpu``, None past the timeout."""
+    try:
+        return run_cmd(
+            [qemu, "-cpu", cpu, str(binary), "--version"],
+            check=False,
+            capture=True,
+            timeout=_QEMU_TIMEOUT,
+            own_group=True,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _outcome(result: subprocess.CompletedProcess[str] | None) -> str:
+    """Describe how an emulated run ended."""
+    if result is None:
+        return f"still running after {_QEMU_TIMEOUT}s"
+    if result.returncode < 0:
+        return f"killed by {signal.Signals(-result.returncode).name}"
+    first = (result.stderr or "").strip().splitlines()
+    return f"exit {result.returncode}" + (f" ({first[0]})" if first else "")
+
+
+def _refused(result: subprocess.CompletedProcess[str] | None) -> bool:
+    """Return True when the run is scalo's floor refusal."""
+    return result is not None and _REFUSAL in (result.stderr or "")
+
+
+def floor_problems(qemu: str, binary: Path) -> list[str]:
+    """Return what is wrong with a floor binary run either side of the floor."""
+    problems = []
+    below = _emulate(qemu, _BELOW_FLOOR, binary)
+    if below is None or below.returncode != 1 or not _refused(below):
+        problems.append(
+            f"{binary.name} on -cpu {_BELOW_FLOOR}: {_outcome(below)}, expected "
+            f'exit 1 with "{_REFUSAL} ...". Add scalo::require_cpu_floor!(); '
+            "to its main.rs (scalo 2.14.48 or later)"
+        )
+    at = _emulate(qemu, _AT_FLOOR, binary)
+    if at is not None and (at.returncode == -signal.SIGILL or _refused(at)):
+        problems.append(
+            f"{binary.name} on -cpu {_AT_FLOOR}: {_outcome(at)}, but a floor CPU "
+            "must run it"
+        )
+    return problems
+
+
+def check_binary(binary: Path, mode: str) -> bool:
+    """Check a floor binary refuses a CPU below the floor and runs on one at it.
+
+    Args:
+        binary: The packaged x86_64 binary.
+        mode: ``check_mode``'s value.
+
+    Returns:
+        False only when the check is blocking and fails. A missing qemu fails
+        in CI and is skipped elsewhere.
+
+    """
+    if mode == "disabled":
+        info(f"    SKIP: CPU floor check ({_KEY}.check: disabled)")
+        return True
+    qemu = _qemu()
+    if qemu is None:
+        if not is_ci():
+            warn(f"    SKIP: CPU floor check, {_QEMU} is not on PATH")
+            return True
+        problems = [f"{_QEMU} is not on PATH and qemu-user did not install"]
+    else:
+        problems = floor_problems(qemu, binary)
+    if not problems:
+        info(
+            f"    OK: CPU floor: refuses -cpu {_BELOW_FLOOR} with a message, "
+            f"runs on -cpu {_AT_FLOOR}"
+        )
+        return True
+    report = error if mode == "blocking" else warn
+    for problem in problems:
+        report(f"    CPU floor: {problem}")
+    return mode != "blocking"

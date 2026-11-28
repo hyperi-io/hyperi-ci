@@ -41,7 +41,7 @@ from hyperi_ci.languages._build_common import (
     generate_checksums,
     human_size,
 )
-from hyperi_ci.languages.rust import bindings, build_phase, runner_fit
+from hyperi_ci.languages.rust import bindings, build_phase, cpu_floor, runner_fit
 from hyperi_ci.languages.rust._jobs import log_peak_memory
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
@@ -526,10 +526,12 @@ def _package_binaries(
     binary_names: list[str],
     glibc_max: tuple[int, int] | None = None,
     static_only: tuple[str, ...] = (),
+    floor_check: str = "disabled",
 ) -> int:
     """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
-    The version goes in the R2 and release path, not the filename.
+    The version goes in the R2 and release path, not the filename. A target
+    built at the CPU floor is checked under qemu with ``floor_check``'s mode.
     """
     output_dir = Path("dist")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -564,6 +566,12 @@ def _package_binaries(
 
             if not _verify_binary(output_path, target, glibc_max, static_only):
                 error(f"Post-build verification failed for {output_path}")
+                return 1
+
+            if cpu_floor.applies(target) and not cpu_floor.check_binary(
+                output_path, floor_check
+            ):
+                error(f"CPU floor check failed for {output_path}")
                 return 1
 
             built_count += 1
@@ -907,11 +915,13 @@ def _run_build(config: CIConfig, extra_env: dict[str, str] | None) -> int:
         if not binary_names:
             info("Library-only crate -- skipping binary packaging")
         else:
+            floored = any(cpu_floor.applies(t) for t in finished)
             rc = _package_binaries(
                 finished,
                 binary_names,
                 _parse_glibc_max(config.get("build.rust.glibc_max")),
                 static_libs.STATIC_ONLY if static else (),
+                floor_check=cpu_floor.check_mode(config) if floored else "disabled",
             )
             if rc != 0:
                 return rc

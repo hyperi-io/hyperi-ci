@@ -6,7 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for :mod:`hyperi_ci.languages.rust.cpu_floor` and its callers."""
 
+import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +17,7 @@ import pytest
 
 from hyperi_ci import dispatch
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust import cpu_floor, pgo
+from hyperi_ci.languages.rust import build, cpu_floor, pgo
 from hyperi_ci.languages.rust.cpu_floor import (
     config_target_cpu,
     floor_for,
@@ -260,3 +262,154 @@ def test_wheel_builds_run_without_the_floor(
         assert os.environ[GNU_KEY] == f"{MOLD} {FLOOR}"
     assert rc == 0
     assert seen == [MOLD]
+
+
+# Stands in for qemu-x86_64: plan.json beside it says how each -cpu run ends.
+_FAKE_QEMU = """#!{python}
+import json, os, signal, sys, time
+from pathlib import Path
+plan = json.loads((Path(sys.argv[0]).parent / "plan.json").read_text())[sys.argv[2]]
+if plan == "sigill":
+    os.kill(os.getpid(), signal.SIGILL)
+if plan == "hang":
+    time.sleep(30)
+sys.stderr.write(plan[1])
+sys.exit(plan[0])
+"""
+
+REFUSES = [
+    1,
+    "error: this CPU reports no CPUID leaf 7.\n"
+    "This build needs an x86-64-v3 CPU with PCLMULQDQ: Intel Haswell (2013)...\n",
+]
+RUNS = [0, ""]
+
+
+@pytest.fixture
+def fake_qemu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Put a fake qemu-x86_64 on PATH. Call the result with each CPU's plan."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    qemu = bin_dir / "qemu-x86_64"
+    qemu.write_text(_FAKE_QEMU.format(python=sys.executable), encoding="utf-8")
+    qemu.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(cpu_floor, "_QEMU_TIMEOUT", 2)
+
+    def plan(below: object, at: object) -> Path:
+        (bin_dir / "plan.json").write_text(
+            json.dumps({"Westmere": below, "Haswell": at}), encoding="utf-8"
+        )
+        return qemu
+
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("below", "at", "failing"),
+    [
+        (REFUSES, RUNS, []),
+        (REFUSES, [2, "error: unexpected argument '--version'\n"], []),
+        (REFUSES, "hang", []),
+        ("sigill", RUNS, ["Westmere: killed by SIGILL"]),
+        (RUNS, RUNS, ["Westmere: exit 0"]),
+        ([1, "config not found\n"], RUNS, ["Westmere: exit 1 (config not found)"]),
+        ("hang", RUNS, ["Westmere: still running after 2s"]),
+        (REFUSES, "sigill", ["Haswell: killed by SIGILL"]),
+        (REFUSES, REFUSES, ["Haswell: exit 1 (error: this CPU reports"]),
+    ],
+    ids=[
+        "refuses-then-runs",
+        "floor-cpu-exits-nonzero",
+        "floor-cpu-keeps-running",
+        "no-check-sigill",
+        "no-check-runs",
+        "exit-1-without-the-message",
+        "below-floor-hangs",
+        "floor-cpu-sigill",
+        "floor-cpu-refused",
+    ],
+)
+def test_floor_problems(
+    fake_qemu: Any, tmp_path: Path, below: object, at: object, failing: list[str]
+) -> None:
+    qemu = fake_qemu(below, at)
+    problems = cpu_floor.floor_problems(str(qemu), tmp_path / "app-linux-amd64")
+    assert len(problems) == len(failing)
+    for problem, part in zip(problems, failing, strict=True):
+        assert f"app-linux-amd64 on -cpu {part}" in problem
+    if failing and failing[0].startswith("Westmere"):
+        assert "scalo::require_cpu_floor!()" in problems[0]
+
+
+@pytest.mark.parametrize(
+    ("mode", "below", "passes"),
+    [
+        ("blocking", REFUSES, True),
+        ("blocking", "sigill", False),
+        ("warn", "sigill", True),
+        ("disabled", "sigill", True),
+    ],
+)
+def test_check_binary_modes(
+    fake_qemu: Any, tmp_path: Path, mode: str, below: object, passes: bool
+) -> None:
+    fake_qemu(below, RUNS)
+    assert cpu_floor.check_binary(tmp_path / "app", mode) is passes
+
+
+@pytest.mark.parametrize(
+    ("ci", "installs", "passes"),
+    [(False, False, True), (True, False, False)],
+    ids=["local-skips", "ci-install-fails"],
+)
+def test_check_binary_without_qemu(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ci: bool,
+    installs: bool,
+    passes: bool,
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setattr(cpu_floor, "is_ci", lambda: ci)
+    monkeypatch.setattr(cpu_floor, "apt_install", lambda _p: 0 if installs else 100)
+    assert cpu_floor.check_binary(tmp_path / "app", "blocking") is passes
+
+
+@pytest.mark.parametrize(
+    ("value", "mode"),
+    [
+        (None, "blocking"),
+        ("warn", "warn"),
+        ("disabled", "disabled"),
+        ("off", "blocking"),
+    ],
+)
+def test_check_mode(value: str | None, mode: str) -> None:
+    raw = {} if value is None else {"check": value}
+    assert cpu_floor.check_mode(_config(**raw)) == mode
+
+
+@pytest.mark.parametrize(
+    ("floored", "mode", "rc"),
+    [(True, "blocking", 1), (True, "warn", 0), (False, "blocking", 0)],
+    ids=["floor-blocks", "floor-warns", "no-floor-no-check"],
+)
+def test_packaging_checks_floor_binaries(
+    fake_qemu: Any,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    floored: bool,
+    mode: str,
+    rc: int,
+) -> None:
+    fake_qemu("sigill", RUNS)
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    built = repo / "target" / GNU / "release" / "app"
+    _write(built, "binary")
+    monkeypatch.setattr(build, "_strip_binary", lambda *_a: True)
+    monkeypatch.setattr(build, "_verify_binary", lambda *_a: True)
+    config = _config(targets=[GNU]) if floored else CIConfig(_raw={})
+    with cpu_floor.cpu_floor(config, _environ(repo), cwd=repo):
+        assert build._package_binaries([GNU], ["app"], floor_check=mode) == rc
