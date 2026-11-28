@@ -178,7 +178,8 @@ build:
 - Cargo puts that env value after `.cargo/config.toml`, so it would beat the repo's own `target-cpu`. A cargo config setting a different `target-cpu` for the triple, or in a `cfg(...)` table, keeps it, and the log says so.
 - `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment turns off every target rustflag, the floor included, with a warning.
 - maturin wheels stay baseline. No manylinux tag can say x86-64-v3, so pip would install a floor wheel on an older CPU.
-- An app that turns it on calls `scalo::require_cpu_floor!()` first in `main`. Without it an older CPU dies on SIGILL with no message. With it the binary prints the floor and exits 1.
+- An app that turns it on puts `scalo::require_cpu_floor!();` at item level in each binary's `main.rs` (scalo 2.14.48 or later). Without it an older CPU dies on SIGILL with no message. With it the binary prints the floor and exits 1.
+- The build checks each packaged floor binary under `qemu-x86_64`. On `-cpu Westmere` it must exit 1 with scalo's `This build needs an x86-64-v3 CPU with PCLMULQDQ:` line, and on `-cpu Haswell` it must run without SIGILL. CI installs `qemu-user` from apt when it is missing, and a local build without it skips the check with a warning. `check: warn` reports a failure without failing the build, and `check: disabled` skips it.
 
 ---
 
