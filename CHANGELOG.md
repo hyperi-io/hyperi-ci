@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.3...v2.17.4) (2026-11-28)
+
+### Bug Fixes
+
+* **rust:** check CPU floor binaries under qemu ([cf39295](https://github.com/hyperi-io/hyperi-ci/commit/cf39295af41f96ca7cd7f5c9809e318c3bf08b90))
+
 ## [2.17.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.2...v2.17.3) (2026-11-28)
 
 ### Bug Fixes
