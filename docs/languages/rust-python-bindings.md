@@ -15,7 +15,7 @@ Give the binding its own `[workspace]` table in its Cargo.toml, so a plain `carg
 What runs:
 
 - Test builds a debug wheel per binding and runs `pytest <binding>/tests` against it, in a throwaway environment holding only pytest and the wheel. The Windows and macOS test legs run it too.
-- Each build leg adds release wheels to `dist/wheels/`. A Linux leg builds a manylinux_2_28 and a musllinux_1_2 wheel for its own arch with `maturin build --zig`. Windows and macOS legs build natively.
+- Each build leg adds release wheels to `dist/wheels/`. A Linux leg builds a manylinux_2_28 and a musllinux_1_2 wheel for its own arch with `maturin build --zig`. Windows and macOS legs build natively. Wheels build without the [CPU floor](rust.md#cpu-floor), because no manylinux tag can say x86-64-v3.
 - The release uploads `dist/wheels/*.whl` to PyPI with `PYPI_TOKEN`, only with `publish: true`, and only when every wheel carries the release version.
 
 Wheels never reach GitHub Releases or R2, because the binary publisher reads only the top level of `dist/`. maturin is pinned in `src/hyperi_ci/config/versions.yaml` and runs through `uvx`, so it never joins your project's dependencies.

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hyperi_ci.languages.rust import pgo
+from hyperi_ci.languages.rust.cpu_floor import target_rustflags_key
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -2555,7 +2556,7 @@ class TestDirectBolt:
         )
         assert rc == 0
         assert [a[0] for a in cargo] == ["build", "optimize"]
-        assert "--emit-relocs" in envs[1][pgo._target_rustflags_key(self._TARGET)]
+        assert "--emit-relocs" in envs[1][target_rustflags_key(self._TARGET)]
         assert [t[0] for t in tools] == ["llvm-bolt", "merge-fdata", "llvm-bolt"]
         assert outcome.bolt_applied
         assert BOLT_NOTE_SECTION.encode() in (release / "app").read_bytes()

@@ -163,12 +163,32 @@ Leaving it out, or passing 0, keeps 135. A GitHub-hosted runner stops a job at 3
 
 ---
 
+## CPU floor
+
+`build.rust.cpu_floor`, off by default, builds x86_64 Linux at `-C target-cpu=x86-64-v3 -C target-feature=+pclmulqdq` in every Rust stage. That's AVX2, BMI2, FMA and carry-less multiply, the SIMD paths sonic-rs picks at compile time. The binary then needs Intel Haswell (2013) or AMD Excavator (2015) and later, EPYC 7001 (2017) on servers. A VM needs a CPU type that passes AVX2 through: `host`, `x86-64-v3`, or VMware EVC at Haswell or later, never the default `kvm64` or `qemu64`.
+
+```yaml
+build:
+  rust:
+    cpu_floor:
+      enabled: true
+```
+
+- The flags go on `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, after the runner's own (mold on ARC) and kept through the PGO and BOLT link steps.
+- Cargo puts that env value after `.cargo/config.toml`, so it would beat the repo's own `target-cpu`. A cargo config setting a different `target-cpu` for the triple, or in a `cfg(...)` table, keeps it, and the log says so.
+- `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment turns off every target rustflag, the floor included, with a warning.
+- maturin wheels stay baseline. No manylinux tag can say x86-64-v3, so pip would install a floor wheel on an older CPU.
+- An app that turns it on calls `scalo::require_cpu_floor!()` first in `main`. Without it an older CPU dies on SIGILL with no message. With it the binary prints the floor and exits 1.
+
+---
+
 ## References
 
 - [`rust-tier2.md`](rust-tier2.md) - the Tier 2 opt-in, workload script contract, skipping it for one run, and opting out
 - [`rust-release-verification.md`](rust-release-verification.md) - the dispatch timeline, the grep markers that prove a tier applied, and what a release costs
 - [`rust-troubleshooting.md`](rust-troubleshooting.md) - symptom-to-fix tables and the canary lessons
 - [`rust-local-dev.md`](rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism on your own machine
+- [`rust-python-bindings.md`](rust-python-bindings.md) - maturin wheels, which stay off the CPU floor
 - [`pgo-bolt.md`](../runtime/pgo-bolt.md) - how to write a good PGO workload script
 - [`templates/pgo-workload/`](../../templates/pgo-workload/) - reusable workload skeletons
 - [`onboarding.md`](../migration/onboarding.md) - general onboarding to hyperi-ci

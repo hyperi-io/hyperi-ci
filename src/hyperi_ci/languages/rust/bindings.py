@@ -28,6 +28,7 @@ from packaging.version import InvalidVersion, Version
 
 from hyperi_ci.common import error, group, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import cpu_floor
 from hyperi_ci.stamp import StampError, replace_toml_table_version, repo_paths
 from hyperi_ci.versions import tool_version
 
@@ -197,7 +198,10 @@ def _build_one(
         if added.returncode != 0:
             return added.returncode
     argv = build_argv(binding, spec, out, release=True)
-    return run_cmd(argv, check=False, cwd=root).returncode
+    # A manylinux tag cannot say x86-64-v3, so pip would install a floor
+    # wheel on an older CPU.
+    with cpu_floor.suspended():
+        return run_cmd(argv, check=False, cwd=root).returncode
 
 
 def test_bindings(config: CIConfig, root: Path, target: str) -> int:
@@ -234,7 +238,8 @@ def _test_one(binding: Binding, root: Path, target: str) -> int:
         return 0
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-wheel-") as out:
         argv = build_argv(binding, WheelSpec(target), Path(out), release=False)
-        rc = run_cmd(argv, check=False, cwd=root).returncode
+        with cpu_floor.suspended():
+            rc = run_cmd(argv, check=False, cwd=root).returncode
         if rc != 0:
             return rc
         wheels = sorted(Path(out).glob("*.whl"))
