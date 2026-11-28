@@ -39,6 +39,7 @@ from hyperi_ci.languages.quality_common import (
     resolve_tool_mode,
 )
 from hyperi_ci.languages.rust._jobs import capped_cargo_jobs, log_peak_memory
+from hyperi_ci.languages.rust.cpu_floor import cpu_floor
 from hyperi_ci.languages.tiering import (
     TEST_TIER_ENV,
     TIER_EXPORT_ENV,
@@ -204,7 +205,7 @@ def _dispatch_to_handler(
     else:
         # cargo sizes jobs by CPUs alone, which OOM-kills a runner whose memory
         # limit is below one rustc per CPU.
-        with capped_cargo_jobs(config):
+        with capped_cargo_jobs(config), cpu_floor(config):
             rc = handler.run(config, extra_env=extra_env)
     if rc < 0:
         error(f"The {stage} stage's command was killed by signal {-rc}")

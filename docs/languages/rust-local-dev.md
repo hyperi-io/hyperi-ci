@@ -75,15 +75,7 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 hyperi-ci does not cross-compile: `hyperi-ci run build` skips a target
 for another arch with a warning.
 
-**Per-project rustflags override this** - Cargo does NOT merge rustflags
-across configs. If your project has
-`[target.x86_64-unknown-linux-gnu] rustflags = ["-C", "target-cpu=x86-64-v3"]`,
-add the mold flag alongside:
-
-```toml
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=x86-64-v3", "-C", "link-arg=-fuse-ld=mold"]
-```
+Cargo joins `[target.<triple>] rustflags` across config files, so a project's own `target-cpu` and this mold flag both apply. A `RUSTFLAGS` environment variable replaces every one of them.
 
 ### Parallelism (jobs)
 

@@ -65,7 +65,7 @@ def jobs_for(cpus: int, limit: MemoryLimit | None, gib_per_job: float) -> int:
     return max(1, jobs)
 
 
-def _config_files(start: Path, cargo_home: Path) -> Iterator[Path]:
+def cargo_config_files(start: Path, cargo_home: Path) -> Iterator[Path]:
     """Yield every existing cargo config file, in cargo's discovery order."""
     for directory in (start, *start.parents):
         for name in _CONFIG_NAMES:
@@ -90,7 +90,7 @@ def config_file_setting_jobs(start: Path, cargo_home: Path) -> Path | None:
         and cargo reports it when it runs.
 
     """
-    for path in _config_files(start, cargo_home):
+    for path in cargo_config_files(start, cargo_home):
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, tomllib.TOMLDecodeError):

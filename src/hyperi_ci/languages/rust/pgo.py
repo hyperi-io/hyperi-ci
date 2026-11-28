@@ -29,6 +29,7 @@ from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.languages._build_common import elf_section_names
 from hyperi_ci.languages.rust import build_phase
 from hyperi_ci.languages.rust._jobs import log_peak_memory
+from hyperi_ci.languages.rust.cpu_floor import target_rustflags_key, with_floor
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -248,7 +249,9 @@ class _Pipeline:
         self.mold = True
         self.build_env = {
             **(self.build_env or {}),
-            _target_rustflags_key(self.target): "-C link-arg=-fuse-ld=mold",
+            target_rustflags_key(self.target): with_floor(
+                self.target, "-C link-arg=-fuse-ld=mold"
+            ),
         }
 
 
@@ -890,16 +893,9 @@ def _bolt_no_split_rustflags() -> str:
     return _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS if val is None else val.strip()
 
 
-def _target_rustflags_key(target: str) -> str:
-    """Return cargo's env name for `target.<triple>.rustflags`."""
-    return (
-        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
-    )
-
-
 def _target_linker_key(target: str) -> str:
     """Return cargo's env name for `target.<triple>.linker`."""
-    return _target_rustflags_key(target).removesuffix("_RUSTFLAGS") + "_LINKER"
+    return target_rustflags_key(target).removesuffix("_RUSTFLAGS") + "_LINKER"
 
 
 # llvm-bolt refuses erratum 843419 veneers, so the BOLT link drops rustc's flag
@@ -1026,16 +1022,15 @@ def _bolt_build_env(
     it. Only RUSTFLAGS and the linker change, as neither reaches cargo's
     symbol-name hash. Cargo joins the value onto the project's
     `target.<triple>.rustflags`, but a project with only `build.rustflags`
-    loses them for these steps. On aarch64 the linker becomes the A53 strip
-    wrapper.
+    loses them for these steps. The value replaces the runner's, so it keeps
+    the CPU floor. On aarch64 the linker becomes the A53 strip wrapper.
     """
-    target_rustflags_key = _target_rustflags_key(target)
     bolt_rustflags = "-C link-arg=-fuse-ld=lld"
     if no_split:
         extra = _bolt_no_split_rustflags()
         if extra:
             bolt_rustflags = f"{bolt_rustflags} {extra}"
-    env = {target_rustflags_key: bolt_rustflags}
+    env = {target_rustflags_key(target): with_floor(target, bolt_rustflags)}
     if target.startswith("aarch64") and "linux" in target:
         env.update(_a53_linker_env(target, extra_env))
     return env
@@ -1206,7 +1201,7 @@ def _direct_bolt_link_env(
     ``--emit-relocs``, which llvm-bolt's relocation mode needs.
     """
     env = _bolt_build_env(target, extra_env=extra_env)
-    key = _target_rustflags_key(target)
+    key = target_rustflags_key(target)
     env[key] = f"{env[key]} -C link-arg=-Wl,--emit-relocs"
     return env
 
