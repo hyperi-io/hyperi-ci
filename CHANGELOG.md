@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.17.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.2...v2.17.3) (2026-11-28)
+
+### Bug Fixes
+
+* **rust:** add an opt-in x86-64-v3 CPU floor ([7a6a459](https://github.com/hyperi-io/hyperi-ci/commit/7a6a459f30499ab2f03d2be5136a6b7c7ea455a8))
+
 ## [2.17.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.17.1...v2.17.2) (2026-11-27)
 
 ### Bug Fixes
